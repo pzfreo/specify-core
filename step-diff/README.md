@@ -26,14 +26,14 @@ The [demo repository](https://github.com/pzfreo/step-diff-demo) is a working exa
      diff:
        runs-on: ubuntu-latest
        steps:
-         - uses: pzfreo/specify-core/step-diff@main
+         - uses: pzfreo/specify-pmi/step-diff@main
    ```
 
 2. Commit it to the default branch.
 
 The next pull request that changes a STEP file gets the comment. Every later push to that pull
 request rewrites the same comment, so there's only ever one. Nothing else is needed: no token, no
-secret, no build. The action checks the repository out, downloads the specify-core release and
+secret, no build. The action checks the repository out, downloads the specify-pmi release and
 checks its checksum.
 
 ## Reading the comment
@@ -104,13 +104,13 @@ A part with no requirements still gets the comment: what changed, the picture an
 ## Options
 
 ```yaml
-      - uses: pzfreo/specify-core/step-diff@main
+      - uses: pzfreo/specify-pmi/step-diff@main
         with:
-          version: v0.2.1         # the specify-core release to run
+          version: v0.2.1         # the specify-pmi release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
-- **`version`:** with the default, `@main` runs the latest specify-core release that has a
+- **`version`:** with the default, `@main` runs the latest specify-pmi release that has a
   Linux build, and a release tag such as `@v0.1.0` runs that release. Pin a tag, or set
   `version`, to stop the comment changing when a new release comes out.
 - **`token`:** pushes the pictures and writes the comment. The default is the job's
@@ -140,10 +140,10 @@ never uploaded. [HANDOFF.md](HANDOFF.md) gives the message and the few lines tha
 
 ## Running the same comparison yourself
 
-The action runs `specify-core diff`. The same report comes from the command line:
+The action runs `specify-pmi diff`. The same report comes from the command line:
 
 ```bash
-specify-core diff old.step new.step -o changes
+specify-pmi diff old.step new.step -o changes
 ```
 
 `changes/` gets `report.md` (the comment), `model.png` (the picture) and `report.json`. An

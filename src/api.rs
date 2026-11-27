@@ -38,7 +38,7 @@ use crate::writer::{self, WriteError, WriteReport};
 /// The analysis format's version (Python's `ANALYSIS_SCHEMA`).
 pub const ANALYSIS_SCHEMA: i64 = 1;
 
-/// Why a step failed. The command line and `serve` map each kind to specify-core's exit code
+/// Why a step failed. The command line and `serve` map each kind to specify-pmi's exit code
 /// and error code (see `main.rs`, `serve.rs`).
 #[derive(Debug)]
 pub enum Error {
@@ -120,7 +120,7 @@ impl From<WriteError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The distinct parts of `step`: `{part, name, product_id, faces, instances, placements,
-/// written, same_as, faces_of_first}` each, `written` saying whether specify-core has written the
+/// written, same_as, faces_of_first}` each, `written` saying whether specify-pmi has written the
 /// part (answers stored for it). A part is identified by `part`, its index (decision D1); `name`
 /// and `product_id` are reported beside it and need not be unique. `same_as` is the index of the
 /// first part this one is a copy of (the same shape moved, and the same stated BOM facts,
@@ -173,7 +173,7 @@ pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
 /// `{schema, binding, faces, features}`, then for a part of an assembly its `mates` and each
 /// face's `contact`, then `existing` and `part` (the file's whole PMI and settings, whoever
 /// wrote them: ADR P11), and `table`, the feature table ([`crate::feature_table`]). For a file
-/// specify-core wrote, `resume.answers` holds the stored answers that leave no PMI behind
+/// specify-pmi wrote, `resume.answers` holds the stored answers that leave no PMI behind
 /// (decided none, and choices); stored answers that repeat the file's PMI are ignored.
 /// The snapshot is what gets stored: it is never re-derived for the same file.
 ///

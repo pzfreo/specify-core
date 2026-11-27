@@ -10,7 +10,7 @@
 
 use regex::Regex;
 use serde_json::Value;
-use specify_core::pyfmt;
+use specify_pmi::pyfmt;
 
 fn fixture() -> Value {
     let text = std::fs::read_to_string(concat!(

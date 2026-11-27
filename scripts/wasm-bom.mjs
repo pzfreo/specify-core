@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import init, { IntentEngine, acceptDefaults } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
-const wasm = readFileSync(new URL('../crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', import.meta.url));
+import init, { IntentEngine, acceptDefaults } from '../crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js';
+const wasm = readFileSync(new URL('../crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm', import.meta.url));
 await init({ module_or_path: wasm });
-const executable = join(process.env.CARGO_TARGET_DIR ?? 'target', 'release', 'specify-core');
+const executable = join(process.env.CARGO_TARGET_DIR ?? 'target', 'release', 'specify-pmi');
 for (const path of process.argv.slice(2).length ? process.argv.slice(2) : ['tests/fixtures/parts/assembly.step']) {
   let bytes = readFileSync(path);
   if (path.endsWith('.gz')) bytes = gunzipSync(bytes);

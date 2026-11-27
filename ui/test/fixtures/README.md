@@ -14,7 +14,7 @@ gzipped: the demo pull request's two revisions. `test/step-diff-browser.mjs` com
 `gramil_assembly_before.step.gz` and `gramil_assembly_after.step.gz` are gramil's assembly
 (`pzfreo/gramil` at `9171ef6`, Open Community License v1), 12 distinct parts, the same bytes
 as `tests/fixtures/revisions/gramil_assembly.old.step.gz` and `.new.step.gz` in
-`pzfreo/specify-core` (branch `assembly-diff`), made there by `gramil_assembly.py`. Both
+`pzfreo/specify-pmi` (branch `assembly-diff`), made there by `gramil_assembly.py`. Both
 are the production build (`process.prototype=False`, as gramil's `scripts/build_production.py`).
 After is gramil's defaults; before has `shaft.drive_plate_mount_depth` 4 (not 5) and
 `drive_plate.mount_hole_diameter` 2.2 (not 2.4): GRM-02 shaft and GRM-04 drive plate change,
@@ -22,12 +22,12 @@ the other 10 parts do not. `test/step-diff-browser.mjs` compares them as an asse
 
 `gramil_shaft_before.step.gz` and `gramil_shaft_after.step.gz` are gramil's production shaft
 (`pzfreo/gramil` at `9171ef6`, Open Community License v1), the same bytes as
-`tests/fixtures/revisions/gramil_shaft.old.step.gz` and `.new.step.gz` in `pzfreo/specify-core`
+`tests/fixtures/revisions/gramil_shaft.old.step.gz` and `.new.step.gz` in `pzfreo/specify-pmi`
 at `3bb019e`, made there by `gramil_shaft.py`: after adds a 1.5 mm end chamfer. With the answers
 Specify defaults for before, the diff pairs location dimensions whose ids differ (`old_id`):
 `test/step-diff-browser.mjs` uses them for a renumbered item's old callout. (Its no-callout note
 comes from the step-diff-demo spindle pair: with Specify's defaults accepted on the old side,
-specify-core 0.1.8 reports the defaulted M4 thread removed, and its manufacturing note with no
+specify-pmi 0.1.8 reports the defaulted M4 thread removed, and its manufacturing note with no
 callout, only faces.)
 
 `19-spindle-semantic-links-only.step.gz` is `19-spindle-semantic-links-only.step` from the
@@ -54,7 +54,7 @@ an electronics enclosure base, each with PMI Specify wrote, gzipped (the 2026-11
 base part, before's geometry, is text-to-cad's (its examples; MIT, Copyright (c) 2026 Thompson
 Labs LLC; the licence is in `LICENSE-text-to-cad`). The second revision and the PMI on both are
 ours (this repository's licence): after changes the four Ø3 × 8 blind holes to Ø3.4 and adds an
-Ø8 × 3 through hole on the +X side. `specify-core diff` of them leaves one new
+Ø8 × 3 through hole on the +X side. `specify-pmi diff` of them leaves one new
 requirement to specify and two carried ones to check, and carries the rest of the answers:
 `test/app-browser.mjs` and `test/app-agent.mjs` use them for diff mode.
 

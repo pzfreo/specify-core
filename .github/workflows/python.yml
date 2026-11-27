@@ -1,6 +1,6 @@
 name: Python package
 
-# The specify-core Python package (crates/specify-core-py): an abi3 wheel per platform and an
+# The specify-pmi Python package (crates/specify-pmi-py): an abi3 wheel per platform and an
 # sdist, each carrying the app and engine bundle.yml builds first (ADR P12). Each wheel is
 # installed, checked to serve its built-in app (tools/open_smoke.py), and its smoke suite
 # (tests/python) run on CPython 3.12, and the
@@ -12,7 +12,7 @@ on:
     types: [published]
   pull_request:
     paths:
-      - 'crates/specify-core-py/**'
+      - 'crates/specify-pmi-py/**'
       - 'tests/python/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -73,8 +73,8 @@ jobs:
       # makes a link a text file holding its target, so it gets the files themselves.
       - if: runner.os == 'Windows'
         run: |
-          rm crates/specify-core-py/LICENSE crates/specify-core-py/NOTICE
-          cp LICENSE NOTICE crates/specify-core-py/
+          rm crates/specify-pmi-py/LICENSE crates/specify-pmi-py/NOTICE
+          cp LICENSE NOTICE crates/specify-pmi-py/
       # The toolchain comes from rust-toolchain.toml.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -82,7 +82,7 @@ jobs:
           manylinux: ${{ matrix.manylinux || 'auto' }}
           # The manylinux builds run in Docker, which does not inherit the job's environment.
           docker-options: -e SPECIFY_REQUIRE_BUNDLE=1
-          args: --release --locked -m crates/specify-core-py/Cargo.toml --out dist
+          args: --release --locked -m crates/specify-pmi-py/Cargo.toml --out dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheel-${{ matrix.name }}
@@ -104,12 +104,12 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
-          args: -m crates/specify-core-py/Cargo.toml --out dist
+          args: -m crates/specify-pmi-py/Cargo.toml --out dist
       - name: The sdist carries the app and engine
         run: |
           set -eu
           names=$(tar -tzf dist/*.tar.gz)
-          for file in bundle/app/index.html bundle/app/specify-ui-app.json bundle/wasm/specify_core_wasm.js bundle/wasm/specify_core_wasm_bg.wasm bundle/wasm/package.json; do
+          for file in bundle/app/index.html bundle/app/specify-ui-app.json bundle/wasm/specify_pmi_wasm.js bundle/wasm/specify_pmi_wasm_bg.wasm bundle/wasm/package.json; do
             grep -q "/$file\$" <<<"$names" || { echo "::error::the sdist lacks $file"; exit 1; }
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -150,7 +150,7 @@ jobs:
         run: |
           uv pip install --python .venv pytest jsonschema
           # --no-cache: a cached wheel of the same version would hide this build.
-          uv pip install --python .venv --no-index --no-cache --find-links dist specify-core
+          uv pip install --python .venv --no-index --no-cache --find-links dist specify-pmi
       - name: The wheel carries the licence
         run: |
           .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/python - <<'EOF'
@@ -167,7 +167,7 @@ jobs:
         run: |
           gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > part.step
           bin=.venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}
-          "$bin/python" tools/open_smoke.py "$bin/specify-core${{ runner.os == 'Windows' && '.exe' || '' }}" part.step
+          "$bin/python" tools/open_smoke.py "$bin/specify-pmi${{ runner.os == 'Windows' && '.exe' || '' }}" part.step
       - run: .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/python -m pytest tests/python -q
 
   release-check:

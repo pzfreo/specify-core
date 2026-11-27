@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{LoadedPart, load, load_bytes};
-use specify_core::resume;
+use specify_pmi::api;
+use specify_pmi::part::{LoadedPart, load, load_bytes};
+use specify_pmi::resume;
 
 fn map(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
@@ -81,7 +81,7 @@ fn cli_write_result(
                 && r["state"] == "gap"
                 && !r["suggestion"].is_null()
                 && (r["open"] == true
-                    || specify_core::feature_table::is_none_value(&r["suggestion"]))
+                    || specify_pmi::feature_table::is_none_value(&r["suggestion"]))
         })
         .filter_map(|r| r["id"].as_str())
         .filter(|id| !answers.contains_key(*id))
@@ -92,7 +92,7 @@ fn cli_write_result(
         json!({"fill":answers, "accept_suggestions":suggestions}).to_string(),
     )
     .unwrap();
-    let mut cli = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let mut cli = Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
     cli.arg("write")
         .arg(&part.path)
         .arg(edits)
@@ -283,7 +283,7 @@ fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
     let both: Vec<_> = first.iter().chain(&second).copied().collect();
     assert_eq!(row(&before, id)["faces"], json!(both));
     assert_eq!(row(&before, id)["state"], "gap");
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
     intent.datums = [("A", vec![382]), ("B", vec![247, 248]), ("C", vec![3, 4])]
         .into_iter()
         .map(|(letter, faces)| map(json!({"letter":letter, "faces":faces})))
@@ -292,7 +292,7 @@ fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
         "kind":"position", "feature":"hole_patterns.linear:49.50.51.52.53.54.55.56.57.58",
         "faces":second, "tolerance":0.75, "diametral":true, "datums":["A","B","C"]
     })));
-    let (written, _) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+    let (written, _) = specify_pmi::writer::write_bytes(&part, &intent, None).unwrap();
     let reopened = load_bytes("ctc04-one-position.step", written).unwrap();
     let (after, _) = table(&reopened);
     let r = row(&after, id);
@@ -476,7 +476,7 @@ fn check_corpus_defaults(group: usize) {
         // The native loader has one part per product. Python captures also number
         // surface representations separately, so enumerate native parts by file.
         let file =
-            specify_core::part::File::read(&input).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+            specify_pmi::part::File::read(&input).unwrap_or_else(|e| panic!("{}: {e}", case.name));
         let parts = file
             .load_all()
             .unwrap_or_else(|e| panic!("{}: {e}", case.name));
@@ -739,7 +739,7 @@ fn as_another_tool(bytes: &[u8]) -> Vec<u8> {
         t.description = None;
     }
     copied.attributes.retain(|set| {
-        !resume::is_answers(set) && set.name != specify_core::characteristics::PROPERTY
+        !resume::is_answers(set) && set.name != specify_pmi::characteristics::PROPERTY
     });
     let bare = plate().bytes.to_vec();
     let doc = Document::parse(bare).unwrap();
@@ -852,7 +852,7 @@ fn a_0_2_files_repeats_are_ignored_on_read_and_dropped_at_save() {
     // Read back: only what leaves no PMI behind.
     for id in resumed.keys() {
         assert!(
-            id == "part.locating" || specify_core::feature_table::is_none_value(&resumed[id]),
+            id == "part.locating" || specify_pmi::feature_table::is_none_value(&resumed[id]),
             "{id} repeats the file's PMI: {resumed:?}"
         );
     }
@@ -1007,7 +1007,7 @@ fn agree(analysis: &Value) {
     // requirements (today `part.locating` alone, when it is open).
     let choices: Vec<_> = open
         .iter()
-        .filter(|id| !specify_core::feature_table::is_requirement(id))
+        .filter(|id| !specify_pmi::feature_table::is_requirement(id))
         .cloned()
         .collect();
     assert_eq!(rowless, choices, "open with no table row");
@@ -1049,7 +1049,7 @@ fn a_hole_with_its_position_stated_is_still_asked_its_thread() {
     let plate = plate();
     let analysis = api::analyse(&plate).unwrap();
     let answers = map(json!({"part.material": "6082-T6"}));
-    let mut intent = specify_core::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    let mut intent = specify_pmi::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
     // Only the hole's position is written: its thread (hole.function) is left out.
     intent
         .requirements
@@ -1108,7 +1108,7 @@ fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
     let plate = plate();
     let analysis = api::analyse(&plate).unwrap();
     let answers = map(json!({"part.material": "6082-T6", "hole.function:holes:9": "general"}));
-    let intent = specify_core::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    let intent = specify_pmi::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
     let bytes = api::write_bytes(
         plate.bytes.to_vec(),
         &[(intent.clone(), Some(answers.clone()))],
@@ -1144,7 +1144,7 @@ fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
 #[test]
 fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     let p = plate();
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     intent.datums.push(map(json!({"letter":"A", "faces":[4]})));
     // D8: a location states its own direction only, so the first measures x (from face 0).
     intent.requirements.push(map(
@@ -1155,7 +1155,7 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
         .0;
     let first = load_bytes("plate.step", first).unwrap();
     let locations = |l: &LoadedPart| {
-        specify_core::existing::read_existing(l)
+        specify_pmi::existing::read_existing(l)
             .unwrap()
             .iter()
             .filter(|e| e.r#type.starts_with("Location_"))
@@ -1163,7 +1163,7 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     };
     assert_eq!(locations(&first), 1);
     // The same feature-and-kind measured from another reference: the file's stands.
-    let mut other = specify_core::rules::Intent::new(serde_json::to_value(&first.binding).unwrap());
+    let mut other = specify_pmi::rules::Intent::new(serde_json::to_value(&first.binding).unwrap());
     // D8: from the other end face 5, in the same direction (x) the file already locates.
     other.requirements.push(map(
         json!({"kind":"location", "faces":[9], "reference":[5], "distance":50., "basic":true}),
@@ -1186,7 +1186,7 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
 #[test]
 fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
     let p = plate();
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     for (letter, faces) in [("A", [2]), ("B", [1]), ("C", [0])] {
         intent
             .datums
@@ -1227,7 +1227,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
     let (saved, report) =
         api::write_bytes(located.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
     let positions =
-        specify_core::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
+        specify_pmi::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
             .unwrap()
             .into_iter()
             .filter(|e| e.r#type == "Position" && e.faces == [12])
@@ -1241,7 +1241,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
 fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
     let shaft = load(&common::fixtures().join("parts/GRM-02_shaft.step"), None).unwrap();
     let mut intent =
-        specify_core::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
+        specify_pmi::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
     intent
         .datums
         .push(map(json!({"letter": "A", "faces": [0]})));
@@ -1255,7 +1255,7 @@ fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
         .0;
     let written = load_bytes("shaft.step", bytes).unwrap();
     assert!(
-        specify_core::existing::read_existing(&written)
+        specify_pmi::existing::read_existing(&written)
             .unwrap()
             .iter()
             .any(|e| e.r#type.starts_with("Location_")
@@ -1269,7 +1269,7 @@ fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
 #[test]
 fn a_size_on_a_hole_floor_is_not_a_bore_size() {
     let shaft = fixture("parts/GRM-02_shaft.step");
-    let mut intent = specify_core::rules::Intent::new(json!(shaft.binding));
+    let mut intent = specify_pmi::rules::Intent::new(json!(shaft.binding));
     intent.requirements.push(map(json!({
         "kind":"size", "size_kind":"size", "faces":[16], "nominal":3.5, "general":true
     })));
@@ -1318,7 +1318,7 @@ fn the_general_tolerance_writes_only_its_note(loaded: &LoadedPart, name: &str) {
     let analysis = api::analyse(loaded).unwrap();
     // Every dimension in the file, those written under the general tolerance included.
     let dimensions = |l: &LoadedPart| {
-        specify_core::existing::read(l)
+        specify_pmi::existing::read(l)
             .unwrap()
             .model()
             .dimensions
@@ -1329,9 +1329,9 @@ fn the_general_tolerance_writes_only_its_note(loaded: &LoadedPart, name: &str) {
     let mut intent = api::preview(&analysis, &answers).unwrap();
     intent
         .requirements
-        .extend(specify_core::rules::unasked_rows(&analysis, &answers).unwrap());
+        .extend(specify_pmi::rules::unasked_rows(&analysis, &answers).unwrap());
     let (bytes, report) =
-        specify_core::writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+        specify_pmi::writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
     let saved = load_bytes(name, bytes).unwrap();
     assert_eq!(dimensions(&saved), before, "{:?}", report.written);
     let reopened = api::analyse(&saved).unwrap();
@@ -1397,7 +1397,7 @@ fn located_plate(
     locating: &str,
 ) -> LoadedPart {
     let p = plate();
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     for (letter, faces) in datums {
         intent
             .datums
@@ -1565,7 +1565,7 @@ fn a_hole_located_in_x_only_is_asked_y_only() {
             .any(|(_, from)| from.iter().all(|f| [1, 3].contains(f))),
         "{on_twelve:?}"
     );
-    let positions = specify_core::existing::read_existing(&saved)
+    let positions = specify_pmi::existing::read_existing(&saved)
         .unwrap()
         .into_iter()
         .filter(|e| e.r#type == "Position" && e.faces == [12])

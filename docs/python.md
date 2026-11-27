@@ -1,4 +1,4 @@
-# The Python specify-core
+# The Python specify-pmi
 
 Answer maps accept optional `_specify` geometry evidence and unresolved carry blocks.
 Bulk defaults cannot replace dropped answers. Plain maps remain compatible but cannot detect
@@ -7,11 +7,11 @@ stale in-range face indices. See [answer files and changed geometry](answers.md)
 ## Writing: an edit list
 
 `api.write(step, edits, output)` applies an edit list to `step` (a path or a `LoadedPart`) and
-writes the result to `output`, as `specify-core write STEP EDITS.json -o OUT` does (Specify
+writes the result to `output`, as `specify-pmi write STEP EDITS.json -o OUT` does (Specify
 0.3.0, ADR P11). `edits` is a dict or JSON text:
 
 ```python
-from specify_core import api
+from specify_pmi import api
 
 report = api.write("plate.step", {
     "fill": {"part.material": "6061-T6", "hole.position:holes:12": "0.2"},
@@ -27,7 +27,7 @@ Ids are the feature table's (`api.analyse(step)["table"]["rows"]`), or a choice 
 such as `part.locating` (stored, as it writes no PMI), or an added requirement `extra.<name>`;
 items are characteristic numbers. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
 read as a list of fills. A list is all or nothing: if any entry cannot be applied nothing is
-written and `specify_core.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
+written and `specify_pmi.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
 every failing entry and why. The report (`WriteReport`) adds `retired`, the characteristic
 numbers the save retired, and `unchanged`. `api.check_edits(step, edits)` checks a list exactly
 as `write` would apply it and writes nothing: `{well_formed, checked_against_file, applicable,
@@ -52,7 +52,7 @@ complete set: answer the open questions, or, once the person has seen every defa
 them, take them with `accept_defaults=True`:
 
 ```python
-from specify_core import api
+from specify_pmi import api
 
 analysis = api.analyse("plate_v1.step")
 answers = {"part.material": "6061-T6"}
@@ -102,18 +102,18 @@ unchanged. Python and WASM expose the same answer grammar and combined class cho
 Python's analysis-based questions, previews, and default planning use the file's stored
 decisions for IDs omitted from the supplied answers.
 
-Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core), which
+Specify began as a port of the Python [specify-pmi](https://github.com/pzfreo/specify-pmi), which
 runs on OpenCascade and Python's quiddity. The two engines share the command line, the JSON formats
 and the STEP files they read and write, so Draftwright Specify can drive either, one engine per part.
 `diff`, the STEP diff action and the browser module are this engine's own.
 
 ## The Python package
 
-`crates/specify-core-py` builds the Python package `specify_core` on this engine: specify-core's
+`crates/specify-pmi-py` builds the Python package `specify_pmi` on this engine: specify-pmi's
 API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write` (an edit list),
 `check_edits`, `write_parts`, `mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
-`problems`, `choices`, `serve.reply` and the `specify-core` command line, which runs this
-engine's (`specify_core::cli`) in the Python process. It needs no Python dependency (no
+`problems`, `choices`, `serve.reply` and the `specify-pmi` command line, which runs this
+engine's (`specify_pmi::cli`) in the Python process. It needs no Python dependency (no
 quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held by the engine:
 it has `path`, `binding`, `part_count` and `name`, but none of OpenCascade's objects. The
 second program name `pmi-assist` is not kept.
@@ -127,11 +127,11 @@ the same binding and analysis. A `LoadedPart` recognises its features once, on f
 `diff(old, new, *, title, part, scenes, image_width=None)` returns
 `{"report", "markdown"}`, from the two files' geometry and PMI only (no answers are taken); the report's `other_faces` and `unchanged_faces` cover face changes no
 feature explains (see [diff](diff.md)). With `image_width` (pixels) the result also has `"image"`:
-the PNG of the change that `specify-core diff` writes as `model.png`, drawn from the same
+the PNG of the change that `specify-pmi diff` writes as `model.png`, drawn from the same
 comparison, so loaded parts are not read or recognised again.
 
 It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPython 3.11 and
-later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/python` is a
+later): `maturin build --release -m crates/specify-pmi-py/Cargo.toml`. `tests/python` is a
 smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the
 wheels. The engine itself is tested in Rust.
 Before PyPI publication, the release workflow checks that `pyproject.toml` matches the tag
@@ -143,13 +143,13 @@ To build and test it locally:
 ```bash
 uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
 VIRTUAL_ENV=/tmp/specify-py /tmp/specify-py/bin/maturin develop --release \
-  -m crates/specify-core-py/Cargo.toml
+  -m crates/specify-pmi-py/Cargo.toml
 /tmp/specify-py/bin/python -m pytest tests/python
 ```
 
-Its README (`crates/specify-core-py/README.md`) is the PyPI page, so it is written for users.
+Its README (`crates/specify-pmi-py/README.md`) is the PyPI page, so it is written for users.
 
-Parity was checked once, before the Python repository was archived, by running specify-core's
+Parity was checked once, before the Python repository was archived, by running specify-pmi's
 own test suite at cc341dd (the revision the oracle was captured from) on this package: 169 of
 its 219 test functions apply to it, and of their 238 cases 210 passed, 24 failed by differences
 recorded in the ledger (`tests/fixtures/known_differences/`), 3 by documented decisions with no
@@ -161,7 +161,7 @@ Python repository.
 
 ## History
 
-Every module of specify-core is ported (part loading, features, existing PMI, the rules,
+Every module of specify-pmi is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
 the JSON-lines service) and checked against outputs captured from the Python implementation.
 Every difference from Python carries a verdict and its evidence, listed in
@@ -174,14 +174,14 @@ decisions waiting for the maintainer in [docs/questions.md](questions.md).
 
 ## Files written by one, read by the other
 
-OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
+OpenCascade (and so specify-pmi's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
-without its limits, no thread and no surface finish, as specify-core's reader asks only for its
+without its limits, no thread and no surface finish, as specify-pmi's reader asks only for its
 own forms of those. Newly saved parts write schema 3 using Quiddity's own versioned fingerprints,
 which older engines skip (while still reading the standard AP242 PMI); see
 [docs/design.md](design.md) and [authored face names and compatibility](face-names.md). Legacy
 schema 1 and 2 payloads written by earlier builds remain readable and upgrade to schema 3 on the
-next save; files the older Python specify-core wrote (schema 1) do not resume in Rust.
+next save; files the older Python specify-pmi wrote (schema 1) do not resume in Rust.
 
 ## Where this engine differs
 
@@ -201,7 +201,7 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
   `tests/fixtures/rule_defaults_oracle.json.gz`; the captured Python results are retained.
 - **Part notes and surface finish are written in AP242's standard forms**, not Python's text
   route: a finish (the default or on faces) as an ISO 10303-1110 surface texture, the coating,
-  heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-core reads
+  heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-pmi reads
   the notes back but not the finish.
   Rust also supports ordered free-text manufacturing notes through `part.notes` (default
   `[]`), each a semantic `general note` with an explicit one-based `note index`. See the
@@ -222,7 +222,7 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
   differ), so question ids and answer keys do too. An analysis and its answers belong together;
   analyse and write with the same engine (Q1, upstream needs U2, U12).
 - **A gzipped STEP file is read** (told by its magic bytes, decompressed in memory, bound by
-  the decompressed bytes' hash), where specify-core refuses it; `write -o out.step.gz` writes
+  the decompressed bytes' hash), where specify-pmi refuses it; `write -o out.step.gz` writes
   it gzipped (maintainer decision 2026-10-15).
 - A file that cannot be read, or an assembly analysed without `--part`, is an `error:` line on
   stderr (exit 1) where Python prints a traceback; `write`'s stdout is only the report, without
@@ -232,13 +232,13 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
 
 ## Tests
 
-Tests compare the port with fixtures captured from specify-core (`tools/capture.py`, run in
-specify-core's environment); tests whose input is a quiddity corpus file skip without the
+Tests compare the port with fixtures captured from specify-pmi (`tools/capture.py`, run in
+specify-pmi's environment); tests whose input is a quiddity corpus file skip without the
 corpus. `docs/known-differences.md` is regenerated after an area file changes with
 `UPDATE_KNOWN_DIFFERENCES=1 cargo test --release --test known_differences_doc`.
 
 Optional live Python/OpenCascade tests use only an explicitly configured
-`SPECIFY_TEST_PYTHON=/path/to/specify-core/.venv/bin/python`; they never discover a
+`SPECIFY_TEST_PYTHON=/path/to/specify-pmi/.venv/bin/python`; they never discover a
 checkout on the host. `SPECIFY_TEST_NIST_AP242=/path/to/plain/nist` additionally enables
 live comparisons on the five `nist_ctc_0N_asme1_ap242.stp` inputs. The committed captures
 remain the default regression record; these live checks do not recapture them.

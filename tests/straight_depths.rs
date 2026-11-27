@@ -3,7 +3,7 @@ mod common;
 
 use haecceity::{geom::Surface, p21::Document, pmi};
 use serde_json::{Value, json};
-use specify_core::{api, part, rules, writer};
+use specify_pmi::{api, part, rules, writer};
 use std::{collections::BTreeSet, path::Path};
 
 fn anchors(p: &pmi::PartPmi, id: pmi::FeatureId) -> Vec<pmi::Anchor> {

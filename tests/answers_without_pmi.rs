@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{LoadedPart, load_bytes};
-use specify_core::session::{self, Opened, Session};
+use specify_pmi::api;
+use specify_pmi::part::{LoadedPart, load_bytes};
+use specify_pmi::session::{self, Opened, Session};
 
 /// The plate's answers that write no PMI, with the defaults it is offered. (Hole 9's
 /// "general" writes its size under the general tolerance, which the file then states.)
@@ -117,7 +117,7 @@ fn session_of(path: &Path) -> session::Shared {
 /// The open questions of `part` with a default, with it: what the page offers to approve.
 fn offered(analysis: &Value, answers: &Map<String, Value>) -> Map<String, Value> {
     let qs = api::questions(analysis, answers).unwrap();
-    specify_core::rules::open_questions(&qs, answers)
+    specify_pmi::rules::open_questions(&qs, answers)
         .iter()
         .filter_map(|q| q.default.clone().map(|d| (q.id.clone(), d)))
         .collect()
@@ -141,7 +141,7 @@ fn approve_all(path: &Path, given: &Map<String, Value>) -> PathBuf {
         if fill.is_empty() {
             break;
         }
-        let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+        let list = specify_pmi::edits::parse_value(json!({ "fill": fill })).unwrap();
         saved = Some(
             session::save_edits(&shared, None, &list, "page").unwrap_or_else(|e| panic!("{e}")),
         );
@@ -186,7 +186,7 @@ fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
     let answers = dir.join("answers.json");
     let out = dir.join("out.step");
     let run = |args: &[&std::ffi::OsStr]| {
-        let got = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let got = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .args(args)
             .output()
             .unwrap();
@@ -296,7 +296,7 @@ fn foreign_flatness_withholds_stored_none() {
         assert!(flatness[0].get("question").is_none());
         (part, _) = saved_again(&part, &analysis);
         assert!(
-            specify_core::existing::read_existing(&part)
+            specify_pmi::existing::read_existing(&part)
                 .unwrap()
                 .iter()
                 .any(|e| { e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05) })
@@ -317,7 +317,7 @@ fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     // Written without the flatness while storing it: the file removed it.
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, &wrote, true).unwrap();
-    let mut stored = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
+    let mut stored = specify_pmi::rules::with_all_defaults(&analysis, &given).unwrap();
     stored.insert("datum.A.flatness".into(), json!("0.05"));
     let bytes = api::write_bytes(
         std::fs::read(plate()).unwrap(),
@@ -373,7 +373,7 @@ fn an_approval_that_writes_nothing_stays_decided() {
     let analysis = api::analyse_file(&input, Some(1)).unwrap();
     let mut fill = pin.clone();
     fill.extend(offered(&analysis, &pin));
-    let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+    let list = specify_pmi::edits::parse_value(json!({ "fill": fill })).unwrap();
     let saved = session::save_part_edits(&shared, Some(1), None, &list, "page")
         .unwrap_or_else(|e| panic!("{e}"));
     let report = saved.report.to_string();
@@ -405,7 +405,7 @@ fn an_approval_that_writes_nothing_stays_decided() {
     // Saved again with every default the reopened file offers: it stays decided.
     let shared = session_of(Path::new(&saved.path));
     let more = offered(&again, answers);
-    let list = specify_core::edits::parse_value(json!({ "fill": more })).unwrap();
+    let list = specify_pmi::edits::parse_value(json!({ "fill": more })).unwrap();
     let twice = session::save_part_edits(&shared, Some(1), None, &list, "page")
         .unwrap_or_else(|e| panic!("{e}"));
     let third = api::analyse_file(Path::new(&twice.path), Some(1)).unwrap();
@@ -418,7 +418,7 @@ fn an_approval_that_writes_nothing_stays_decided() {
 fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
     let dir = scratch("writes-nothing-cli");
     let run = |args: &[&std::ffi::OsStr]| {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .args(args)
             .output()
             .unwrap();
@@ -507,7 +507,7 @@ fn with_foreign(bytes: Vec<u8>, added: haecceity::pmi::PartPmi) -> Vec<u8> {
 /// The plate written with every default approved: `part.notes: []` and the other silent
 /// answers stored.
 fn accepted_all() -> (Map<String, Value>, Vec<u8>) {
-    let all = specify_core::rules::with_all_defaults(
+    let all = specify_pmi::rules::with_all_defaults(
         &api::analyse_file(&plate(), None).unwrap(),
         &material(),
     )
@@ -522,7 +522,7 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
         plate(),
         common::fixtures().join("parts/electronics-enclosure-base.step.gz"),
     ] {
-        let part = specify_core::part::load(&path, None).unwrap();
+        let part = specify_pmi::part::load(&path, None).unwrap();
         let analysis = api::analyse(&part).unwrap();
         let mut answers = material();
         let hole = api::questions(&analysis, &answers)
@@ -539,14 +539,14 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
             api::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
         let back = load_bytes("clean.step", bytes).unwrap();
         assert!(
-            specify_core::existing::read_existing(&back)
+            specify_pmi::existing::read_existing(&back)
                 .unwrap()
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
         // A partial preview that leaves out the size has not fulfilled the hole's
         // general approval. Retain the ordinary decisions and leave this gap open.
-        let stored = specify_core::feature_table::storable(&answers);
+        let stored = specify_pmi::feature_table::storable(&answers);
         assert_eq!(again["resume"]["answers"], json!(stored));
         assert!(report.not_written.iter().any(|line| {
             line == &format!("answer {} ('general'): the plan supplied no writable PMI on this feature; remains open", hole.id)
@@ -666,7 +666,7 @@ fn flatness_on_the_files_moved_datum_survives_two_saves() {
     answers.insert("datum.A.flatness".into(), json!("0.05"));
     let mut part = load(written(&answers, &stored));
     let has_flatness = |part: &LoadedPart| {
-        specify_core::existing::read_existing(part)
+        specify_pmi::existing::read_existing(part)
             .unwrap()
             .iter()
             .any(|e| e.r#type == "Flatness" && e.faces == [4] && e.value == Some(0.05))
@@ -689,7 +689,7 @@ fn an_extra_marked_note_survives_two_saves() {
     answers.insert("part.notes".into(), notes.clone());
     let mut part = load(written(&answers, &stored));
     assert_eq!(
-        specify_core::existing::part_settings_provenance(&part).unwrap()["notes"],
+        specify_pmi::existing::part_settings_provenance(&part).unwrap()["notes"],
         json!(["specify-core:written:v1", "specify-core:written:v1"])
     );
     for _ in 0..2 {
@@ -697,7 +697,7 @@ fn an_extra_marked_note_survives_two_saves() {
         assert_withheld(&analysis, "part.notes", false);
         (part, _) = saved_again(&part, &analysis);
         assert_eq!(
-            specify_core::existing::part_settings(&part).unwrap()["notes"],
+            specify_pmi::existing::part_settings(&part).unwrap()["notes"],
             notes
         );
     }
@@ -712,7 +712,7 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
     stored.insert(hole.into(), json!("none"));
     let edited = load(written(&answers, &stored));
     let positions = |part: &LoadedPart| {
-        specify_core::existing::read_existing(part)
+        specify_pmi::existing::read_existing(part)
             .unwrap()
             .into_iter()
             .filter(|e| e.r#type == "Position" && e.faces == [12])
@@ -744,13 +744,13 @@ fn a_marked_note_contradicts_stored_no_notes() {
     assert_withheld(&analysis, "part.notes", false);
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(
-        specify_core::existing::part_settings(&back).unwrap()["notes"],
+        specify_pmi::existing::part_settings(&back).unwrap()["notes"],
         notes
     );
     assert_eq!(again["part"]["notes"], notes);
     let (back, _) = saved_again(&back, &again);
     assert_eq!(
-        specify_core::existing::part_settings(&back).unwrap()["notes"],
+        specify_pmi::existing::part_settings(&back).unwrap()["notes"],
         notes
     );
 }
@@ -770,10 +770,10 @@ fn mixed_provenance_notes_contradict_the_stored_list() {
             index,
         ));
         assert_eq!(
-            specify_core::existing::part_settings(&edited).unwrap()["notes"],
+            specify_pmi::existing::part_settings(&edited).unwrap()["notes"],
             notes
         );
-        let provenance = specify_core::existing::part_settings_provenance(&edited).unwrap();
+        let provenance = specify_pmi::existing::part_settings_provenance(&edited).unwrap();
         assert!(provenance["notes"][0].is_string());
         assert!(provenance["notes"][1].is_null());
 
@@ -781,7 +781,7 @@ fn mixed_provenance_notes_contradict_the_stored_list() {
         let resume = &analysis["resume"];
         let (back, again) = saved_again(&edited, &analysis);
         assert_eq!(
-            specify_core::existing::part_settings(&back).unwrap()["notes"],
+            specify_pmi::existing::part_settings(&back).unwrap()["notes"],
             notes,
             "{resume}"
         );
@@ -791,11 +791,11 @@ fn mixed_provenance_notes_contradict_the_stored_list() {
         assert_eq!(again["part"]["notes"], notes, "{}", again["resume"]);
         let (back, _) = saved_again(&back, &again);
         assert_eq!(
-            specify_core::existing::part_settings(&back).unwrap()["notes"],
+            specify_pmi::existing::part_settings(&back).unwrap()["notes"],
             notes
         );
         assert_eq!(
-            specify_core::existing::part_settings_provenance(&back).unwrap()["notes"],
+            specify_pmi::existing::part_settings_provenance(&back).unwrap()["notes"],
             provenance["notes"]
         );
     }
@@ -884,7 +884,7 @@ fn another_tools_thread_on_a_general_hole_contradicts_it() {
     let source = written(&fitted, &fitted);
     let defs = haecceity::step::read_part_definitions(&source).unwrap();
     let read = pmi::read(&Document::parse(source.clone()).unwrap(), &defs).unwrap();
-    let listed = specify_core::existing::read_existing(&load(source.clone())).unwrap();
+    let listed = specify_pmi::existing::read_existing(&load(source.clone())).unwrap();
     let k = listed
         .iter()
         .filter(|e| e.kind == "dimension")
@@ -911,7 +911,7 @@ fn another_tools_thread_on_a_general_hole_contradicts_it() {
             ..Default::default()
         },
     ));
-    let threads: Vec<_> = specify_core::existing::read_existing(&edited)
+    let threads: Vec<_> = specify_pmi::existing::read_existing(&edited)
         .unwrap()
         .into_iter()
         .filter(|e| e.r#type == "internal thread" && e.faces == [9])
@@ -924,7 +924,7 @@ fn another_tools_thread_on_a_general_hole_contradicts_it() {
         assert_withheld(&analysis, "hole.function:holes:9", false);
         (part, _) = saved_again(&part, &analysis);
         assert_eq!(
-            specify_core::existing::read_existing(&part)
+            specify_pmi::existing::read_existing(&part)
                 .unwrap()
                 .iter()
                 .filter(|e| e.r#type == "internal thread" && e.faces == [9])
@@ -940,7 +940,7 @@ fn another_tools_thread_on_a_general_hole_contradicts_it() {
 #[test]
 fn another_part_resumes_its_silent_answers() {
     let input = common::fixtures().join("parts/electronics-enclosure-base.step.gz");
-    let source = specify_core::part::load(&input, None).unwrap();
+    let source = specify_pmi::part::load(&input, None).unwrap();
     let analysis = api::analyse_file(&input, None).unwrap();
     assert!(
         analysis["features"]
@@ -950,7 +950,7 @@ fn another_part_resumes_its_silent_answers() {
             .any(|f| f["id"].as_str().is_some_and(|id| id.starts_with("holes")))
     );
     let given = material();
-    let all = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
+    let all = specify_pmi::rules::with_all_defaults(&analysis, &given).unwrap();
     assert!(all.keys().any(|id| id.starts_with("datum.")), "{all:?}");
     let intent = api::apply(&analysis, &given, true).unwrap();
     let cli = api::stored_with_defaults(&source, &analysis, &given).unwrap();
@@ -977,7 +977,7 @@ fn another_part_resumes_its_silent_answers() {
 fn with_foreign_cast_process(bytes: Vec<u8>) -> Vec<u8> {
     use haecceity::p21::{Attribute, Document, Edit, RawEntity};
     use haecceity::pmi;
-    use specify_core::process;
+    use specify_pmi::process;
     let item = |value| {
         format!(
             "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
@@ -1020,7 +1020,7 @@ fn with_foreign_cast_process(bytes: Vec<u8>) -> Vec<u8> {
 fn file_process(part: &LoadedPart) -> (usize, Value) {
     use haecceity::p21::Document;
     use haecceity::pmi;
-    use specify_core::process;
+    use specify_pmi::process;
     let doc = Document::parse(part.bytes.to_vec()).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
     let read = pmi::read(&doc, &defs).unwrap();
@@ -1037,7 +1037,7 @@ fn file_process(part: &LoadedPart) -> (usize, Value) {
 /// P11), with no conflict, and the stored "none" is dropped.
 #[test]
 fn foreign_process_and_flatness_survive_two_saves() {
-    use specify_core::process;
+    use specify_pmi::process;
     let (mut all, _) = accepted_all();
     assert_eq!(all["datum.A.flatness"], "none");
     all.insert(process::QUESTION.into(), json!(process::MACHINED));
@@ -1070,7 +1070,7 @@ fn foreign_process_and_flatness_survive_two_saves() {
             "round {round}"
         );
         assert!(
-            specify_core::existing::read_existing(&part)
+            specify_pmi::existing::read_existing(&part)
                 .unwrap()
                 .iter()
                 .any(|e| e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05)),

@@ -10,7 +10,7 @@
 //! Everything here is a pure function of the analysis JSON and the answers JSON, read as
 //! Python reads its dicts (`records`): no geometry. The analysis may come from either engine;
 //! a record the rules need but cannot read is an [`Error::Invalid`] naming it, never a panic.
-//! Messages, prompts and the JSON produced are specify-core's, byte for byte and key for key.
+//! Messages, prompts and the JSON produced are specify-pmi's, byte for byte and key for key.
 
 // Literal indices into LOCATING and EDGES are in bounds of their fixed-size constant arrays.
 use std::collections::{BTreeMap, BTreeSet};
@@ -404,7 +404,7 @@ impl Question {
 }
 
 /// What the answers amount to: the part's settings, its datums and its requirements, each
-/// a JSON object with specify-core's keys in its order; and the dimensions the general
+/// a JSON object with specify-pmi's keys in its order; and the dimensions the general
 /// tolerance covers (listed for inspection, and written with their nominal alone).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Intent {

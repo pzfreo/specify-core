@@ -1,11 +1,11 @@
-//! Identical features are asked about once, and each still gets its own spec: specify-core's
+//! Identical features are asked about once, and each still gets its own spec: specify-pmi's
 //! `tests/test_same_as.py`, on the oracle's captured analyses of the corpus spool and NIST
 //! CTC-03.
 
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{Question, apply, questions, with_all_defaults};
+use specify_pmi::rules::{Question, apply, questions, with_all_defaults};
 
 const SPOOL: &str = "corpus/cadgenbench/flanged_spool_132";
 

@@ -1,0 +1,46 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "specify-pmi"
+version = "0.3.0rc2"
+description = "Add manufacturing intent (GD&T, fits, threads, finish) to STEP parts and write it as AP242 semantic PMI"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Paul Fremantle" }]
+keywords = ["step", "ap242", "pmi", "gd&t", "mbd", "cad", "manufacturing", "tolerancing"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Manufacturing",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering",
+]
+requires-python = ">=3.11"
+# None: the Rust engine needs neither quiddity, build123d nor OCP.
+dependencies = []
+
+[project.urls]
+Homepage = "https://draftwright.io/specify"
+Source = "https://github.com/pzfreo/specify-pmi"
+Issues = "https://github.com/pzfreo/specify-pmi/issues"
+Changelog = "https://github.com/pzfreo/specify-pmi/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/pzfreo/specify-pmi/blob/main/crates/specify-pmi-py/README.md"
+
+[project.scripts]
+# The engine's command line; specify-pmi's second name for it, pmi-assist, is not kept.
+specify-pmi = "specify_pmi.cli:run"
+
+[tool.maturin]
+python-source = "python"
+module-name = "specify_pmi._native"
+manifest-path = "Cargo.toml"
+strip = true
+exclude = ["**/__pycache__/**"]

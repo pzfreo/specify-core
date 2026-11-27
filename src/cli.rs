@@ -1,38 +1,38 @@
-//! `specify-core`: the command line (port of `cli.py`). [`main`] runs it on its arguments: the
-//! binary (`main.rs`) and the Python package's `specify-core` console script both call it.
+//! `specify-pmi`: the command line (port of `cli.py`). [`main`] runs it on its arguments: the
+//! binary (`main.rs`) and the Python package's `specify-pmi` console script both call it.
 //!
 //! ```text
-//! specify-core parts STEP                        the file's parts, as JSON
-//! specify-core bom STEP                          the assembly BOM, as JSON
-//! specify-core analyse STEP -o ANALYSIS [--part K]
-//! specify-core mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
-//! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
-//! specify-core write STEP EDITS.json -o OUT [--part K]
+//! specify-pmi parts STEP                        the file's parts, as JSON
+//! specify-pmi bom STEP                          the assembly BOM, as JSON
+//! specify-pmi analyse STEP -o ANALYSIS [--part K]
+//! specify-pmi mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
+//! specify-pmi questions ANALYSIS [--answers ANSWERS] [--open]
+//! specify-pmi write STEP EDITS.json -o OUT [--part K]
 //!                    apply an edit list in place, all or nothing (writer/apply.rs)
-//! specify-core write STEP EDITS.json --check
+//! specify-pmi write STEP EDITS.json --check
 //!                    validate an edit list against the file (edits.rs); writes nothing
-//! specify-core diff OLD NEW -o DIR [--part K] [--title TITLE] [--viewer URL] [--pmi-scenes]
+//! specify-pmi diff OLD NEW -o DIR [--part K] [--title TITLE] [--viewer URL] [--pmi-scenes]
 //!                    what changed between two revisions of a part and the requirements
 //!                    their PMI states (revision.rs), or of an assembly, part by part
 //!                    (revision/assembly.rs)
-//! specify-core serve                             JSON-line requests on stdin (serve.rs)
-//! specify-core mcp [--http [--port N]] [--allow DIR]...
+//! specify-pmi serve                             JSON-line requests on stdin (serve.rs)
+//! specify-pmi mcp [--http [--port N]] [--allow DIR]...
 //!                    a Model Context Protocol server on stdio or local HTTP (mcp.rs)
-//! specify-core open STEP [--read-only | --in-place] [--port N] [--no-browser]
+//! specify-pmi open STEP [--read-only | --in-place] [--port N] [--no-browser]
 //!                    [--app DIR] [--wasm DIR]
-//! specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
+//! specify-pmi open --diff OLD NEW [--in-place] [--port N] [--no-browser]
 //!                    [--app DIR] [--wasm DIR]
 //!                    the file (or NEW, compared with OLD) opened in the Specify app, served
 //!                    on 127.0.0.1, its answers held by this command (session.rs) and saved
 //!                    back to disk (open.rs)
-//! specify-core completions SHELL                 a shell completion script (clap_complete)
+//! specify-pmi completions SHELL                 a shell completion script (clap_complete)
 //! ```
 //!
 //! Arguments are parsed by clap; help and usage errors are clap's (exit 0 and exit 2). A long
 //! option may be shortened to any prefix only it has, a repeated option's last value wins and
 //! `-h` gives a command's full help, as specify-core's argparse parser did.
 //!
-//! Outputs, exit codes and messages are specify-core's, so a host can run either engine:
+//! Outputs, exit codes and messages are specify-pmi's, so a host can run either engine:
 //! `analyse` writes the analysis (Python's `json.dumps(indent=1)` text, non-ASCII escaped, so
 //! the files compare byte for byte) and prints `{faces, features, existing_pmi}`; `mesh` writes
 //! compact JSON and prints `{faces, triangles}`, warning on stderr of faces that did not
@@ -58,7 +58,7 @@ use crate::rules;
 use crate::serve;
 use serde_json::{Map, Value, json};
 
-const PROG: &str = "specify-core";
+const PROG: &str = "specify-pmi";
 
 // The command line. `-h` and `--help` both give the full help (`long_about`), as argparse's
 // one help did; it is listed last, as clap lists its own.
@@ -225,7 +225,7 @@ the specified file, from the answers given in the page, next to the input as
 <name>.specified.step (then -2, -3, ...; later saves update the copy this run wrote, and no
 other file is overwritten), or with --in-place over the input (through a link, to its target),
 the original kept once as .bak. With --diff OLD NEW the page shows what changed from OLD (as
-`specify-core diff` reports it) and opens NEW as `open NEW` would; Save writes NEW. Stops 90
+`specify-pmi diff` reports it) and opens NEW as `open NEW` would; Save writes NEW. Stops 90
 seconds after the last page is closed, or after 30 minutes without a request.
 
 The app and its engine are built into this command: nothing is downloaded. Use --app DIR (or
@@ -341,12 +341,12 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             clap_complete::generate(shell, &mut command(), PROG, &mut script);
             if shell == clap_complete::Shell::Bash {
                 // clap_complete 4.6 names the subcommands' cases with the program name's `-`
-                // escaped as a subcommand separator (`specify__subcmd__core__subcmd__write`) but
-                // selects them as `specify__core__subcmd__write`, so no subcommand's options
+                // escaped as a subcommand separator (`specify__subcmd__pmi__subcmd__write`) but
+                // selects them as `specify__pmi__subcmd__write`, so no subcommand's options
                 // would complete.
                 let text = String::from_utf8(script).map_err(Exit::error)?;
                 script = text
-                    .replace("specify__subcmd__core__subcmd__", "specify__core__subcmd__")
+                    .replace("specify__subcmd__pmi__subcmd__", "specify__pmi__subcmd__")
                     .into_bytes();
             }
             out.write_all(&script).map_err(Exit::error)
@@ -450,7 +450,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                     2,
                     "whole-intent write was removed. Use write STEP EDITS.json -o OUT, \
                      with accept_suggestions in the edit list in place of --accept-defaults. \
-                     See https://github.com/pzfreo/specify-core/blob/main/docs/answers.md.",
+                     See https://github.com/pzfreo/specify-pmi/blob/main/docs/answers.md.",
                 ));
             }
             let part = part_arg(&step, part)?;
@@ -912,7 +912,7 @@ fn save(path: &Path, text: &str) -> Result<(), Exit> {
 
 /// Writes a command's JSON file and its one-line summary. To a file, the summary goes to stdout;
 /// to `-` the JSON goes to stdout and the summary to stderr, so the JSON can be piped into
-/// another program (`specify-core analyse part.step -o - | jq .features`).
+/// another program (`specify-pmi analyse part.step -o - | jq .features`).
 fn emit(out: &mut impl Write, path: &Path, text: &str, shown: &str) -> Result<(), Exit> {
     if path.as_os_str() == "-" {
         print(out, text)?;

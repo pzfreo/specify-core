@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
-from specify_core import api
-from specify_core.load import load
+from specify_pmi import api
+from specify_pmi.load import load
 
 PARTS = Path(__file__).resolve().parents[1] / "fixtures" / "parts"
 

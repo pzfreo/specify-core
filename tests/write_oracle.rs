@@ -15,11 +15,11 @@ use common::{
     Case, Difference, Tolerances, case, cases, compare, corpus_dir, explained, is_error, scenarios,
 };
 use serde_json::{Map, Value, json};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::part::{LoadedPart, load};
-use specify_core::resume::answers_for;
-use specify_core::rules::Intent;
-use specify_core::writer::{WriteError, write_parts};
+use specify_pmi::existing::{part_settings, read_existing};
+use specify_pmi::part::{LoadedPart, load};
+use specify_pmi::resume::answers_for;
+use specify_pmi::rules::Intent;
+use specify_pmi::writer::{WriteError, write_parts};
 
 /// One captured write: the input, and per part written its intent and the answers stored.
 struct Captured {
@@ -34,7 +34,7 @@ struct Captured {
 
 fn temp_dir(group: usize) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-write-oracle")
+        .join("specify-pmi-write-oracle")
         .join(format!("{}-{group}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -230,7 +230,7 @@ fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64, f64)> {
             .filter_map(Value::as_u64)
             .collect();
         faces.sort_unstable();
-        if let Ok((upper, lower)) = specify_core::standards::fit_limits(fit, nominal) {
+        if let Ok((upper, lower)) = specify_pmi::standards::fit_limits(fit, nominal) {
             out.push((faces, nominal, upper, lower));
         }
     }
@@ -312,7 +312,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
     let count = c.jobs.iter().map(|(k, _, _)| *k).max().map_or(1, |k| k + 1);
     // The file's part count, which decides whether a part is loaded by index.
     // Count and load jobs through one parsed file, including multi-part NIST cases.
-    let file = specify_core::part::File::read(&c.input).map_err(|e| e.to_string());
+    let file = specify_pmi::part::File::read(&c.input).map_err(|e| e.to_string());
     let parts = file.as_ref().map_or(count, |f| f.parts().len());
     let loaded: Vec<Result<LoadedPart, String>> = c
         .jobs
@@ -524,7 +524,7 @@ fn python_written_resume(group: usize) -> Vec<Difference> {
     out
 }
 
-/// specify-core's test assertions this port does not carry over, each raised as a difference
+/// specify-pmi's test assertions this port does not carry over, each raised as a difference
 /// so that its verdict (not-applicable, with the reason) is in `writer.json` with the rest:
 /// what they assert is Python's own text route (the 'manufacturing requirement' sentences and
 /// their leaders), which haecceity does not write (its decision 5: standard forms only), or

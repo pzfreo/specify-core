@@ -97,7 +97,7 @@ test('haecceity 0.4.4: polyline roles, a text\'s cell and whether it is stroked 
   assert.match(bad({}, { stroked: 'yes' }), /stroked is not a boolean/);
 });
 
-test('links: a stated material is not an item (specify-core 0.1.7, #105: semantic_ids leaves it out)', () => {
+test('links: a stated material is not an item (specify-pmi 0.1.7, #105: semantic_ids leaves it out)', () => {
   const pmi = { schema: 'haecceity.pmi/1', pmi: { material: { id: 'steel', name: null, density: null } } };
   const links = linksFromPmi(pmi, readPresentation(doc({ items: {}, semantic_ids: [] })).value);
   assert.ok(links.ok, links.reason);
@@ -105,7 +105,7 @@ test('links: a stated material is not an item (specify-core 0.1.7, #105: semanti
 });
 
 // A pmiScene in small: a datum whose symbol is listed under the datum and its feature, as
-// specify-core 0.1.5 lists it, with Specify's overlay for the datum only.
+// specify-pmi 0.1.5 lists it, with Specify's overlay for the datum only.
 const scene = () => ({
   pmi: {
     schema: 'haecceity.pmi/1',
@@ -241,7 +241,7 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
   near([top.eye, top.up], [[0, 0, 1], [-1, 0, 0]]);
   // A kind not shown has no view.
   assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Front · 2']);
-  // A view Specify generates for a graphic of its own (specify-core 0.1.6) is not offered: the
+  // A view Specify generates for a graphic of its own (specify-pmi 0.1.6) is not offered: the
   // planes offer it, grouped.
   const generated = { ...pmi, presentation: { ...pmi.presentation,
     items: { ...pmi.presentation.items, c: [{ ...at('g3', '30', 'top', 9), source: 'generated' }] },

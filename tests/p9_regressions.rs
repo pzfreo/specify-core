@@ -11,10 +11,10 @@ use std::process::Command;
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use haecceity::pmi::{self, PartId, PartPmi};
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::existing::read_existing;
-use specify_core::part::{LoadedPart, load_bytes};
-use specify_core::process;
+use specify_pmi::api;
+use specify_pmi::existing::read_existing;
+use specify_pmi::part::{LoadedPart, load_bytes};
+use specify_pmi::process;
 
 fn plate() -> PathBuf {
     common::fixtures().join("parts").join("plate.step")
@@ -108,8 +108,8 @@ fn preview_write(
     let mut intent = api::preview(analysis, answers).unwrap();
     intent
         .requirements
-        .extend(specify_core::rules::unasked_rows(analysis, answers).unwrap());
-    let bytes = specify_core::writer::write_bytes(loaded, &intent, Some(answers))
+        .extend(specify_pmi::rules::unasked_rows(analysis, answers).unwrap());
+    let bytes = specify_pmi::writer::write_bytes(loaded, &intent, Some(answers))
         .unwrap()
         .0;
     load(bytes)
@@ -117,7 +117,7 @@ fn preview_write(
 
 fn dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-p9-regressions")
+        .join("specify-pmi-p9-regressions")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -125,7 +125,7 @@ fn dir(name: &str) -> PathBuf {
 }
 
 fn cli(args: &[&Path]) {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();
@@ -375,8 +375,8 @@ fn defaults_written_without_their_answers_are_kept() {
     }
     // ADR P11: of those, only what leaves no PMI behind; the file states the rest.
     assert_eq!(
-        specify_core::resume::answers_for(&loaded).unwrap(),
-        Some(specify_core::feature_table::storable(&stored))
+        specify_pmi::resume::answers_for(&loaded).unwrap(),
+        Some(specify_pmi::feature_table::storable(&stored))
     );
     let pattern = "hole.position:hole_patterns.grid:6.7.8.10.11.13";
     let positions = |l: &LoadedPart| {
@@ -416,12 +416,12 @@ fn a_session_save_keeps_pmi_another_tool_added() {
     let loaded = load(with_foreign_flatness(written(&answers("none"))));
     let added = flatness(&loaded);
     std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
-    let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+    let mut server = specify_pmi::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
     let mut call = |name: &str, arguments: Value| -> Value {
         let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
             "name": name, "arguments": arguments,
             "_meta": {
-                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/protocolVersion": specify_pmi::mcp::MODERN,
                 "io.modelcontextprotocol/clientCapabilities": {}
             }
         }});
@@ -529,7 +529,7 @@ fn cli_refuses_fill(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> L
     let given = dir.join("edits.json");
     std::fs::write(&given, json!({"fill": answers}).to_string()).unwrap();
     let output = dir.join("out.step");
-    let ran = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let ran = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args([Path::new("write"), &input, &given, Path::new("-o"), &output])
         .output()
         .unwrap();
@@ -606,12 +606,12 @@ fn another_tools_requirement_stands_against_an_mcp_answers_file() {
     let dir = dir("mcp-foreign");
     let input = dir.join("plate.step");
     std::fs::write(&input, re_authored_flatness().bytes.as_slice()).unwrap();
-    let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+    let mut server = specify_pmi::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
     let mut call = |name: &str, arguments: Value| -> Value {
         let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
             "name": name, "arguments": arguments,
             "_meta": {
-                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/protocolVersion": specify_pmi::mcp::MODERN,
                 "io.modelcontextprotocol/clientCapabilities": {}
             }
         }});
@@ -624,7 +624,7 @@ fn another_tools_requirement_stands_against_an_mcp_answers_file() {
     let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
         "name": "save", "arguments": {"doc": opened["doc"], "edits": answers("0.03")},
         "_meta": {
-            "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+            "io.modelcontextprotocol/protocolVersion": specify_pmi::mcp::MODERN,
             "io.modelcontextprotocol/clientCapabilities": {}
         }
     }});

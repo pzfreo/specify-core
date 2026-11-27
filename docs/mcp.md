@@ -1,16 +1,16 @@
-# MCP server: `specify-core mcp`
+# MCP server: `specify-pmi mcp`
 
-`specify-core mcp` lets an LLM client such as Claude Code or Claude Desktop specify a part: it
+`specify-pmi mcp` lets an LLM client such as Claude Code or Claude Desktop specify a part: it
 opens a STEP file, answers Specify's questions, reviews the result and writes AP242 PMI. The tools
-call the same steps as `specify-core serve` (`src/api.rs`). The server is in `src/mcp.rs`.
+call the same steps as `specify-pmi serve` (`src/api.rs`). The server is in `src/mcp.rs`.
 
 The answers of an opened file are a **session** held by the server (`src/session.rs`), which
 `show` also serves to the Specify page in the person's browser, so the agent and the person
 edit one set of answers: see [session.md](session.md).
 
 ```text
-specify-core mcp [--allow DIR]...                      stdio (the client starts it)
-specify-core mcp --http [--port N] [--allow DIR]...    Streamable HTTP on 127.0.0.1
+specify-pmi mcp [--allow DIR]...                      stdio (the client starts it)
+specify-pmi mcp --http [--port N] [--allow DIR]...    Streamable HTTP on 127.0.0.1
 ```
 
 It speaks MCP revision **2026-07-28**, which is stateless: there is no handshake, and every
@@ -25,14 +25,14 @@ version, the error is `-32022`, and its `data.supported` lists `["2026-07-28", "
 **Claude Code** (stdio), from the directory that holds your parts:
 
 ```sh
-claude mcp add specify -- specify-core mcp
+claude mcp add specify -- specify-pmi mcp
 ```
 
 (without `--allow` the server may use its working directory; add `--allow DIR` for others).
 `show` serves the Specify app and engine built into the command: nothing is downloaded. Set
 `SPECIFY_APP_DIR` or `SPECIFY_WASM_DIR` in the server's environment to use another app or a
 local engine.
-For example, `claude mcp add specify -e SPECIFY_APP_DIR=/path/to/app -- specify-core mcp`.
+For example, `claude mcp add specify -e SPECIFY_APP_DIR=/path/to/app -- specify-pmi mcp`.
 See [app and engine resolution](open.md#where-the-app-and-the-engine-come-from).
 
 **Claude Desktop** (stdio), in `claude_desktop_config.json`:
@@ -41,7 +41,7 @@ See [app and engine resolution](open.md#where-the-app-and-the-engine-come-from).
 {
   "mcpServers": {
     "specify": {
-      "command": "/path/to/specify-core",
+      "command": "/path/to/specify-pmi",
       "args": ["mcp", "--allow", "/Users/me/parts"]
     }
   }
@@ -53,7 +53,7 @@ Desktop starts the server in a directory of its own choosing. Always give `--all
 **HTTP**: run it yourself and give the client the endpoint and token it prints:
 
 ```sh
-$ specify-core mcp --http --port 8765 --allow ~/parts
+$ specify-pmi mcp --http --port 8765 --allow ~/parts
 MCP endpoint: http://127.0.0.1:8765/mcp
 Authorization: Bearer 3f9c…
 Allowed directories: /Users/me/parts
@@ -89,8 +89,8 @@ JSON-RPC errors.
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
-| `diff` | `old`, `new`, `part?` | `verdict`, `summary`, `report`, `markdown`, as `specify-core diff`: from the two files' PMI only (nothing is written, no answers carried) |
-| `carry` | `old`, `new`, `output`, `overwrite?` | as `specify-core carry` ([carry.md](carry.md)): OLD's requirements carried onto NEW and written to `output`, all or nothing; `written`, `output`, `carried`, `to_check`, `kept`, `not_carried`, `decided_none`, `new_unstated`, `numbers_carried`, `bom_carried`, `refused?`, `markdown` |
+| `diff` | `old`, `new`, `part?` | `verdict`, `summary`, `report`, `markdown`, as `specify-pmi diff`: from the two files' PMI only (nothing is written, no answers carried) |
+| `carry` | `old`, `new`, `output`, `overwrite?` | as `specify-pmi carry` ([carry.md](carry.md)): OLD's requirements carried onto NEW and written to `output`, all or nothing; `written`, `output`, `carried`, `to_check`, `kept`, `not_carried`, `decided_none`, `new_unstated`, `numbers_carried`, `bom_carried`, `refused?`, `markdown` |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
 | `save` | `doc`, either `edits` or `partEdits`, `rev?` | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`, `table` (the current feature table): the edit list applied to the file all or nothing and written as the page's Save writes it, beside the file (or over it, opened `in_place`). A list with any entry that cannot be applied writes nothing (`invalid`, with `failures`) |
@@ -114,7 +114,7 @@ After a copy save, opening the original again starts without the saved copy's dr
 that would leave the reopened original unchanged refuses with “nothing to save”.
 
 The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items": {"remove":
-["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-core write STEP
+["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-pmi write STEP
 EDITS.json` takes it; ids are the feature table's (`table` in the analysis resource), a choice
 with no row (`part.locating`), or an added requirement (`extra.<name>`). `fill` fills gaps.
 An equal fill on a decided-none row is unchanged, including when both answers mean none.

@@ -23,9 +23,9 @@ use common::{
 };
 use haecceity::geom::{self, V3};
 use serde_json::{Value, json};
-use specify_core::mesh::{self, ANGULAR_DEFLECTION};
-use specify_core::part::{self, LoadedPart};
-use specify_core::triangulate::FaceMesh;
+use specify_pmi::mesh::{self, ANGULAR_DEFLECTION};
+use specify_pmi::part::{self, LoadedPart};
+use specify_pmi::triangulate::FaceMesh;
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -259,7 +259,7 @@ fn meshing_is_independent_of_what_ran_before() {
     let fresh = mesh::mesh(&load("plate.step"));
     let used = load("plate.step");
     let groups: Vec<Vec<usize>> = (0..used.binding.face_count).map(|f| vec![f]).collect();
-    specify_core::anchors::anchors(&used, &groups, mesh::diagonal(&used));
+    specify_pmi::anchors::anchors(&used, &groups, mesh::diagonal(&used));
     assert_eq!(mesh::mesh(&used), fresh);
     assert_eq!(mesh::mesh(&used), fresh);
 }
@@ -774,7 +774,7 @@ fn requested_deviation_is_measured_on_curved_output() {
             assert_ne!(reported, limit, "must not echo the requested bound");
         }
         assert_eq!(
-            specify_core::api::mesh_with_max_deviation(&loaded, None)
+            specify_pmi::api::mesh_with_max_deviation(&loaded, None)
                 .unwrap()
                 .to_string(),
             mesh::mesh(&loaded).to_string(),

@@ -1,9 +1,9 @@
 // Exercise the shipped module's limits/class labels, and the general tolerance written by an edit.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { IntentEngine, interpret } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, interpret } from '../crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js';
 const root = new URL('../', import.meta.url);
-await init({ module_or_path: readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root)) });
+await init({ module_or_path: readFileSync(new URL('crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm', root)) });
 const answers = {
   'part.general_tolerance': 'ISO 2768-mK',
   'extra.size': { kind: 'size', faces: [9], value: '7.8/8.2' },

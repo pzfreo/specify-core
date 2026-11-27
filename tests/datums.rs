@@ -1,4 +1,4 @@
-//! Datums as face sets or holes, datum controls, and a frame per tolerance: specify-core's
+//! Datums as face sets or holes, datum controls, and a frame per tolerance: specify-pmi's
 //! `tests/test_datums.py`.
 //!
 //! CTC-03 is answered as NIST's drawing specifies it (nist_ctc_03_asme1_rc.pdf): A is two
@@ -14,8 +14,8 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::pyfmt::g;
-use specify_core::rules::{
+use specify_pmi::pyfmt::g;
+use specify_pmi::rules::{
     Control, Datum, DatumKind, Datums, Error, Faces, Question, apply_with_defaults, datum_control,
     datum_kind, default_datums, questions, questions_proposing,
 };

@@ -1,4 +1,4 @@
-//! Dimensions under the general tolerance, found and listed (written since #63): specify-core's
+//! Dimensions under the general tolerance, found and listed (written since #63): specify-pmi's
 //! `tests/test_general.py`, on the oracle's captured analyses of the pin and the plate.
 //!
 //! `test_listed_but_not_written`'s write is the writer's (stage 3); its rules side (listed in
@@ -7,14 +7,14 @@
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
-use specify_core::general::deviation;
-use specify_core::rules::{Intent, apply_with_defaults};
+use specify_pmi::general::deviation;
+use specify_pmi::rules::{Intent, apply_with_defaults};
 
 fn analysis(case: &str) -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(format!("{case}.step"));
-    specify_core::api::analyse(&specify_core::part::load(&path, None).unwrap()).unwrap()
+    specify_pmi::api::analyse(&specify_pmi::part::load(&path, None).unwrap()).unwrap()
 }
 
 /// `_general`: the part applied with a material and every default.

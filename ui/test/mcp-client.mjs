@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-// A small stdio MCP client for the tests: `specify-core mcp` started as an agent starts it, spoken
+// A small stdio MCP client for the tests: `specify-pmi mcp` started as an agent starts it, spoken
 // to in the legacy 2025-11-25 revision (initialize, then tools/call), one JSON-RPC message a line.
 
 /** Starts ``cli mcp`` in ``cwd`` with ``env``; ``call(tool, args)`` gives a tool's structuredContent

@@ -1,5 +1,5 @@
 //! Calling out a dimension: a size or a distance a person tolerances themselves, in place of
-//! what the general tolerance would have said of it. The rules side of specify-core's
+//! what the general tolerance would have said of it. The rules side of specify-pmi's
 //! `tests/test_call_out.py`, on the oracle's captured analysis of the plate.
 //!
 //! Each test's write and read-back is the writer's (stage 3). `test_a_distance_leaves_the_
@@ -9,8 +9,8 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::problems::problems;
-use specify_core::rules::{Error, Intent, apply_with_defaults, questions};
+use specify_pmi::problems::problems;
+use specify_pmi::rules::{Error, Intent, apply_with_defaults, questions};
 
 fn plate() -> Value {
     common::case("parts/plate")

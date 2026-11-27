@@ -1,0 +1,213 @@
+"""The steps of specify-pmi's API, on the Rust engine: ``parts``, ``analyse``, ``questions``,
+``apply``, ``preview``, ``write`` (an edit list applied to the file), ``check_edits``,
+``write_parts`` and ``mesh``.
+
+The names, signatures and return shapes are specify-pmi's own ``api.py``; the work is done
+by ``specify_pmi._native``. A file of several parts is specified a part at a time: ``parts``
+lists them, ``analyse`` and ``mesh`` take the one to work on, by path or loaded once (``load``),
+and ``write_parts`` writes any number of them into the assembly together.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from . import _native, rules  # noqa: F401  (specify-pmi's api has rules too)
+from .load import LoadedPart, load
+from .rules import Intent, Question
+from .writer import EditsRefused, WriteReport
+
+__all__ = [
+    "LoadedPart",
+    "load",
+    "parts",
+    "bom",
+    "analyse",
+    "questions",
+    "apply",
+    "preview",
+    "write",
+    "check_edits",
+    "write_parts",
+    "mesh",
+    "pmi_scene",
+    "diff",
+]
+
+ANALYSIS_SCHEMA = _native.ANALYSIS_SCHEMA
+
+
+def parts(step: str | Path) -> list[dict[str, Any]]:
+    """The distinct parts of ``step``: name, face count, instances and their
+    placements, whether specify-pmi has written the part (answers stored), and
+    ``same_as``: the index of the first part this one is a copy of (the same shape
+    moved, stating the same BOM facts and ``part.*``/``bom.*`` answers), or ``None``,
+    and ``faces_of_first``: for each of a copy's faces, the first part's face it
+    lands on (``None`` when ``same_as`` is)."""
+    return json.loads(_native.parts(_path(step)))
+
+
+def bom(step: str | Path) -> list[dict[str, Any]]:
+    """Assembly BOM fields and their file/answered/default sources; see docs/bom.md."""
+    return json.loads(_native.bom(_path(step)))
+
+
+def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:
+    """Features, faces and existing PMI of ``step`` -- of its ``part``-th part, in
+    an assembly -- as a JSON-safe snapshot.
+
+    The snapshot is what gets stored: it is never re-derived for the same file,
+    so its feature ids do not need to survive an engine upgrade.
+    """
+    if isinstance(step, LoadedPart):
+        return json.loads(_native.analyse(step._handle))
+    return json.loads(_native.analyse(_path(step), part))
+
+
+def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Question]:
+    records = json.loads(_native.questions(json.dumps(analysis), json.dumps(answers)))
+    return [Question.from_record(r) for r in records]
+
+
+def apply(
+    analysis: dict[str, Any], answers: dict[str, Any], *, accept_defaults: bool = False, bom: bool = False
+) -> Intent:
+    """Intent from ``answers``; with ``accept_defaults``, unanswered defaults are taken.
+
+    Defaults are resolved to a fixed point, because some questions only exist
+    once an earlier default is taken.
+    """
+    text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults, bom)
+    return Intent.from_dict(json.loads(text))
+
+
+def preview(analysis: dict[str, Any], answers: dict[str, Any]) -> Intent:
+    """What the answers so far amount to; see the engine's ``rules::preview``."""
+    return Intent.from_dict(json.loads(_native.preview(json.dumps(analysis), json.dumps(answers))))
+
+
+def write(
+    step: str | Path | LoadedPart,
+    edits: dict[str, Any] | str,
+    output: str | Path,
+) -> WriteReport:
+    """Apply the edit list ``edits`` to ``step`` and write the result to ``output``.
+
+    ``edits`` is an edit list (``{"fill": {id: value}, "change": {id: {"to", "expect"}},
+    "items": {"remove": ["#N"]}, "none": [id], "clear": [id], "accept_suggestions": [id]}``) or a 0.2
+    answers map, as a dict or JSON text; ids are the feature table's (``analyse(step)["table"]``).
+    Anything the list does not name is left as it is, byte for byte. A list is applied all or
+    nothing: if any entry cannot be applied, nothing is written and ``EditsRefused`` (a
+    ``ValueError``) is raised, its ``failures`` naming every failing entry and why. The report
+    adds ``retired`` (characteristic numbers this save retired) and ``unchanged``.
+    """
+    result = json.loads(_native.write(_step(step), _edits(edits), os.fspath(output)))
+    if not result["applied"]:
+        raise EditsRefused(result["message"], result["failures"])
+    return WriteReport.from_dict(result["report"])
+
+
+def check_edits(step: str | Path | LoadedPart, edits: dict[str, Any] | str) -> dict[str, Any]:
+    """Check the edit list ``edits`` against ``step`` exactly as ``write`` would apply it;
+    writes nothing. Returns ``{well_formed, checked_against_file, applicable, entries,
+    unchanged, failures, written, message}``: ``failures`` names every entry that cannot be
+    applied and why; ``unchanged`` the entries that would change nothing.
+    """
+    return json.loads(_native.check_edits(_step(step), _edits(edits)))
+
+
+def _edits(edits: dict[str, Any] | str) -> str:
+    return edits if isinstance(edits, str) else json.dumps(edits)
+
+
+def write_parts(
+    step: str | Path | LoadedPart,
+    intents: list[tuple[Intent, dict[str, Any] | None]],
+    output: str | Path,
+) -> WriteReport:
+    """Write several parts of the assembly ``step`` together: each intent on the
+    part it was made for, with the answers it came from (or None)."""
+    jobs = [(json.dumps(i.to_dict()), None if a is None else json.dumps(a)) for i, a in intents]
+    return WriteReport.from_dict(
+        json.loads(_native.write_parts(_step(step), jobs, os.fspath(output)))
+    )
+
+
+def mesh(
+    step: str | Path | LoadedPart, part: int | None = None, *,
+    max_deviation_mm: float | None = None,
+) -> dict[str, Any]:
+    """Triangles of ``step`` (its ``part``-th part) ranged by the face indices its
+    analysis uses, in the part's own frame. ``max_deviation_mm`` optionally bounds
+    the measured deviation of emitted triangles in mm (at least 0.001); invalid or
+    unmet bounds raise ValueError. None preserves the default mesh. The value is
+    exact (to the 0.0001 mm output rounding) on planes, spheres, and line and
+    circle trims; on cylinders, cones, tori, B-spline surfaces, and ellipse,
+    B-spline and NURBS trims it is a sampled maximum, not a bound."""
+    if isinstance(step, LoadedPart):
+        return json.loads(_native.mesh(step._handle, max_deviation_mm=max_deviation_mm))
+    return json.loads(_native.mesh(_path(step), part, max_deviation_mm=max_deviation_mm))
+
+
+def _step(step: Any) -> Any:
+    return step._handle if isinstance(step, LoadedPart) else _path(step)
+
+
+def _path(step: Any) -> str:
+    if not isinstance(step, str | os.PathLike):
+        raise TypeError(f"expected a path or a LoadedPart, not {type(step).__name__}")
+    return os.fspath(step)
+
+
+def pmi_scene(
+    step: str | Path | LoadedPart | bytes,
+    answers: dict[str, Any] | None = None,
+    part: int | None = None,
+) -> dict[str, Any]:
+    """Semantic PMI, presentation and Specify review metadata. Bytes are view-only.
+
+    Face anchors use the same indices as mesh(); assemblies take a part index.
+    Omit answers to display the file's own PMI, including As Drawn graphics.
+    """
+    source = step if isinstance(step, bytes) else _step(step)
+    return json.loads(_native.pmi_scene(
+        source, None if answers is None else json.dumps(answers), part
+    ))
+
+
+def diff(
+    old: str | Path | LoadedPart,
+    new: str | Path | LoadedPart,
+    *,
+    title: str = "Revision",
+    part: int | None = None,
+    scenes: bool = False,
+    image_width: int | None = None,
+) -> dict[str, Any]:
+    """Compare revisions of a selected part: ``{report, markdown}``.
+
+    ``report["pmi"]["items"]`` uses pmi_scene identities, numbers and statuses.
+    It reads only the two files' geometry and PMI. Paths accept a part index;
+    loaded handles already select their part. ``scenes=True`` includes the exact
+    compared pmi_scene documents in ``report["pmi"]["scenes"]``.
+
+    ``report["other_faces"]`` lists the face-level changes no entry of ``report["features"]``
+    explains (a plane's ``offset`` along its ``normal``, a cylinder's ``radius`` and ``axis_move``,
+    ``area``) and ``report["unchanged_faces"]`` counts the faces carried unchanged.
+    ``image_width`` (1 to 4096 pixels) also draws the picture the command line writes as ``model.png``
+    (changed faces orange, new green, gone or moved-from red) from the same comparison and returns
+    it as PNG ``bytes`` under ``"image"``; passing loaded parts recognises each only once.
+    """
+    if image_width is not None and not 1 <= image_width <= 4096:
+        raise ValueError(f"image_width must be 1 to 4096 pixels, not {image_width}")
+    text, image = _native.diff(
+        _step(old), _step(new), title, part, scenes, image_width
+    )
+    result = json.loads(text)
+    if image is not None:
+        result["image"] = image
+    return result
+

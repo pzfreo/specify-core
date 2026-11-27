@@ -22,12 +22,12 @@ use haecceity::pmi::{self, DimTolerance};
 use haecceity::step::read_part_definitions;
 use regex::Regex;
 use serde_json::{Map, Value, json};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::features::describe_faces;
-use specify_core::part::{LoadedPart, load};
-use specify_core::resume::{answers_for, stored};
-use specify_core::rules::{Intent, apply_with_defaults, questions};
-use specify_core::writer::{WriteError, WriteReport, write};
+use specify_pmi::existing::{part_settings, read_existing};
+use specify_pmi::features::describe_faces;
+use specify_pmi::part::{LoadedPart, load};
+use specify_pmi::resume::{answers_for, stored};
+use specify_pmi::rules::{Intent, apply_with_defaults, questions};
+use specify_pmi::writer::{WriteError, WriteReport, write};
 
 // --- helpers ---------------------------------------------------------------------------------
 
@@ -42,7 +42,7 @@ fn general_line(written: &[String]) -> usize {
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-writer-tests")
+        .join("specify-pmi-writer-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -57,7 +57,7 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn every_general_row_is_written_or_named_in_the_report() {
-    use specify_core::{api, writer};
+    use specify_pmi::{api, writer};
     for path in [
         fixture("plate"),
         fixture("pin"),
@@ -69,7 +69,7 @@ fn every_general_row_is_written_or_named_in_the_report() {
         let intent = api::apply(&analysis, &given, true).unwrap();
         assert!(!intent.general.is_empty(), "{path:?}");
         let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
-        let output = specify_core::part::load_bytes("out.step", bytes).unwrap();
+        let output = specify_pmi::part::load_bytes("out.step", bytes).unwrap();
         let read = api::analyse(&output).unwrap();
         check_general_rows(&intent, &read, &report, &path);
     }
@@ -87,9 +87,9 @@ fn legacy_accept_all_writes_a_recorded_measurement_the_new_planner_omits() {
             captured["accept_defaults"] = json!(true);
         }
         let intent = Intent::from_dict(&captured).unwrap();
-        let (bytes, report) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
-        let read = specify_core::part::load_bytes("legacy.step", bytes).unwrap();
-        let analysis = specify_core::api::analyse(&read).unwrap();
+        let (bytes, report) = specify_pmi::writer::write_bytes(&part, &intent, None).unwrap();
+        let read = specify_pmi::part::load_bytes("legacy.step", bytes).unwrap();
+        let analysis = specify_pmi::api::analyse(&read).unwrap();
         let read = analysis["existing"].as_array().unwrap();
         let measured = read
             .iter()
@@ -117,7 +117,7 @@ fn check_general_rows<'a>(
     report: &'a WriteReport,
     path: &Path,
 ) -> BTreeSet<&'a str> {
-    use specify_core::{pyfmt, pyjson};
+    use specify_pmi::{pyfmt, pyjson};
     let faces = |v: &Value| -> BTreeSet<u64> {
         v.as_array()
             .into_iter()
@@ -202,7 +202,7 @@ fn apply(analysis: &Value, given: Value) -> Intent {
 fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
-    let real = specify_core::api::analyse(loaded).unwrap();
+    let real = specify_pmi::api::analyse(loaded).unwrap();
     for key in ["existing", "part", "resume", "table"] {
         match real.get(key) {
             Some(value) => out[key] = value.clone(),
@@ -367,7 +367,7 @@ fn the_spool_is_written_verified_and_read_back() {
             + intent
                 .requirements
                 .iter()
-                .filter(|r| r["kind"] != specify_core::rules::UNASKED)
+                .filter(|r| r["kind"] != specify_pmi::rules::UNASKED)
                 .count()
             + 5
             + general_line(&report.written)
@@ -680,7 +680,7 @@ fn the_binding_is_checked_with_pythons_messages() {
     intent.binding.as_object_mut().unwrap().remove("part");
     assert!(write(&plate, &intent, &dir.join("old.step"), None).is_ok());
     assert!(matches!(
-        specify_core::writer::write_parts(&[], &dir.join("x.step")),
+        specify_pmi::writer::write_parts(&[], &dir.join("x.step")),
         Err(WriteError::Invalid(m)) if m == "nothing to write"
     ));
 }
@@ -829,7 +829,7 @@ fn enriched(dir: &Path) -> PathBuf {
     let plate = load(&fixture("plate"), None).unwrap();
     // general dimensions are rows (Paul, 2026-11-21). Approve the current pattern's
     // shared measurements as offered by the planner, then test the add on stated PMI.
-    let analysis = specify_core::api::analyse(&plate).unwrap();
+    let analysis = specify_pmi::api::analyse(&plate).unwrap();
     let given = json!({
         "part.material": "steel",
         question(&analysis, "hole.function", "Ø8"): "fit:H7",
@@ -1046,7 +1046,7 @@ fn a_nist_part_keeps_all_its_pmi() {
     assert_eq!(old, new);
     assert_eq!(pmi_of(&out, 0).dimensions.len(), 88); // 12 original plus 76 accepted.
     // The new per-dimension diagnostics must identify rows of this legacy intent.
-    let read = specify_core::api::analyse_file(&out, None).unwrap();
+    let read = specify_pmi::api::analyse_file(&out, None).unwrap();
     let general = check_general_rows(&intent, &read, &report, &input);
     let already_stated =
         |line: &str| line.ends_with("the file already states it; not written again");
@@ -1071,7 +1071,7 @@ fn a_nist_part_keeps_all_its_pmi() {
     // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        Some(specify_core::feature_table::storable(
+        Some(specify_pmi::feature_table::storable(
             given.as_object().unwrap()
         ))
     );
@@ -1109,7 +1109,7 @@ fn a_typed_thread_depth_is_written_and_read_back() {
     // This native save/reopen check needs the current question ID. The frozen
     // Python ID already includes the floor that v0.4.9 has not yet claimed.
     // Keep the exact 5.6/8 mm STEP and complete saved-answer assertions.
-    let analysis = specify_core::api::analyse(&pin).unwrap();
+    let analysis = specify_pmi::api::analyse(&pin).unwrap();
     let hole = format!("hole.function:{}", feature(&analysis, "holes", 4.2));
     let given = json!({"part.material": "brass", hole: "tapped:M5@5.6"});
     let out = dir.join("deep.step");
@@ -1128,7 +1128,7 @@ fn a_typed_thread_depth_is_written_and_read_back() {
     // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        Some(specify_core::feature_table::storable(
+        Some(specify_pmi::feature_table::storable(
             given.as_object().unwrap()
         ))
     );
@@ -1470,7 +1470,7 @@ fn writing_twice_gives_identical_bytes() {
     assert_eq!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
 
     let saved = load(&a, None).unwrap();
-    let analysis = specify_core::api::analyse(&saved).unwrap();
+    let analysis = specify_pmi::api::analyse(&saved).unwrap();
     let intent = apply(&analysis, given.clone());
     let noop = dir.join("noop.step");
     let report = write(&saved, &intent, &noop, given.as_object()).unwrap();
@@ -1496,9 +1496,9 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
     // Retain the frozen radius-filter evidence. The shared input supplies exact
     // recognition identities, so generated answered bores can recover their supports.
     let mut analysis = case.artifact("analysis").unwrap();
-    analysis["dimensioning"] = specify_core::api::analyse(&loaded).unwrap()["dimensioning"].clone();
+    analysis["dimensioning"] = specify_pmi::api::analyse(&loaded).unwrap()["dimensioning"].clone();
     let intent =
-        specify_core::rules::apply_with_defaults(&analysis, given.as_ref().unwrap(), true).unwrap();
+        specify_pmi::rules::apply_with_defaults(&analysis, given.as_ref().unwrap(), true).unwrap();
     let dir = temp(&name.replace('/', "_"));
     let out = dir.join("written.step");
     let report = write(&load(&input, None).unwrap(), &intent, &out, given.as_ref()).unwrap();
@@ -1523,7 +1523,7 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
     );
     // Reported deferrals do not masquerade as written requirements. Every other
     // requirement, datum, setting and note still contributes its exact report line.
-    let notes = specify_core::rules::NOTES
+    let notes = specify_pmi::rules::NOTES
         .iter()
         .filter(|k| intent.part.get(**k).is_some_and(|v| v.as_str() != Some("")))
         .count();
@@ -1679,7 +1679,7 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
     assert_eq!((teeth, angle, hand), (Some(31), None, false));
     assert!(flat(&out).contains(&format!(
         "TURNED_KNURL('{}','straight')",
-        specify_core::writer::PMI_PROVENANCE
+        specify_pmi::writer::PMI_PROVENANCE
     )));
     let existing = read_existing(&load(&out, None).unwrap()).unwrap();
     assert!(
@@ -1841,9 +1841,9 @@ fn a_knurl_off_the_standard_is_listed_not_guessed() {
 #[test]
 fn plus_minus_plate_writes_datum_features_without_geometric_tolerances() {
     let loaded = load(&fixture("plate"), None).unwrap();
-    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let analysis = specify_pmi::api::analyse(&loaded).unwrap();
     let mut given = answers(
-        json!({"part.material": "steel", "part.locating": specify_core::rules::LOCATING[1]}),
+        json!({"part.material": "steel", "part.locating": specify_pmi::rules::LOCATING[1]}),
     );
     let qs = questions(&analysis, &given).unwrap();
     for letter in ["A", "B", "C"] {

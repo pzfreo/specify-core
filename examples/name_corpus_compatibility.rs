@@ -5,7 +5,7 @@ mod common;
 use haecceity::{json::Anchors, p21::Document};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use specify_core::{api, features, part, resume, writer};
+use specify_pmi::{api, features, part, resume, writer};
 use std::collections::BTreeMap;
 
 fn sha(bytes: &[u8]) -> String {

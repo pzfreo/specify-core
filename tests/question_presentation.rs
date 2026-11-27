@@ -1,7 +1,7 @@
 mod common;
 
 use serde_json::{Map, json};
-use specify_core::rules::{Characteristic, questions};
+use specify_pmi::rules::{Characteristic, questions};
 
 #[test]
 fn hole_titles_and_characteristics_are_data_not_prompt_readings() {

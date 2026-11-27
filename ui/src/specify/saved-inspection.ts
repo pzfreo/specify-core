@@ -1,4 +1,4 @@
-import type { PmiScene, PmiSceneItem } from '@draftwright/specify-core-wasm';
+import type { PmiScene, PmiSceneItem } from '@draftwright/specify-pmi-wasm';
 import type { PmiAnalysis } from '../types/pmi';
 import type { Characteristic } from './characteristics';
 import { describeFaces } from './datums.ts';

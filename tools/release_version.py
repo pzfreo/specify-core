@@ -53,7 +53,7 @@ def cargo_tag() -> str:
 
 
 def read_python_version() -> str:
-    with open("crates/specify-core-py/pyproject.toml", "rb") as pyproject:
+    with open("crates/specify-pmi-py/pyproject.toml", "rb") as pyproject:
         return tomllib.load(pyproject)["project"]["version"]
 
 

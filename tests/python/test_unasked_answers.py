@@ -1,6 +1,6 @@
 """#126: an answer whose question is not asked is listed in not_written; unknown IDs are refused."""
 import pytest
-from specify_core import api
+from specify_pmi import api
 
 from written import write_answers
 

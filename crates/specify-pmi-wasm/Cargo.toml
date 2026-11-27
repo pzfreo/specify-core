@@ -1,0 +1,25 @@
+[package]
+name = "specify-pmi-wasm"
+version = "0.3.0-rc.2"
+edition = "2024"
+license = "Apache-2.0"
+description = "Browser bindings for Specify's questions and manufacturing intent"
+repository = "https://github.com/pzfreo/specify-pmi"
+readme = "README.md"
+# Shipped to npm as the WASM package (release.yml), not to crates.io.
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+specify-pmi = { path = "../..", version = "=0.3.0-rc.2", default-features = false }
+# Keep the geometry/PMI kernel on the same release tag as the root crate.
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.5.6" }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+

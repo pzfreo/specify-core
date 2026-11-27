@@ -67,7 +67,7 @@ pub fn face_mesh(loaded: &LoadedPart, face: usize, deflection: f64) -> Result<Fa
     triangulate::triangulate(&loaded.part, face, deflection, ANGULAR_DEFLECTION)
 }
 
-/// The part as JSON-safe triangles, face-ranged by specify-core face index: the
+/// The part as JSON-safe triangles, face-ranged by specify-pmi face index: the
 /// `pmi-assist-mesh` version 2 format.
 pub fn mesh(loaded: &LoadedPart) -> Value {
     mesh_with(loaded, |face, deflection| {

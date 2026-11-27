@@ -2,7 +2,7 @@
 the rest of the part is specified and written."""
 from pathlib import Path
 
-from specify_core import api
+from specify_pmi import api
 
 from written import write_answers
 

@@ -1,7 +1,7 @@
 //! Strict projection of #65/#77 metadata additions for the frozen pre-numbering cross-engine corpus.
 //! Keep those files and their independent Python readbacks; do not recapture old evidence.
 use haecceity::p21::{Attribute, Document, RawEntity, Record};
-use specify_core::{characteristics, existing::ExistingPmi};
+use specify_pmi::{characteristics, existing::ExistingPmi};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Erase only inspection identity and stored dimension intent for comparisons with Python's pre-#65 reader. Its note
@@ -38,12 +38,12 @@ pub fn only_numbering_added(old: &[u8], new: &[u8]) -> Result<(), String> {
     let mut removed = BTreeSet::new();
     for (p, prov) in read.parts.iter().zip(&read.provenance.parts) {
         for (i, a) in p.attributes.iter().enumerate().filter(|(_, a)| {
-            a.name == characteristics::PROPERTY || a.name == specify_core::pmi_origin::PROPERTY
+            a.name == characteristics::PROPERTY || a.name == specify_pmi::pmi_origin::PROPERTY
         }) {
             if a.name == characteristics::PROPERTY && a.on.is_some() {
                 return Err("number history attached to a feature".into());
             }
-            if a.name == specify_core::pmi_origin::PROPERTY
+            if a.name == specify_pmi::pmi_origin::PROPERTY
                 && !matches!(a.on, Some(haecceity::pmi::NoteOwner::Dimension(_)))
             {
                 return Err("dimension origin attached to another entity".into());
@@ -135,7 +135,7 @@ pub fn comparable_number_history(bytes: &[u8]) -> Vec<u8> {
     let mut edit = Edit::new();
     for (part, prov) in read.parts.iter().zip(&read.provenance.parts) {
         for (i, a) in part.attributes.iter().enumerate() {
-            if a.name != specify_core::characteristics::PROPERTY {
+            if a.name != specify_pmi::characteristics::PROPERTY {
                 continue;
             }
             for &id in &prov.attributes[i] {

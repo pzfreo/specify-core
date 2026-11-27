@@ -7,7 +7,7 @@ use base64::engine::general_purpose::STANDARD;
 use regex::bytes::{NoExpand, Regex};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use specify_core::{api, carried, features::Feature, part, resume, writer};
+use specify_pmi::{api, carried, features::Feature, part, resume, writer};
 use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
@@ -64,7 +64,7 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     let mut value = serde_json::to_value(&out).unwrap();
     // Exactly the report the file's own stored answers give on opening. ADR P11: of those,
     // only the answers that leave no PMI resume; the file states the rest.
-    value["answers"] = json!(specify_core::feature_table::storable(&out.answers));
+    value["answers"] = json!(specify_pmi::feature_table::storable(&out.answers));
     // D11 (#126): the one stored answer whose requirement the file no longer has is reported
     // once, beside its warning, rather than dropped silently.
     value["dropped_answers"] = json!([{
@@ -393,7 +393,7 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         resume["answers"],
-        json!(specify_core::feature_table::storable(
+        json!(specify_pmi::feature_table::storable(
             expected.as_object().unwrap()
         ))
     );
@@ -429,7 +429,7 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         again["answers"],
-        json!(specify_core::feature_table::storable(
+        json!(specify_pmi::feature_table::storable(
             expected.as_object().unwrap()
         ))
     );
@@ -552,7 +552,7 @@ fn the_carried_project_is_read_by_the_editors_reader_and_gives_back_the_original
     assert_eq!(
         resume::answers_for(&back).unwrap().map(Value::Object),
         // ADR P11: stored are the answers that leave no PMI behind.
-        Some(Value::Object(specify_core::feature_table::storable(
+        Some(Value::Object(specify_pmi::feature_table::storable(
             json!({"part.material": "steel"}).as_object().unwrap()
         )))
     );
@@ -678,7 +678,7 @@ fn a_dropped_carry_stays_blocked_across_default_paths() {
     // longer writes answers: ADR P11).
     let reason = &"face 4 has no match in the new part".to_string();
     let carried = object(json!({"part.material":"6061-T6", "_specify": {
-        "evidence": specify_core::resume::evidence(&new).unwrap(),
+        "evidence": specify_pmi::resume::evidence(&new).unwrap(),
         "unresolved": {"datum.A": reason},
     }}));
     for defaults in [false, true] {
@@ -707,12 +707,12 @@ fn a_dropped_carry_stays_blocked_across_default_paths() {
         .unwrap();
     assert_eq!(shown["default"], json!(null));
     assert_eq!(shown["reason"], blocked.reason);
-    assert!(!specify_core::rules::with_defaults(&qs, &carried).contains_key("datum.A"));
-    assert!(specify_core::rules::with_all_defaults(&analysis, &carried).is_err());
+    assert!(!specify_pmi::rules::with_defaults(&qs, &carried).contains_key("datum.A"));
+    assert!(specify_pmi::rules::with_all_defaults(&analysis, &carried).is_err());
     let mut explicit = carried.clone();
     explicit.insert("datum.A".into(), json!([4, 8]));
     api::apply(&analysis, &explicit, true).unwrap();
-    let accepted = specify_core::rules::with_all_defaults(&analysis, &explicit).unwrap();
+    let accepted = specify_pmi::rules::with_all_defaults(&analysis, &explicit).unwrap();
     assert_eq!(accepted["datum.A"], json!([4, 8]));
 }
 
@@ -743,7 +743,7 @@ fn writer_checks_answer_evidence_against_geometry_even_with_a_fresh_intent() {
     let mut answers = given.clone();
     answers.insert(
         "_specify".into(),
-        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+        json!({"evidence": specify_pmi::resume::evidence(&old).unwrap(), "unresolved": {}}),
     );
     let intent = api::apply(&api::analyse(&old).unwrap(), &answers, true).unwrap();
     writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
@@ -764,7 +764,7 @@ fn same_face_count_still_requires_the_saved_fingerprint_and_metadata_must_be_val
     let mut saved = given.clone();
     saved.insert(
         "_specify".into(),
-        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+        json!({"evidence": specify_pmi::resume::evidence(&old).unwrap(), "unresolved": {}}),
     );
     let intent = api::apply(&api::analyse(&new).unwrap(), &given, true).unwrap();
     let error = writer::write_bytes(&new, &intent, Some(&saved)).unwrap_err();
@@ -792,7 +792,7 @@ fn editor_rematching_keeps_embedded_evidence_and_carry_blocks() {
     let mut saved = given.clone();
     saved.insert(
         "_specify".into(),
-        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+        json!({"evidence": specify_pmi::resume::evidence(&old).unwrap(), "unresolved": {}}),
     );
     let resumed = resume::rematch_answers(&new, &features(&analysis), &saved, None, None).unwrap();
     assert!(!resumed.answers.contains_key("datum.A"));
@@ -803,9 +803,9 @@ fn editor_rematching_keeps_embedded_evidence_and_carry_blocks() {
     assert!(api::apply(&analysis, &resumed.answers, true).is_err());
     let blocked =
         object(json!({"_specify":{"unresolved":{"part.locating":"its feature was unmatched"}}}));
-    let (_, state) = specify_core::tolerancing::settle(
+    let (_, state) = specify_pmi::tolerancing::settle(
         &analysis,
-        &specify_core::tolerancing::State {
+        &specify_pmi::tolerancing::State {
             answers: blocked,
             ..Default::default()
         },

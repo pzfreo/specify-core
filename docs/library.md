@@ -1,6 +1,6 @@
 # The Rust library
 
-Specify is also a Rust crate, `specify_core`. The command line, the service and the WebAssembly
+Specify is also a Rust crate, `specify_pmi`. The command line, the service and the WebAssembly
 module are built on it.
 
 - `part::File::{read, of_bytes, load, load_all}` reads a file once and loads its parts;
@@ -18,7 +18,7 @@ For example, the editor can store its base64 project beside the answers:
 
 ```rust
 use haecceity::pmi::{AttributeSet, AttributeValue};
-use specify_core::writer;
+use specify_pmi::writer;
 
 let name = "draftwright editor project";
 let extra = AttributeSet {

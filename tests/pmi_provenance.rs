@@ -7,7 +7,7 @@ use haecceity::p21::{Attribute, Document, RawEntity};
 use haecceity::pmi::{self, AttributeValue};
 use haecceity::step::read_part_definitions;
 use serde_json::{Map, Value, json};
-use specify_core::{api, existing, part, rules, writer};
+use specify_pmi::{api, existing, part, rules, writer};
 
 const MARKER: &str = "specify-core:written:v1";
 
@@ -77,7 +77,7 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
     assert_eq!(p.attributes.len(), prov.attributes.len());
     for (attribute, ids) in p.attributes.iter().zip(&prov.attributes) {
         let marker = if attribute.name == "editor metadata" {
-            "specify-core:caller-attribute:v1"
+            "specify-pmi:caller-attribute:v1"
         } else {
             MARKER
         };
@@ -223,7 +223,7 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
                 "all authored inspection requirements have numbers"
             );
             assert_eq!(
-                specify_core::characteristics::read(&back).unwrap().len(),
+                specify_pmi::characteristics::read(&back).unwrap().len(),
                 pmi.datums.len()
                     + pmi.dimensions.len()
                     + pmi.tolerances.len()
@@ -385,7 +385,7 @@ fn an_explicit_edit_marks_a_legacy_note_and_a_noop_keeps_it() {
     let legacy_bytes = doc.apply(&edit).unwrap().bytes;
     let legacy = part::load_bytes("legacy.step", legacy_bytes.clone()).unwrap();
     assert!(
-        specify_core::resume::answers_for(&legacy)
+        specify_pmi::resume::answers_for(&legacy)
             .unwrap()
             .is_some()
     );
@@ -507,7 +507,7 @@ fn two_sizes_on_one_aspect_keep_provenance_separate_from_their_numeric_identifie
     // descriptions, so two sizes on one aspect satisfy AP242 UR1/WR2.
     let numbers: Vec<_> = roots
         .into_iter()
-        .map(|id| specify_core::characteristics::number(&doc, id).unwrap())
+        .map(|id| specify_pmi::characteristics::number(&doc, id).unwrap())
         .collect();
     assert_ne!(numbers[0], numbers[1]);
 }

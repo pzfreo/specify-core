@@ -5,7 +5,7 @@ use haecceity::brep_write::{WriteOptions, write_step};
 use haecceity::geom::{V3, dot};
 use haecceity::step::{IDENTITY, Placement};
 use serde_json::{Map, Value, json};
-use specify_core::{api, existing, part, rules};
+use specify_pmi::{api, existing, part, rules};
 
 fn vector(value: &Value) -> V3 {
     serde_json::from_value(value.clone()).unwrap()
@@ -142,7 +142,7 @@ fn golden_oriented_slots_end_planes_questions_defaults_and_written_pmi_move_rigi
                 .unwrap();
         let intent = api::apply(&a, &answers, false).unwrap();
         let written = scratch.join(format!("{name}.step"));
-        specify_core::writer::write(&loaded, &intent, &written, Some(&answers)).unwrap();
+        specify_pmi::writer::write(&loaded, &intent, &written, Some(&answers)).unwrap();
         let read = part::load(&written, None).unwrap();
         let pmi = serde_json::to_value(existing::read_existing(&read).unwrap()).unwrap();
         if let Some((base, base_qs, base_answers, base_pmi)) = &reference {
@@ -260,12 +260,12 @@ fn corrected_round_inventory_agrees_with_material_side() {
             path.with_extension("step.gz")
         };
         let loaded = part::load(&path, None).unwrap();
-        let features = specify_core::features::recognise(&loaded).unwrap();
+        let features = specify_pmi::features::recognise(&loaded).unwrap();
         let fillets: Vec<_> = features.iter().filter(|f| f.family == "fillets").collect();
         // v0.4.2 (#167/#159) groups interrupted torus patches into one fillet.
         // Keep the historical geometric coverage thresholds: count each native torus
         // patch, while a cylindrical round with spherical caps still counts once.
-        let patches = |f: &specify_core::features::Feature| {
+        let patches = |f: &specify_pmi::features::Feature| {
             f.faces
                 .iter()
                 .filter(|&&face| {
@@ -406,7 +406,7 @@ fn corrected_round_inventory_agrees_with_material_side() {
             .input()
             .expect("the configured corpus/fixture");
         let loaded = part::load(&path, None).unwrap();
-        let features = specify_core::features::recognise(&loaded).unwrap();
+        let features = specify_pmi::features::recognise(&loaded).unwrap();
         for face in faces {
             assert_eq!(
                 loaded.part.frame_points_outward(face),
@@ -429,7 +429,7 @@ fn merged_chamfer_10252_has_the_same_support_and_run() {
     let case = common::case("corpus/mfcadpp/10252");
     let Some(path) = case.input() else { return };
     let loaded = part::load(&path, None).unwrap();
-    let found = specify_core::features::recognise(&loaded).unwrap();
+    let found = specify_pmi::features::recognise(&loaded).unwrap();
     assert!(!found.iter().any(|f| f.family.starts_with("oriented_")));
     let f = found.iter().find(|f| f.id == "chamfers:2").unwrap();
     assert_eq!(f.faces, [2]);
@@ -572,7 +572,7 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
                 .map(|p| p as usize),
         )
         .unwrap();
-        let found = specify_core::features::recognise(&loaded).unwrap();
+        let found = specify_pmi::features::recognise(&loaded).unwrap();
         for (id, index) in supports {
             let f = found.iter().find(|f| f.id == id).unwrap();
             let level = &f.record["body_levels"][index];
@@ -656,7 +656,7 @@ fn published_profile_bounds_measure_the_body_in_their_stated_basis() {
             continue;
         };
         let loaded = part::load(&path, None).unwrap();
-        let found = specify_core::features::recognise(&loaded).unwrap();
+        let found = specify_pmi::features::recognise(&loaded).unwrap();
         let faces: Vec<_> = (0..loaded.part.faces.len()).collect();
         let mut checked = 0;
         for f in found {
@@ -720,7 +720,7 @@ fn merged_families_keep_the_frozen_oriented_feature_geometry() {
         let case = common::case(name);
         let Some(path) = case.input() else { continue };
         let loaded = part::load(&path, case.meta["part"].as_u64().map(|p| p as usize)).unwrap();
-        let found = specify_core::features::recognise(&loaded).unwrap();
+        let found = specify_pmi::features::recognise(&loaded).unwrap();
         let old = case.artifact("analysis").unwrap();
         for old in old["features"].as_array().unwrap().iter().filter(|f| {
             ["oriented_chamfers", "oriented_slots"].contains(&f["family"].as_str().unwrap())

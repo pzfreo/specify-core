@@ -2,7 +2,7 @@
 mod common;
 use haecceity::p21::Document;
 use serde_json::{Map, Value, json};
-use specify_core::{api, characteristics, existing, part, resume, writer};
+use specify_pmi::{api, characteristics, existing, part, resume, writer};
 
 fn assert_entities_identical(before: &[u8], after: &[u8]) {
     let before = Document::parse(before.to_vec()).unwrap();
@@ -182,7 +182,7 @@ fn ctc01_edits_only_addressed_settings_and_keeps_other_numbers() {
 fn old_add_mode_without_saved_answers_still_opens_as_existing_pmi() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
-    let mut intent = specify_core::rules::Intent::new(json!(loaded.binding));
+    let mut intent = specify_pmi::rules::Intent::new(json!(loaded.binding));
     intent
         .part
         .insert("coating".into(), json!("Existing coating"));
@@ -304,7 +304,7 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
         assert_eq!(
             resume::answers_for(&reopened).unwrap(),
             // ADR P11: stored are the answers that leave no PMI behind.
-            Some(specify_core::feature_table::storable(&answers))
+            Some(specify_pmi::feature_table::storable(&answers))
         );
         current = reopened;
     }
@@ -316,7 +316,7 @@ fn a_save_without_the_owned_control_keeps_it_and_its_shared_carrier() {
     let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     // Establish genuine Add-mode scope before authoring the shared carrier. Legacy
     // Replace-mode saves intentionally replace the complete part's consumed PMI.
-    let mut seed = specify_core::rules::Intent::new(serde_json::to_value(&bare.binding).unwrap());
+    let mut seed = specify_pmi::rules::Intent::new(serde_json::to_value(&bare.binding).unwrap());
     seed.requirements.push(
         json!({"kind":"flatness", "faces":[1], "tolerance":0.021})
             .as_object()
@@ -349,7 +349,7 @@ fn a_save_without_the_owned_control_keeps_it_and_its_shared_carrier() {
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
     let read = haecceity::pmi::read(&doc, &defs).unwrap();
     assert!(
-        specify_core::resume::answers_for(
+        specify_pmi::resume::answers_for(
             &part::load_bytes("scope.step", doc.bytes().to_vec()).unwrap()
         )
         .unwrap()

@@ -1,5 +1,5 @@
 use serde_json::{Map, Value, json};
-use specify_core::{
+use specify_pmi::{
     api, part,
     pmi_scene::{self, Scene},
     writer,
@@ -137,8 +137,8 @@ fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
     // P9 / D1: the general tolerance writes only its note; its dimensions are planned once
     // their questions are approved (below, with every suggestion accepted).
     assert!(!metadata.values().any(|m| m["general"] == true));
-    let accepted_defaults = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
-    let state = specify_core::tolerancing::State {
+    let accepted_defaults = specify_pmi::rules::with_all_defaults(&analysis, &answers).unwrap();
+    let state = specify_pmi::tolerancing::State {
         auto: Some(
             accepted_defaults
                 .keys()
@@ -329,7 +329,7 @@ fn python_schemas_match_the_pinned_kernel() {
     for name in ["pmi", "presentation"] {
         let file = format!("haecceity.{name}-1.json");
         let packaged = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("crates/specify-core-py/python/specify_core/schema")
+            .join("crates/specify-pmi-py/python/specify_pmi/schema")
             .join(&file);
         assert_eq!(
             std::fs::read(packaged).unwrap(),
@@ -386,7 +386,7 @@ fn patterned_requirements_put_the_count_in_notation_and_first_cell() {
 fn generated_graphics_expose_model_space_placement_and_plane_ids() {
     let loaded = plate();
     let analysis = api::analyse(&loaded).unwrap();
-    let answers = specify_core::rules::with_all_defaults(&analysis, &given()).unwrap();
+    let answers = specify_pmi::rules::with_all_defaults(&analysis, &given()).unwrap();
     let scene = Scene::new(&loaded)
         .unwrap()
         .scene(&loaded, Some(&analysis), Some(&answers))
@@ -570,7 +570,7 @@ fn every_part_setting_uses_the_rules_question_before_and_after_review_and_write(
     .unwrap()
     .clone();
     let cache = Scene::new(&loaded).unwrap();
-    let state = specify_core::tolerancing::State {
+    let state = specify_pmi::tolerancing::State {
         answers: answers.clone(),
         auto: Some(answers.keys().cloned().collect()),
         gdt: None,
@@ -668,7 +668,7 @@ fn patterned_datums_have_no_count_but_sizes_and_tolerances_do() {
         format!("hole.position:{}", pattern["id"].as_str().unwrap()),
         json!("0.05"),
     );
-    let defaults = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
+    let defaults = specify_pmi::rules::with_all_defaults(&analysis, &answers).unwrap();
     for (id, value) in defaults {
         if id.starts_with("datum.") || id.starts_with("hole.frame:") {
             answers.entry(id).or_insert(value);
@@ -767,11 +767,11 @@ fn foreign_numeric_ids_are_not_characteristic_numbers_without_specify_history() 
     let foreign = String::from_utf8(bytes)
         .unwrap()
         .replace(
-            specify_core::characteristics::PROPERTY,
+            specify_pmi::characteristics::PROPERTY,
             "producer identity records",
         )
         .replace(
-            specify_core::pmi_origin::PROPERTY,
+            specify_pmi::pmi_origin::PROPERTY,
             "producer dimension records",
         )
         .into_bytes();
@@ -866,7 +866,7 @@ fn feature_owned_manufacturing_attributes_inherit_the_thread_or_knurl_question()
             .scene_with_state(
                 &loaded,
                 Some(&analysis),
-                &specify_core::tolerancing::State {
+                &specify_pmi::tolerancing::State {
                     answers: answers.clone(),
                     auto: Some(vec![question.id.clone()]),
                     gdt: None,
@@ -922,7 +922,7 @@ fn a_pattern_and_its_datum_member_keep_distinct_location_ids_and_numbers() {
     .as_object()
     .unwrap()
     .clone();
-    let answers = specify_core::rules::with_all_defaults(&analysis, &supplied).unwrap();
+    let answers = specify_pmi::rules::with_all_defaults(&analysis, &supplied).unwrap();
     let cache = Scene::new(&loaded).unwrap();
     let live = cache
         .scene(&loaded, Some(&analysis), Some(&answers))
@@ -953,7 +953,7 @@ fn a_pattern_and_its_datum_member_keep_distinct_location_ids_and_numbers() {
     .unwrap()
     .0;
     let written = part::load_bytes("pattern.step", bytes.clone()).unwrap();
-    let characteristics = specify_core::characteristics::read(&written).unwrap();
+    let characteristics = specify_pmi::characteristics::read(&written).unwrap();
     let file = pmi_scene::pmi_scene(&bytes, None).unwrap();
     validate(&file);
     assert_eq!(ids(&live), ids(&file));
@@ -1067,7 +1067,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
             .iter()
             .any(|q| q.id == "part.edges")
     );
-    let mut answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let mut answers = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     answers.insert("part.notes".into(), json!(["Inspect machined surfaces"]));
     assert!(!answers.contains_key("part.edges"));
     let cache = Scene::new(&loaded).unwrap();
@@ -1090,12 +1090,12 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
             .any(|g| g["id"] == "step:726")
     );
     for state in [
-        specify_core::tolerancing::State {
+        specify_pmi::tolerancing::State {
             answers: answers.clone(),
             auto: Some(answers.keys().cloned().collect()),
             gdt: None,
         },
-        specify_core::tolerancing::State {
+        specify_pmi::tolerancing::State {
             answers: answers.clone(),
             auto: Some(vec![]),
             gdt: None,
@@ -1243,11 +1243,11 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     }
     let edited = part::load_bytes("xcaf-edited.step", second.bytes().to_vec()).unwrap();
     assert_eq!(
-        specify_core::existing::part_settings(&edited).unwrap()["material"],
+        specify_pmi::existing::part_settings(&edited).unwrap()["material"],
         "Alu_G6061_T6"
     );
     assert_eq!(
-        specify_core::existing::part_settings(&edited).unwrap()["notes"],
+        specify_pmi::existing::part_settings(&edited).unwrap()["notes"],
         json!(["Inspect machined surfaces after coating"])
     );
     assert!(api::analyse(&edited).unwrap()["resume"]["answers"]["part.notes"].is_null());
@@ -1263,13 +1263,13 @@ fn spindle_ctc_and_both_plates_have_one_live_notes_block() {
     ] {
         let loaded = part::load(&common::fixtures().join(name), None).unwrap();
         let analysis = api::analyse(&loaded).unwrap();
-        let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let answers = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
         let cache = Scene::new(&loaded).unwrap();
         let scene = cache
             .scene_with_state(
                 &loaded,
                 Some(&analysis),
-                &specify_core::tolerancing::State {
+                &specify_pmi::tolerancing::State {
                     auto: Some(answers.keys().cloned().collect()),
                     answers,
                     gdt: None,
@@ -1384,13 +1384,13 @@ fn rotated_xcaf_plate_notes_are_placed_together_in_their_plane() {
     let mut margins = vec![];
     for loaded in [&original, &rotated] {
         let analysis = api::analyse(loaded).unwrap();
-        let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let answers = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
         let scene = Scene::new(loaded)
             .unwrap()
             .scene_with_state(
                 loaded,
                 Some(&analysis),
-                &specify_core::tolerancing::State {
+                &specify_pmi::tolerancing::State {
                     auto: Some(answers.keys().cloned().collect()),
                     answers,
                     gdt: None,
@@ -1414,7 +1414,7 @@ fn an_exact_tap_drill_default_writes_thread_semantics_instead_of_a_clearance_fit
     )
     .unwrap();
     let analysis = api::analyse(&loaded).unwrap();
-    let defaults = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let defaults = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     assert_eq!(defaults["hole.function:holes:7"], "tapped:M3");
     let scene = Scene::new(&loaded)
         .unwrap()
@@ -1517,7 +1517,7 @@ fn answered_material_keeps_semantic_ids_to_the_pmi_ids() {
 
 #[test]
 fn diff_scenes_keep_editor_ids_and_old_ghost_links() {
-    use specify_core::{revision, rules};
+    use specify_pmi::{revision, rules};
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/revisions");
     for case in ["spindle_pmi", "hole_removed"] {
         let old = part::load(&fixtures.join(format!("{case}.old.step.gz")), None).unwrap();
@@ -1634,7 +1634,7 @@ fn mixed_resume_preview_keeps_foreign_control_and_replaces_owned_control() {
 /// retain editor identities even when recognition grows the hole's defining support.
 #[test]
 fn schema_two_before_floor_ownership_keeps_editor_ids_and_no_false_removal() {
-    use specify_core::{resume, revision};
+    use specify_pmi::{resume, revision};
     let fixtures = common::fixtures().join("revisions");
     let old = part::load(&fixtures.join("spindle_pmi.old.step.gz"), None).unwrap();
     let payload = resume::stored(&old.bytes).remove(&0).unwrap();

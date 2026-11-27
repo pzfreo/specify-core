@@ -13,7 +13,7 @@ described_item)`. In the table, **D(X)** means exactly
 `DESCRIPTION_ATTRIBUTE('specify-core:written:v1', #X)`: find this inverse reference in the
 same `p21::Document`, checking both fields, not an arbitrary string in the consumed graph.
 Slots below are zero-based Part 21 attribute positions. Caller attribute sets use
-`specify-core:caller-attribute:v1` on their own property link. The legacy replay
+`specify-pmi:caller-attribute:v1` on their own property link. The legacy replay
 replaces this payload. Older generic markers do not distinguish caller attributes
 from engine data, so replay preserves those properties unless the caller supplies
 a replacement with the same name and owner.

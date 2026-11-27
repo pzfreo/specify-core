@@ -1,4 +1,4 @@
-//! The material, coating and heat-treatment suggestions: specify-core's
+//! The material, coating and heat-treatment suggestions: specify-pmi's
 //! `tests/test_materials.py`, and the tables compared with Python's
 //! (`tests/fixtures/choices_oracle.json.gz`; see `tests/choices.rs` for how it is generated).
 //!
@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::io::Read;
 
 use serde_json::Value;
-use specify_core::materials::{COATINGS, HEAT_TREATMENTS, MATERIALS, suggested, suggestions};
+use specify_pmi::materials::{COATINGS, HEAT_TREATMENTS, MATERIALS, suggested, suggestions};
 
 // test_materials.py::test_the_material_question_suggests_common_materials (the suggestions)
 #[test]

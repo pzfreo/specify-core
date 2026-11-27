@@ -1,4 +1,4 @@
-//! Tapped holes, external threads and knurls as intent: the rules side of specify-core's
+//! Tapped holes, external threads and knurls as intent: the rules side of specify-pmi's
 //! `tests/test_threads.py`, on the oracle's captured analysis of the pin.
 //!
 //! Not here: writing a typed thread depth and reading it back (`test_a_typed_thread_depth_is_
@@ -9,8 +9,8 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{Error, apply_with_defaults, questions};
-use specify_core::standards;
+use specify_pmi::rules::{Error, apply_with_defaults, questions};
+use specify_pmi::standards;
 
 fn pin() -> Value {
     common::case("parts/pin")
@@ -35,7 +35,7 @@ fn feature(analysis: &Value, family: &str, diameter: f64) -> String {
         .to_string()
 }
 
-fn requirements_of(intent: &specify_core::rules::Intent, kind: &str) -> Vec<Map<String, Value>> {
+fn requirements_of(intent: &specify_pmi::rules::Intent, kind: &str) -> Vec<Map<String, Value>> {
     intent
         .requirements
         .iter()

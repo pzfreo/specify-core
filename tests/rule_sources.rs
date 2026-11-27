@@ -8,9 +8,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::rule_sources::{self, RULES};
-use specify_core::rules::{self, Question};
+use specify_pmi::api;
+use specify_pmi::rule_sources::{self, RULES};
+use specify_pmi::rules::{self, Question};
 
 /// The ids in the first column of the doc's "Rule ids" table.
 fn documented_ids() -> BTreeSet<String> {
@@ -212,7 +212,7 @@ fn the_command_line_and_serve_give_sources_when_asked_and_python_s_document_othe
     let a = dir.join("analysis.json");
     std::fs::write(&a, serde_json::to_vec(&analysis).unwrap()).unwrap();
     let ask = |extra: &[&str]| -> Value {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("questions")
             .arg(&a)
             .args(extra)
@@ -232,8 +232,8 @@ fn the_command_line_and_serve_give_sources_when_asked_and_python_s_document_othe
     assert_eq!(ask(&["--sources"]), json!(traced));
     assert!(traced.iter().any(|q| q.get("source").is_some()));
 
-    let mut server = specify_core::serve::Server::default();
-    let reply = |sources: Option<bool>, server: &mut specify_core::serve::Server| {
+    let mut server = specify_pmi::serve::Server::default();
+    let reply = |sources: Option<bool>, server: &mut specify_pmi::serve::Server| {
         let mut request = json!({"id": 1, "op": "questions", "analysis": analysis, "answers": {}});
         if let Some(s) = sources {
             request["sources"] = json!(s);

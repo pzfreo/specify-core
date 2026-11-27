@@ -34,7 +34,7 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 
 **One repository, one release.** Since 0.3.0 the browser UI, formerly
 [pzfreo/specify-ui](https://github.com/pzfreo/specify-ui), lives here in [ui/](ui/): the React
-components (`@draftwright/specify-ui`) and the local app that `specify-core open` and MCP `show`
+components (`@draftwright/specify-ui`) and the local app that `specify-pmi open` and MCP `show`
 serve. A `v*` release builds and publishes the engine, the command line, the WASM, the Python
 package and the UI together, at one version.
 The same channels publish pre-releases, with the npm packages under `next`. See
@@ -49,7 +49,7 @@ Text-to-CAD and code-first tools (build123d, cadgen) now let an AI produce a par
 - **Answers that survive regeneration.** Parts whose code names its faces keep their answers on the same faces when the model is rebuilt; Specify re-asks only about faces an edit touched ([docs/face-names.md](docs/face-names.md)).
 - **Changes a reviewer can trust.** `diff` explains what changed between two revisions in engineering terms, on every pull request with the GitHub action, so an agent's edits are reviewable.
 
-Call it from an agent through Python (`pip install specify-core`), the command line or the JSON-lines host process.
+Call it from an agent through Python (`pip install specify-pmi`), the command line or the JSON-lines host process.
 
 ## Ways to use it
 
@@ -58,15 +58,15 @@ One engine, one set of answers and files, whichever way you call it:
 | Use | Install | Guide |
 | --- | --- | --- |
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
-| **Command line** | `uv tool install specify-core` (or `pipx install specify-core`), a [release](https://github.com/pzfreo/specify-core/releases) binary, `cargo install specify-core`, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
-| **Python** | `pip install specify-core` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
-| **Rust** | `specify-core = "0.2.1"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
-| **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
+| **Command line** | `uv tool install specify-pmi` (or `pipx install specify-pmi`), a [release](https://github.com/pzfreo/specify-pmi/releases) binary, `cargo install specify-pmi`, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
+| **Python** | `pip install specify-pmi` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-pmi-py/README.md) |
+| **Rust** | `specify-pmi = "0.2.1"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
+| **Browser** (WebAssembly) | `@draftwright/specify-pmi-wasm` (npm), or `specify-pmi-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **React components** (review, STEP diff) | `@draftwright/specify-ui` (npm) | [ui/README.md](ui/README.md) |
-| **Local app** (the page `open`/`show` serve) | built into the command (release binaries, wheels, crate): nothing to install | [ui/README.md](ui/README.md#the-local-app-specify-core-open-or-an-agents-show), [docs/open.md](docs/open.md) |
-| **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
-| **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-core mcp` (stdio) or `specify-core mcp --http` | [docs/mcp.md](docs/mcp.md) |
-| **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
+| **Local app** (the page `open`/`show` serve) | built into the command (release binaries, wheels, crate): nothing to install | [ui/README.md](ui/README.md#the-local-app-specify-pmi-open-or-an-agents-show), [docs/open.md](docs/open.md) |
+| **Host process** (JSON lines) | `specify-pmi serve` | [below](#host-process) |
+| **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-pmi mcp` (stdio) or `specify-pmi mcp --http` | [docs/mcp.md](docs/mcp.md) |
+| **GitHub pull requests** | `uses: pzfreo/specify-pmi/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
 
 [draftwright.io/specify](https://draftwright.io/specify) and
 [draftwright.io/diff](https://draftwright.io/diff) run the WebAssembly build in the browser.
@@ -84,10 +84,10 @@ The flow is the same everywhere:
 ### Command line
 
 ```bash
-specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
-specify-core questions plate.analysis.json --open                # what is still unanswered
+specify-pmi analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
+specify-pmi questions plate.analysis.json --open                # what is still unanswered
 echo '{"fill":{"part.material":"6082-T6","hole.function:holes:9":"fit:H7"},"accept_suggestions":["part.general_tolerance"]}' > edits.json
-specify-core write plate.step edits.json -o plate-pmi.step
+specify-pmi write plate.step edits.json -o plate-pmi.step
 ```
 
 `write STEP EDITS.json` applies the list in place to the PMI, then writes the result to the chosen
@@ -100,7 +100,7 @@ gaps under `missing`. To revise a stated value, send the value you saw as `expec
 
 ```bash
 echo '{"change":{"part.material":{"to":"7075-T6","expect":"6082-T6"}}}' > change.json
-specify-core write plate-pmi.step change.json -o plate-revised.step
+specify-pmi write plate-pmi.step change.json -o plate-revised.step
 ```
 
 An equal fill on a decided-none row is unchanged. To replace its value, send `clear`
@@ -111,23 +111,23 @@ Exit codes:
 - **1:** a write that didn't verify, or a file that can't be read.
 - **2:** an edit was refused or the command arguments are invalid.
 
-`specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
+`specify-pmi mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
 for a face picker. Add `--max-deviation-mm 0.05` to request a measured chordal
 bound in mm; the result includes `max_deviation_mm` and `achieved_deviation_mm`.
 The corresponding serve request field, Python keyword and WASM snapshot argument
 are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 
 `-o -` writes `analyse`'s or `mesh`'s JSON to stdout (the summary goes to stderr), for a pipe:
-`specify-core analyse plate.step -o - | jq '.features[].family'`.
+`specify-pmi analyse plate.step -o - | jq '.features[].family'`.
 
-`specify-core open plate.step` opens the file in Specify in your browser, served by the
+`specify-pmi open plate.step` opens the file in Specify in your browser, served by the
 command itself on 127.0.0.1. Your STEP file stays on your computer. The command
 holds the answers given in the page; Specify's Save writes them (what is answered, even with
 questions still open; the defaults only when you choose "with defaults") into
 `plate.specified.step` next to the input (then `plate.specified-2.step`, …; later saves
 update the copy the run wrote, and nothing else is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps the
 original once as `plate.step.bak`, and `--read-only` refuses answer changes and saves.
-`specify-core open --diff old.step new.step` shows what changed beside the new revision,
+`specify-pmi open --diff old.step new.step` shows what changed beside the new revision,
 opened as `open new.step` opens it; Save writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
 The app (built from [ui/](ui/) in this repository) and its engine are built into the command,
@@ -140,7 +140,7 @@ See [docs/open.md](docs/open.md).
 **With an AI agent.** Add Specify to your agent once, as a stdio MCP server:
 
 ```sh
-claude mcp add specify -- specify-core mcp
+claude mcp add specify -- specify-pmi mcp
 ```
 
 The agent opens the part, answers what you tell it, and calls `show` to open the same Specify
@@ -150,20 +150,20 @@ appear in the page as it makes them. Either side saves. `show` uses the same ass
 assets. See
 [docs/session.md](docs/session.md) and [docs/mcp.md](docs/mcp.md).
 
-**Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
+**Shell completion.** `specify-pmi completions SHELL` prints a completion script for `bash`,
 `zsh`, `fish`, `powershell` or `elvish`:
 
 ```sh
-specify-core completions bash > ~/.local/share/bash-completion/completions/specify-core
-mkdir -p ~/.zfunc && specify-core completions zsh > ~/.zfunc/_specify-core
+specify-pmi completions bash > ~/.local/share/bash-completion/completions/specify-pmi
+mkdir -p ~/.zfunc && specify-pmi completions zsh > ~/.zfunc/_specify-pmi
 # zsh: add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc, then restart zsh
-specify-core completions fish > ~/.config/fish/completions/specify-core.fish
+specify-pmi completions fish > ~/.config/fish/completions/specify-pmi.fish
 ```
 
 ### Python
 
 ```python
-from specify_core import api
+from specify_pmi import api
 
 analysis = api.analyse("plate.step")
 
@@ -180,7 +180,7 @@ print(report.written)       # ['material 6082-T6', 'Ø8 H7 on holes:9', ...]
 print(report.retired)       # characteristic numbers retired by a change or a remove
 ```
 
-The other functions are listed in the [package README](crates/specify-core-py/README.md):
+The other functions are listed in the [package README](crates/specify-pmi-py/README.md):
 - `parts` and `load`, for assemblies and reading a file once;
 - `preview` and `apply`;
 - `check_edits`;
@@ -195,7 +195,7 @@ The other functions are listed in the [package README](crates/specify-core-py/RE
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, part, writer};
+use specify_pmi::{api, part, writer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let loaded = part::load(Path::new("plate.step"), None)?;
@@ -233,11 +233,11 @@ An assembly is specified a part at a time. `parts` lists its distinct parts. A p
 twice has one definition and two placements. `analyse`, `mesh` and `write` take a part index.
 
 ```bash
-specify-core parts asm.step
-specify-core analyse asm.step --part 0 -o plate.json
-specify-core analyse asm.step --part 1 -o pin.json
-specify-core write asm.step plate-edits.json --part 0 -o plate-specified.step
-specify-core write plate-specified.step pin-edits.json --part 1 -o out.step
+specify-pmi parts asm.step
+specify-pmi analyse asm.step --part 0 -o plate.json
+specify-pmi analyse asm.step --part 1 -o pin.json
+specify-pmi write asm.step plate-edits.json --part 0 -o plate-specified.step
+specify-pmi write plate-specified.step pin-edits.json --part 1 -o out.step
 ```
 
 Each edit list applies to the selected part. Every other part and placement keeps its records.
@@ -249,14 +249,14 @@ the model, draws the change, and lists the requirements added, removed and chang
 two annotated files. It reads only the PMI in the two files.
 
 ```bash
-specify-core diff old.step new.step -o changes
+specify-pmi diff old.step new.step -o changes
 ```
 
 Carry fills the new revision’s gaps wherever it can, retains characteristic numbers where
 available, and reports requirements that need review or could not carry. See [docs/carry.md](docs/carry.md).
 
 ```bash
-specify-core carry old.step new.step -o new.specified.step
+specify-pmi carry old.step new.step -o new.specified.step
 ```
 
 `changes/` gets:
@@ -277,47 +277,47 @@ To post the review on every pull request that changes a STEP file, add the
 [STEP diff action](step-diff/README.md):
 
 ```yaml
-      - uses: pzfreo/specify-core/step-diff@main
+      - uses: pzfreo/specify-pmi/step-diff@main
 ```
 
 [pzfreo/step-diff-demo](https://github.com/pzfreo/step-diff-demo) is a working example.
 
 ## Install the command line
 
-The quickest route is the Python package, whose `specify-core` command is the same engine. It
+The quickest route is the Python package, whose `specify-pmi` command is the same engine. It
 needs no Rust toolchain, and every release is published to PyPI:
 
 ```bash
-uv tool install specify-core      # or: pipx install specify-core
-uv tool upgrade specify-core      # later, for a new release
+uv tool install specify-pmi      # or: pipx install specify-pmi
+uv tool upgrade specify-pmi      # later, for a new release
 ```
 
-Each [release](https://github.com/pzfreo/specify-core/releases) has the command line for Linux
+Each [release](https://github.com/pzfreo/specify-pmi/releases) has the command line for Linux
 (x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
 ```bash
 v=v0.2.1; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
-gh release download $v -R pzfreo/specify-core -p "specify-core-$v-$t.tar.gz*"
-shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
-./specify-core-$v-$t/specify-core --help
+gh release download $v -R pzfreo/specify-pmi -p "specify-pmi-$v-$t.tar.gz*"
+shasum -a 256 -c specify-pmi-$v-$t.tar.gz.sha256 && tar -xzf specify-pmi-$v-$t.tar.gz
+./specify-pmi-$v-$t/specify-pmi --help
 ```
 
-On Windows, the `.zip` holds `specify-core.exe`. With a Rust toolchain, `cargo install specify-core`
+On Windows, the `.zip` holds `specify-pmi.exe`. With a Rust toolchain, `cargo install specify-pmi`
 builds it from crates.io (the crate carries the app and engine). To build from a checkout with the
 toolchain in `rust-toolchain.toml`, run `cargo build --release`, which produces
-`target/release/specify-core`; build the WASM and the app first (`wasm-pack build
-crates/specify-core-wasm --target web --profile wasm-release --locked`, then `npm ci && npm run
+`target/release/specify-pmi`; build the WASM and the app first (`wasm-pack build
+crates/specify-pmi-wasm --target web --profile wasm-release --locked`, then `npm ci && npm run
 build:app` in `ui/`) to build them in, or `open` asks for `--app` ([docs/open.md](docs/open.md#where-the-app-and-the-engine-come-from)).
 Release binaries carry a build provenance attestation: `gh attestation verify
-specify-core-$v-$t.tar.gz --repo pzfreo/specify-core`.
+specify-pmi-$v-$t.tar.gz --repo pzfreo/specify-pmi`.
 
 ## Host process
 
-`specify-core serve` answers JSON requests, one per line on stdin, with one reply per line on
+`specify-pmi serve` answers JSON requests, one per line on stdin, with one reply per line on
 stdout. Each request carries everything it needs, so a restarted process loses nothing.
 
 ```bash
-echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
+echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-pmi serve
 ```
 
 - **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write`.
@@ -352,7 +352,7 @@ The design and how each part is verified are in [docs/design.md](docs/design.md)
 
 Specify began as a port of the Python implementation, now archived as
 [specify-core-python](https://github.com/pzfreo/specify-core-python). It still reads the files
-that implementation wrote. The `specify-core` Python package is now this engine; see
+that implementation wrote. The `specify-pmi` Python package is now this engine; see
 [docs/python.md](docs/python.md).
 
 ## More
@@ -369,7 +369,7 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 | [docs/open.md](docs/open.md) | the local app's contract with `open` and `show` |
 | [docs/mcp.md](docs/mcp.md) | the MCP server for LLM clients |
 | [docs/library.md](docs/library.md) | the Rust API |
-| [crates/specify-core-py/README.md](crates/specify-core-py/README.md) | the Python package |
+| [crates/specify-pmi-py/README.md](crates/specify-pmi-py/README.md) | the Python package |
 | [step-diff/README.md](step-diff/README.md) | the pull request action |
 | [docs/part-notes.md](docs/part-notes.md) | part notes in the STEP file |
 | [docs/process.md](docs/process.md) | how a part is made (`part.process`) and its defaults |
@@ -390,12 +390,12 @@ with `QUIDDITY_CORPUS_REQUIRED=1`, which fails when the corpus or a captured inp
 Set it locally to require the same. The UI's tests run on the in-repo WASM build and command:
 
 ```bash
-wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
 (cd ui && npm ci && npm run fetch:wasm && npm run build:app)
-cargo build --release --bin specify-core       # with the app and engine built in
+cargo build --release --bin specify-pmi       # with the app and engine built in
 cd ui && npm test
-SPECIFY_CORE=../target/release/specify-core npm run test:app   # the local app, in Chromium
-SPECIFY_CORE=../target/release/specify-core SPECIFY_APP_BUILT_IN=1 \
+SPECIFY_PMI=../target/release/specify-pmi npm run test:app   # the local app, in Chromium
+SPECIFY_PMI=../target/release/specify-pmi SPECIFY_APP_BUILT_IN=1 \
   sh -c 'node test/app-browser.mjs && node test/app-agent.mjs'  # the same, served from the command
 ```
 

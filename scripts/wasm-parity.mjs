@@ -5,11 +5,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
-import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js';
 import { storable } from './storable.mjs';
 
 const root = new URL('../', import.meta.url);
-const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
+const wasm = readFileSync(new URL('crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm', root));
 await init({ module_or_path: wasm });
 start();
 const executable = resolve(fileURLToPath(root), process.env.CARGO_TARGET_DIR ?? 'target', 'release/examples/parity_reference');

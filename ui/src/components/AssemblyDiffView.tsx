@@ -13,7 +13,7 @@ export interface AssemblyRow {
 }
 export interface StepFile { name: string; bytes: Uint8Array }
 
-// The picture's colours (specify-core's revision::picture): a part that changed, was placed a
+// The picture's colours (specify-pmi's revision::picture): a part that changed, was placed a
 // different number of times or moved in orange, one added in green, the rest grey, and one
 // removed a red ghost where it was.
 const COLOUR: Record<string, string> = { changed: '#e07a00', quantity: '#e07a00', moved: '#e07a00', added: '#0a8f3d', removed: '#d62929' };

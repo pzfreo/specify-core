@@ -2,7 +2,7 @@
 //! See fixtures/text-to-cad/pmi_plate/PROVENANCE.md and docs/face-names.md.
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
-use specify_core::{api, features, part, resume, rules};
+use specify_pmi::{api, features, part, resume, rules};
 use std::path::Path;
 
 const TOP: &str = "f:pmi_plate.body_make_box1.6;M:pmi_plate.body";
@@ -129,7 +129,7 @@ fn assert_round_trip(
     assert_eq!(stored["schema"], 3);
     assert_eq!(stored["face_names"], json!(original.face_names));
     // ADR P11: stored are the answers that leave no PMI; the file states the rest.
-    let kept = specify_core::feature_table::storable(answers);
+    let kept = specify_pmi::feature_table::storable(answers);
     assert_eq!(stored["answers"], json!(kept));
     assert_eq!(resume::answers_for(written).unwrap(), Some(kept));
 
@@ -469,7 +469,7 @@ fn cadgen_semantic_pmi_reads_once_with_its_basics() {
     );
 
     // The general tolerance is stated once, as the file's.
-    let scene = specify_core::pmi_scene::pmi_scene(&p.bytes, None).unwrap();
+    let scene = specify_pmi::pmi_scene::pmi_scene(&p.bytes, None).unwrap();
     let meta = scene["specify"].as_object().unwrap();
     let general: Vec<_> = meta
         .values()

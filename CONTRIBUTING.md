@@ -36,15 +36,15 @@ Verify the registry settings in the [release checklist](RELEASING.md) before
 publishing any GitHub release or approving a rerun.
 
 1. For `0.3.0-rc.1`, set that version in the root, WASM and Python `Cargo.toml` files and
-   the two exact `specify-core` dependencies (`=0.3.0-rc.1`). Refresh `Cargo.lock`.
+   the two exact `specify-pmi` dependencies (`=0.3.0-rc.1`). Refresh `Cargo.lock`.
    Set the same SemVer version in `ui/package.json` and `ui/package-lock.json`.
-2. Set `crates/specify-core-py/pyproject.toml` to the PEP 440 version `0.3.0rc1`.
+2. Set `crates/specify-pmi-py/pyproject.toml` to the PEP 440 version `0.3.0rc1`.
 3. Once the version commit is on main and `ci.yml` has passed on it, tag it `v0.3.0-rc.1`
    and publish a GitHub release marked **pre-release**. Use the pre-release flag for every
    tag with a SemVer pre-release suffix. A final tag requires a full GitHub release.
 4. After the usual environment approvals, the release workflows attach the CLI binaries and
    WASM archive, publish `0.3.0-rc.1` to crates.io and `0.3.0rc1` to PyPI, and publish
-   `@draftwright/specify-core-wasm` and `@draftwright/specify-ui` at `0.3.0-rc.1` under
+   `@draftwright/specify-pmi-wasm` and `@draftwright/specify-ui` at `0.3.0-rc.1` under
    npm's `next` dist-tag. Use `@next` to select a pre-release. A plain `npm install` of
    either package continues to select the stable version under `latest`.
 

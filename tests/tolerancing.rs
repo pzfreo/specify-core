@@ -3,8 +3,8 @@
 
 mod common;
 
-use specify_core::api;
-use specify_core::tolerancing::{self, Mode, State};
+use specify_pmi::api;
+use specify_pmi::tolerancing::{self, Mode, State};
 
 #[test]
 fn a_part_settles_to_the_default_path_and_gdt_gives_its_answers_back() {

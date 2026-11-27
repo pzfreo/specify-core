@@ -9,9 +9,9 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{self, LoadError};
-use specify_core::writer::{self, WriteError};
+use specify_pmi::api;
+use specify_pmi::part::{self, LoadError};
+use specify_pmi::writer::{self, WriteError};
 
 fn fixture(name: &str) -> PathBuf {
     common::fixtures()
@@ -22,7 +22,7 @@ fn fixture(name: &str) -> PathBuf {
 /// A fresh directory for one test.
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-bytes-api-tests")
+        .join("specify-pmi-bytes-api-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -95,7 +95,7 @@ fn bytes_in_bytes_out_match_the_file_writer_fresh() {
 /// A fit changed on the written file is identical through both edit-list entry points.
 #[test]
 fn bytes_in_bytes_out_match_the_file_writer_resumed() {
-    use specify_core::{characteristics, edits, existing};
+    use specify_pmi::{characteristics, edits, existing};
     use writer::apply::{apply_bytes, apply_to};
 
     let dir = temp("parity-resumed");

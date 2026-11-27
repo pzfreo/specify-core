@@ -23,13 +23,13 @@ use haecceity::pmi::{
     SimpleDatumModifier, ToleranceModifier, ZoneForm,
 };
 use serde_json::{Map, Value, json};
-use specify_core::part::{LoadedPart, load};
-use specify_core::rules::Intent;
-use specify_core::writer::{requirement_kinds, write};
+use specify_pmi::part::{LoadedPart, load};
+use specify_pmi::rules::Intent;
+use specify_pmi::writer::{requirement_kinds, write};
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-readback-tests")
+        .join("specify-pmi-readback-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -402,7 +402,7 @@ fn written(dir: &Path, name: &str, intent: &Intent) -> Result<Value, String> {
     let out = dir.join(format!("{}.step", name.replace([':', ' ', ','], "_")));
     write(&plate(), intent, &out, None).map_err(|e| format!("not written: {e:?}"))?;
     let loaded = load(&out, None).unwrap();
-    specify_core::api::analyse(&loaded).map_err(|e| format!("not analysed: {e:?}"))
+    specify_pmi::api::analyse(&loaded).map_err(|e| format!("not analysed: {e:?}"))
 }
 
 #[test]
@@ -480,12 +480,12 @@ fn every_kind_the_writer_writes_reads_back_whole() {
 }
 
 fn edit_and_read(loaded: &LoadedPart, edits: Value) -> (Value, Value) {
-    let edits = specify_core::edits::parse_value(edits).unwrap();
-    let result = specify_core::writer::apply::apply(loaded, &edits)
+    let edits = specify_pmi::edits::parse_value(edits).unwrap();
+    let result = specify_pmi::writer::apply::apply(loaded, &edits)
         .unwrap_or_else(|failures| panic!("refused {edits:?}: {failures:?}"));
     let report = result.to_dict();
-    let reopened = specify_core::part::load_bytes("edited.step", result.bytes).unwrap();
-    (specify_core::api::analyse(&reopened).unwrap(), report)
+    let reopened = specify_pmi::part::load_bytes("edited.step", result.bytes).unwrap();
+    (specify_pmi::api::analyse(&reopened).unwrap(), report)
 }
 
 fn existing_except(analysis: &Value, text: &Value) -> Vec<Value> {
@@ -520,7 +520,7 @@ fn removing_each_writer_kind_preserves_other_requirements_on_its_carrier() {
     let path = dir.join("all.step");
     write(&plate, &intent, &path, None).unwrap();
     let loaded = load(&path, None).unwrap();
-    let before = specify_core::api::analyse(&loaded).unwrap();
+    let before = specify_pmi::api::analyse(&loaded).unwrap();
     let table = &before["table"];
     let all = table["rows"]
         .as_array()
@@ -722,17 +722,17 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
             thread["faces"] = json!(faces);
             intent.requirements.push(object(thread));
         }
-        let (bytes, _) = specify_core::writer::write_bytes(part, &intent, None).unwrap();
-        let loaded = specify_core::part::load_bytes("change.step", bytes).unwrap();
-        let before = specify_core::api::analyse(&loaded).unwrap();
+        let (bytes, _) = specify_pmi::writer::write_bytes(part, &intent, None).unwrap();
+        let loaded = specify_pmi::part::load_bytes("change.step", bytes).unwrap();
+        let before = specify_pmi::api::analyse(&loaded).unwrap();
         let row = before["table"]["rows"]
             .as_array()
             .unwrap()
             .iter()
             .find(|r| r["id"] == row_id)
             .unwrap_or_else(|| panic!("{kind}: no {row_id}"));
-        let parsed: specify_core::feature_table::Row = serde_json::from_value(row.clone()).unwrap();
-        let expect = specify_core::edits::stated_value(&parsed);
+        let parsed: specify_pmi::feature_table::Row = serde_json::from_value(row.clone()).unwrap();
+        let expect = specify_pmi::edits::stated_value(&parsed);
         let old = &row["requirements"][0]["text"];
         let (after, report) = edit_and_read(
             &loaded,
@@ -772,7 +772,7 @@ fn a_seeded_thread_shares_the_foreign_ctc04_position_carrier() {
         None,
     )
     .unwrap();
-    let foreign = specify_core::api::analyse(&loaded).unwrap();
+    let foreign = specify_pmi::api::analyse(&loaded).unwrap();
     let position = find(&foreign, "geometric_tolerance", "Position", json!([27, 28]));
     assert_eq!(position["text"], "⌖ ⌀0.35 A B C");
     assert!(position["provenance"].is_null());
@@ -784,21 +784,21 @@ fn a_seeded_thread_shares_the_foreign_ctc04_position_carrier() {
             "class":"6H", "hand":"RH", "drill_diameter":14.0, "through":true
         }),
     ))];
-    let (seeded, _) = specify_core::writer::write_bytes(&loaded, &intent, None).unwrap();
-    let seeded = specify_core::part::load_bytes("ctc04.step", seeded).unwrap();
-    let before = specify_core::api::analyse(&seeded).unwrap();
+    let (seeded, _) = specify_pmi::writer::write_bytes(&loaded, &intent, None).unwrap();
+    let seeded = specify_pmi::part::load_bytes("ctc04.step", seeded).unwrap();
+    let before = specify_pmi::api::analyse(&seeded).unwrap();
     let thread = find(&before, "note", "internal thread", json!([27, 28]));
     assert_eq!(thread["text"], "M16×2-6H THRU");
     let number = thread["number"].as_u64().unwrap();
     let removal = format!("#{number}");
-    let list = specify_core::edits::parse_value(json!({"items":{"remove":[removal]}})).unwrap();
-    let saved = specify_core::writer::apply::apply(&seeded, &list).unwrap();
+    let list = specify_pmi::edits::parse_value(json!({"items":{"remove":[removal]}})).unwrap();
+    let saved = specify_pmi::writer::apply::apply(&seeded, &list).unwrap();
     let report = saved.to_dict();
     assert_eq!(report["written"], json!([format!("removed {removal}")]));
     assert_eq!(report["not_written"], json!([]));
     assert_eq!(report["retired"], json!([number]));
-    let reopened = specify_core::part::load_bytes("ctc04.saved.step", saved.bytes).unwrap();
-    let after = specify_core::api::analyse(&reopened).unwrap();
+    let reopened = specify_pmi::part::load_bytes("ctc04.saved.step", saved.bytes).unwrap();
+    let after = specify_pmi::api::analyse(&reopened).unwrap();
     assert_eq!(
         existing_except(&after, &Value::Null),
         existing_except(&before, &thread["text"])
@@ -826,7 +826,7 @@ fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread()
     let path =
         common::fixtures().join("../../ui/test/fixtures/19-spindle-semantic-links-only.step.gz");
     let spindle = load(&path, None).unwrap();
-    let before = specify_core::api::analyse(&spindle).unwrap();
+    let before = specify_pmi::api::analyse(&spindle).unwrap();
     let previous = json!("⌖ ⌀0.2 A");
     let current = json!("⌖ ⌀0.1 A");
     let (changed, report) = edit_and_read(
@@ -861,7 +861,7 @@ fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread()
     // Both basics already locate the tapped hole. Changing only its frame must not report
     // those implicit planner rows, even when one is shared with the clearance pattern.
     let plate = plate();
-    let given = specify_core::edits::parse_value(json!({
+    let given = specify_pmi::edits::parse_value(json!({
         "fill": {
             "hole.function:holes:12": "tapped:M5",
             "hole.position:holes:12": "0.25",
@@ -873,8 +873,8 @@ fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread()
         ]
     }))
     .unwrap();
-    let seeded = specify_core::writer::apply::apply(&plate, &given).unwrap();
-    let seeded = specify_core::part::load_bytes("plate.step", seeded.bytes).unwrap();
+    let seeded = specify_pmi::writer::apply::apply(&plate, &given).unwrap();
+    let seeded = specify_pmi::part::load_bytes("plate.step", seeded.bytes).unwrap();
     let (after, report) = edit_and_read(
         &seeded,
         json!({"change":{"hole.position:holes:12":{"to":"0.1","expect":"0.25"}}}),
@@ -913,7 +913,7 @@ fn removing_a_position_preserves_the_nist_ctc04_thread() {
     let path = dir.join("ctc04.step");
     write(&loaded, &intent, &path, None).unwrap();
     let loaded = load(&path, None).unwrap();
-    let before = specify_core::api::analyse(&loaded).unwrap();
+    let before = specify_pmi::api::analyse(&loaded).unwrap();
     let thread = find(&before, "note", "internal thread", json!([11]));
     assert_eq!(thread["text"], "M16×2-6H THRU");
     let position = find(&before, "geometric_tolerance", "Position", json!([11]));
@@ -961,7 +961,7 @@ fn the_datums_and_part_settings_read_back_whole() {
             json!(["first", "second"]),
         ),
     ];
-    for key in specify_core::rules::NOTES {
+    for key in specify_pmi::rules::NOTES {
         assert!(
             settings.iter().any(|(k, _, _)| *k == key),
             "no read-back case for the part note {key}"
@@ -1221,14 +1221,14 @@ fn other_tools_pmi_reads_back_whole() {
     for gz in nist_files() {
         let name = gz.file_name().unwrap().to_string_lossy().to_string();
         let path = decompressed(&gz);
-        let count = specify_core::part::load_all(&path)
+        let count = specify_pmi::part::load_all(&path)
             .map(|p| p.len())
             .unwrap_or(1);
         for part in 0..count {
             let Ok(loaded) = load(&path, (count > 1).then_some(part)) else {
                 continue;
             };
-            let reading = specify_core::existing::read(&loaded).unwrap();
+            let reading = specify_pmi::existing::read(&loaded).unwrap();
             let p = reading.model();
             let existing: Vec<Value> = reading
                 .existing(&loaded)
@@ -1257,7 +1257,7 @@ fn other_tools_pmi_reads_back_whole() {
                 // Numbers as the display shows them: float noise and trailing zeros trimmed.
                 let facts: Vec<String> = facts
                     .iter()
-                    .map(|f| specify_core::existing::clean_numbers(f))
+                    .map(|f| specify_pmi::existing::clean_numbers(f))
                     .collect();
                 for fact in &facts {
                     if !text.contains(fact.as_str()) {
@@ -1287,7 +1287,7 @@ fn other_tools_pmi_reads_back_whole() {
 
 fn analysed(path: &Path) -> Value {
     let loaded = load(path, None).unwrap();
-    specify_core::api::analyse(&loaded).unwrap()
+    specify_pmi::api::analyse(&loaded).unwrap()
 }
 
 fn find<'a>(analysis: &'a Value, kind: &str, r#type: &str, faces: Value) -> &'a Value {
@@ -1356,7 +1356,7 @@ fn the_spindles_stated_pmi_reads_back_whole() {
 #[test]
 fn another_tools_modifiers_and_zones_read_back_whole() {
     let path = decompressed(&common::fixtures().join("nist/nist_ftc_09_asme1_ap242-e1.stp.gz"));
-    let analysis = specify_core::api::analyse(&load(&path, Some(0)).unwrap()).unwrap();
+    let analysis = specify_pmi::api::analyse(&load(&path, Some(0)).unwrap()).unwrap();
     let on = |kind: &str, faces: Value| find(&analysis, "geometric_tolerance", kind, faces);
     let mmc = on("Position", json!([18, 19, 22, 23]));
     assert_eq!(mmc["text"], "⌖ ⌀0.016Ⓜ A B C", "{mmc}");
@@ -1417,7 +1417,7 @@ fn another_tools_modifiers_and_zones_read_back_whole() {
 fn stated_text_reads_as_a_drawing_does() {
     let texts = |name: &str| -> Vec<(Value, String)> {
         let path = decompressed(&common::fixtures().join(format!("nist/{name}.stp.gz")));
-        let analysis = specify_core::api::analyse(&load(&path, None).unwrap()).unwrap();
+        let analysis = specify_pmi::api::analyse(&load(&path, None).unwrap()).unwrap();
         analysis["existing"]
             .as_array()
             .unwrap()

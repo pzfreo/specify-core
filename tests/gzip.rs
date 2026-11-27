@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use specify_core::{part, resume};
+use specify_pmi::{part, resume};
 
 fn fixture(stem: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -40,7 +40,7 @@ fn scratch(name: &str, stem: &str) -> (PathBuf, PathBuf, PathBuf) {
 
 /// Runs the binary with `args`: exit code, stdout, stderr.
 fn run(args: &[&Path]) -> (i32, Vec<u8>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();
@@ -188,7 +188,7 @@ fn serve_reads_a_gzipped_file_as_the_plain_one() {
             );
         }
     }
-    let mut child = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("serve")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

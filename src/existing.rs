@@ -16,11 +16,11 @@
 //! - **One datum per letter and set of faces**, including datums no tolerance references
 //!   (OpenCascade's reader builds datums only through the tolerances that cite them).
 //! - **No OpenCascade artefacts.** Presentation read as a dimension (`DimensionPresentation`,
-//!   specify-core's own thread callouts) is not reported; it states no size.
+//!   specify-pmi's own thread callouts) is not reported; it states no size.
 //!
 //! The type names are OpenCascade's (`XCAFDimTolObjects_DimensionType` and
 //! `XCAFDimTolObjects_GeomToleranceType` without their prefixes), because they are part of the
-//! analysis JSON specify-core's rules read (`Size_*`, `Location*`, `Position`, ...).
+//! analysis JSON specify-pmi's rules read (`Size_*`, `Location*`, `Position`, ...).
 //!
 //! Notes: threads and knurls haecceity reads semantically (`thread`, `turned_knurl`), and the
 //! notes specify-core (Python) writes by its own text route, which haecceity does not report as
@@ -45,7 +45,7 @@ use crate::part::LoadedPart;
 use crate::provenance;
 use crate::pyfmt::round_half_even;
 
-/// The notes specify-core writes on faces by its text route, by the name of their
+/// The notes specify-pmi writes on faces by its text route, by the name of their
 /// `GEOMETRIC_ITEM_SPECIFIC_USAGE` (Python's `existing._NOTE`).
 pub const NOTE_KINDS: [&str; 5] = [
     "internal thread",
@@ -755,7 +755,7 @@ impl Reading {
             if key == "notes" {
                 continue; // Free-text part notes have only the semantic attribute form.
             }
-            // The finish as specify-core writes it now, and as it was written before it took
+            // The finish as specify-pmi writes it now, and as it was written before it took
             // Draftwright's form.
             let kinds: &[&str] = if key == "surface_finish" {
                 &[kind, "general surface texture"]
@@ -1012,7 +1012,7 @@ pub(crate) fn general_notes(pmi: &PartPmi) -> Vec<String> {
 }
 
 /// The notes on the part's faces (Python's `existing.notes`), one per kind with every face it
-/// is on: specify-core's text route read from the document (in file order), then the threads
+/// is on: specify-pmi's text route read from the document (in file order), then the threads
 /// and knurls haecceity reads semantically.
 fn notes(
     loaded: &LoadedPart,
@@ -1621,7 +1621,7 @@ pub fn readable_type(r#type: &str) -> String {
     out
 }
 
-/// A surface texture of one roughness in micrometres as specify-core states a finish
+/// A surface texture of one roughness in micrometres as specify-pmi states a finish
 /// (`Ra 3.2`); `None` for any other.
 fn finish_words(t: &pmi::SurfaceTexture) -> Option<String> {
     let [p] = t.parameters.as_slice() else {

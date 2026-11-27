@@ -1,7 +1,7 @@
 # Carrying requirements to a new revision
 
 ```bash
-specify-core carry old.step new.step -o new.specified.step
+specify-pmi carry old.step new.step -o new.specified.step
 ```
 
 `carry` copies an annotated revision's requirements onto a new revision of the geometry, file
@@ -128,7 +128,7 @@ refused.
 ```
 
 MCP has the same as the `carry` tool (`old`, `new`, `output`, `overwrite?`); Rust has
-`specify_core::carry::carry` and `carry_bytes`.
+`specify_pmi::carry::carry` and `carry_bytes`.
 
 Not in this release: the three-way carry (`--base`, the old file as received, so a requirement
 the upstream designer removed is not brought back and is reported "removed upstream"), and carry

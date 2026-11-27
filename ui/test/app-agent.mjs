@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
-// The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
+// The local app as an agent uses it (specify-pmi docs/session.md): `specify-pmi mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
 // answer the agent gives while the page is open triggers "Updated by your agent" and enters the
 // pending bar. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
@@ -17,13 +17,13 @@ import { mcp } from './mcp-client.mjs';
 // serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
 //
-//   SPECIFY_CORE      the specify-core binary with `mcp`'s `show` (specify-core open-session).
+//   SPECIFY_PMI      the specify-pmi binary with `mcp`'s `show` (specify-pmi open-session).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent).
-//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
+//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_PMI (ADR P12) instead
 //                     of setting SPECIFY_APP_DIR=dist-app and SPECIFY_WASM_DIR.
 //   SHOTS             a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
-const cli = process.env.SPECIFY_CORE ?? 'specify-core';
+const cli = process.env.SPECIFY_PMI ?? process.env.SPECIFY_CORE ?? 'specify-pmi';
 const app = resolve('dist-app');
 const wasm = resolve(process.env.SPECIFY_WASM_DIR ?? 'public/wasm/intent');
 const shots = process.env.SHOTS;
@@ -200,7 +200,7 @@ try {
     agent.stop();
     await check(page.locator('.app-offline')).toContainText('reconnecting', { timeout: 10_000 });
     const stopped = page.locator('.app-stopped');
-    await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
+    await check(stopped).toHaveText(`Specify has stopped. Run specify-pmi open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toHaveCount(0);
     await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');

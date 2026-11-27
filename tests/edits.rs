@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
-use specify_core::edits::{self, EditList, FileState, KindState, MemoryState, Number, Requirement};
+use specify_pmi::edits::{self, EditList, FileState, KindState, MemoryState, Number, Requirement};
 
 fn stated(value: Value) -> KindState {
     KindState::Stated { value }
@@ -412,7 +412,7 @@ fn a_file_state_is_used_through_the_trait() {
 }
 
 fn cli(args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();

@@ -6,13 +6,13 @@ import { basename, join, resolve } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
-// The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
+// The local app (dist-app, `npm run build:app`) served by the real `specify-pmi open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
 // and shows the editor's review screens (SpecifyReview, on the 0.3 engine through app/adapter.ts):
 // what the file states as answered items "(from the file)" with a pencil and a bin, a gap as a
 // suggestion card or a field. Answers given there (a suggestion kept, a value chosen or typed, a
 // stated item changed or removed) are listed in the bar and written together by Save (session API 2,
-// `POST save {rev, edits}`), all or nothing, or dropped by Discard; `specify-core analyse` reads back
+// `POST save {rev, edits}`), all or nothing, or dropped by Discard; `specify-pmi analyse` reads back
 // what the saved file states. Save writes
 // part.specified.step beside it even with questions open, saying which; the file reopens with what was
 // saved stated; read-only has no Save; an assembly's part edits save together. With
@@ -22,14 +22,14 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 // the command's event streams all taken, the page says it gets no live updates, and catches up
 // when it gets one. Nothing is requested from anywhere but 127.0.0.1. `npm run test:app`.
 //
-//   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs the session
+//   SPECIFY_PMI  the specify-pmi binary (default: specify-pmi on PATH); it needs the session
 //                 contract, API 2 (`GET answers`, `POST save {rev, edits}`, `open --diff`).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent, from `npm run fetch:wasm`).
-//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
+//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_PMI (ADR P12) instead
 //                 of passing --app dist-app --wasm SPECIFY_WASM_DIR (the release's check).
 //   SHOTS         a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
-const cli = process.env.SPECIFY_CORE ?? 'specify-core';
+const cli = process.env.SPECIFY_PMI ?? process.env.SPECIFY_CORE ?? 'specify-pmi';
 const app = resolve('dist-app');
 const wasm = wasmDirectory;
 const shots = process.env.SHOTS;
@@ -40,7 +40,7 @@ const lengthIds = [
 if (shots) mkdirSync(shots, { recursive: true });
 const builtIn = process.env.SPECIFY_APP_BUILT_IN === '1';
 if (!builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
-assert.ok(existsSync(join(wasm, 'specify_core_wasm.js')), 'the engine is fetched (npm run fetch:wasm)');
+assert.ok(existsSync(join(wasm, 'specify_pmi_wasm.js')), 'the engine is fetched (npm run fetch:wasm)');
 /** The command's app and engine: its own, or dist-app and the engine directory. */
 const assetArgs = builtIn ? [] : ['--app', app, '--wasm', wasm];
 const assetEnv = builtIn ? { ...process.env, SPECIFY_APP_DIR: '', SPECIFY_WASM_DIR: '' } : process.env;
@@ -59,7 +59,7 @@ const plainSave = join(saves, 'part.specified.step');
 const edited = join(saves, 'part.specified-2.step');
 const second = join(saves, 'part.specified-3.step');
 
-/** `specify-core open` on ``files`` (one, `--diff` and two, or `[]` for empty): its address once it prints it, and a way to stop it. */
+/** `specify-pmi open` on ``files`` (one, `--diff` and two, or `[]` for empty): its address once it prints it, and a way to stop it. */
 const servers = [];
 async function open(file, ...flags) {
   const opts = flags.length && typeof flags.at(-1) === 'object' ? flags.pop() : {};
@@ -73,7 +73,7 @@ async function open(file, ...flags) {
     await new Promise(r => setTimeout(r, 50));
   }
   const url = out.match(/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//)?.[0];
-  assert.ok(url, `specify-core open printed its address: ${out}`);
+  assert.ok(url, `specify-pmi open printed its address: ${out}`);
   return { url, origin: new URL(url).origin, output: () => out, stop: () => child.kill() };
 }
 
@@ -277,7 +277,7 @@ async function save(page, server, n) {
 let first = null;
 /** The feature-and-kinds the first two saves list: each is in the file after it, stated or decided none. */
 const listed = ['part.heat_treatment', 'part.material', 'hole.position:holes:14.15', 'hole.position:holes:13', 'datum.A', 'part.coating'];
-/** `specify-core analyse` of ``file``: what Specify reads from it (its PMI as characteristics, the answers stored). */
+/** `specify-pmi analyse` of ``file``: what Specify reads from it (its PMI as characteristics, the answers stored). */
 /** The answers a person gave: Specify's own `_` records left out. */
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
 const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
@@ -1452,7 +1452,7 @@ try {
     await context.close();
     server.stop();
   }
-  // `specify-core open` without a file: opens the empty viewer with a drop target / file picker,
+  // `specify-pmi open` without a file: opens the empty viewer with a drop target / file picker,
   // refuses a .step.gz expanding past 64 MiB without consuming the upload, then picks the tracked
   // GRM-01 fixture (.step.gz) on the same page, shows the review, and saves into the working dir.
   {

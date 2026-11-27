@@ -1,5 +1,5 @@
 //! Existing PMI and part settings (`src/existing.rs`, port of `existing.py`), checked against
-//! specify-core.
+//! specify-pmi.
 //!
 //! Ports the reading parts of `tests/test_merge.py` (what the file states is read; datums on a
 //! set of faces, NIST CTC-01) and of `tests/test_mmc_finish_notes.py` (the part's notes and a
@@ -19,8 +19,8 @@ use common::{
     Case, Difference, Tolerances, case, cases, check_known, compare, corpus_dir, is_error,
 };
 use serde_json::{Map, Value, json};
-use specify_core::existing::{self, ExistingPmi};
-use specify_core::part::{self, LoadedPart};
+use specify_pmi::existing::{self, ExistingPmi};
+use specify_pmi::part::{self, LoadedPart};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -55,7 +55,7 @@ fn datums_on_a_set_of_faces_are_read() {
 }
 
 /// test_only_a_part_with_pmi_is_merged / test_what_the_file_states_is_not_asked_again: a bare
-/// part states nothing; the plate as specify-core wrote it states its datums, material,
+/// part states nothing; the plate as specify-pmi wrote it states its datums, material,
 /// general tolerance and part notes.
 #[test]
 fn what_a_written_file_states_is_read() {
@@ -99,8 +99,8 @@ fn the_parts_notes_and_a_face_finish_are_read_back() {
     let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("notes-plate.step");
     const SCRIPT: &str = r#"
 import sys
-from specify_core.api import analyse, apply, write
-from specify_core.rules import questions
+from specify_pmi.api import analyse, apply, write
+from specify_pmi.rules import questions
 plate, out = sys.argv[1], sys.argv[2]
 analysis = analyse(plate)
 bore = next(q.id for q in questions(analysis, {}) if q.id.startswith("hole.function") and "Ø8" in q.prompt)
@@ -122,13 +122,13 @@ print(top["id"])
         .arg(fixture("plate.step"))
         .arg(&out)
         .output()
-        .expect("run specify-core's venv");
+        .expect("run specify-pmi's venv");
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The last line is the top face's index (specify-core may print before it).
+    // The last line is the top face's index (specify-pmi may print before it).
     let stdout = String::from_utf8_lossy(&output.stdout);
     let top: usize = stdout
         .lines()
@@ -392,7 +392,7 @@ fn solid_edge_lost_datum_is_unresolved_in_existing_and_cli_output() {
         unresolved[0].detail,
         "datum B is not read: what establishes it does not resolve"
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let output = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("analyse")
         .arg(&path)
         .arg("-o")
@@ -420,7 +420,7 @@ fn basic_dimensions_are_marked_basic_in_existing_and_the_scene() {
         assert!(d.value.is_some());
         assert_eq!((d.upper, d.lower, d.limits), (None, None, None));
     }
-    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let analysis = specify_pmi::api::analyse(&loaded).unwrap();
     let records = analysis["existing"].as_array().unwrap();
     assert_eq!(
         records.iter().filter(|d| d["basic"] == json!(true)).count(),
@@ -432,7 +432,7 @@ fn basic_dimensions_are_marked_basic_in_existing_and_the_scene() {
             .iter()
             .all(|d| d.get("basic").is_none() || d["basic"] == json!(true))
     );
-    let scene = specify_core::pmi_scene::pmi_scene(&loaded.bytes, None).unwrap();
+    let scene = specify_pmi::pmi_scene::pmi_scene(&loaded.bytes, None).unwrap();
     let framed = scene["specify"]
         .as_object()
         .unwrap()

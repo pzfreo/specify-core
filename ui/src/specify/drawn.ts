@@ -2,7 +2,7 @@
 // the parts the Specify view uses, and refused with a reason otherwise. Pure, no three.js or DOM.
 //
 // What is drawn comes from haecceity as it is: polylines, filled triangles and text, never
-// notation formatted here. It comes with Specify's pmiScene (specify-core 0.1.5): the presentation,
+// notation formatted here. It comes with Specify's pmiScene (specify-pmi 0.1.5): the presentation,
 // the haecceity.pmi/1 document whose features give each item's faces, and Specify's overlay, which
 // gives each item's status and question.
 
@@ -889,7 +889,7 @@ function readStepOrigin(raw: unknown): PartOrigin | undefined {
 }
 
 /**
- * Specify's pmiScene (`{pmi, presentation, specify}`, specify-core 0.1.5) as the view draws it:
+ * Specify's pmiScene (`{pmi, presentation, specify}`, specify-pmi 0.1.5) as the view draws it:
  * the presentation, and each presented item's faces with its status and question from `specify`.
  */
 export function drawnFromScene(scene: unknown): Read<DrawnPmi> {

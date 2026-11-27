@@ -33,7 +33,7 @@ let part: number | undefined;
 
 // 'review' previews defaults as suggestions, marking unanswered intent items as defaults and keeping
 // their questions open; nothing is written. 'review-given' and 'review-analysis-given' review only
-// the answers supplied. Writing is an edit list applied by specify-core (its session's Save, or the
+// the answers supplied. Writing is an edit list applied by specify-pmi (its session's Save, or the
 // engine's `edit`), never here.
 // The loaded engine module, for its free functions.
 let globalModule: IntentModule | undefined;
@@ -63,14 +63,14 @@ function markDefaults<T>(review: T, answers: Record<string, unknown>): T {
 
 let modulePromise: Promise<IntentModule> | undefined;
 // Where the Specify WASM glue is, when the host serves its own (a `{ wasmUrl }` message before any
-// work). Otherwise the dependency @draftwright/specify-core-wasm, which the host's bundler resolves;
+// work). Otherwise the dependency @draftwright/specify-pmi-wasm, which the host's bundler resolves;
 // its glue finds its .wasm beside it (new URL(..., import.meta.url)).
 let configuredUrl: string | undefined;
 function load() {
   modulePromise ??= (async () => {
     const module: IntentModule = configuredUrl
       ? await import(/* @vite-ignore */ configuredUrl)
-      : await import('@draftwright/specify-core-wasm') as unknown as IntentModule;
+      : await import('@draftwright/specify-pmi-wasm') as unknown as IntentModule;
     await module.default();
     return module;
   })();
@@ -114,7 +114,7 @@ self.onmessage = ({ data }) => {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
         } else if (operation === 'scene') {
-          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). When `exact` is set,
+          // The PMI as drawn for the review state (specify-pmi 0.1.5 pmiScene). When `exact` is set,
           // pass the review state as given so un-asked length/location defaults do not alter stacking
           // relative to the saved STEP.
           let scene: Record<string, unknown>;
@@ -157,8 +157,8 @@ self.onmessage = ({ data }) => {
       } else if (operation === 'opened') {
         result = JSON.parse(module.openedTolerancing(JSON.stringify(args.state), args.resume && JSON.stringify(args.resume)));
       } else if (operation === 'diff') {
-        // Two revisions of a part compared, as `specify-core diff` compares them; with ``scenes``,
-        // the two PMI scenes it compared too (`report.pmi.scenes`, specify-core 0.1.7).
+        // Two revisions of a part compared, as `specify-pmi diff` compares them; with ``scenes``,
+        // the two PMI scenes it compared too (`report.pmi.scenes`, specify-pmi 0.1.7).
         result = JSON.parse(module.diff(args.oldName, args.old, args.newName, args.new, args.title, args.scenes === true));
       } else if (operation === 'interpret') {
         result = JSON.parse(module.interpret(

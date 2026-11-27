@@ -1,5 +1,5 @@
-// The page's side of the `specify-core open` contract (specify-core docs/open.md): the page server
-// started by `specify-core open` or by the MCP server's `show`. Every URL is relative: the app is
+// The page's side of the `specify-pmi open` contract (specify-pmi docs/open.md): the page server
+// started by `specify-pmi open` or by the MCP server's `show`. Every URL is relative: the app is
 // served under `http://127.0.0.1:<port>/<token>/`, never at `/`.
 import type { PmiAnswers } from '../src/types/pmi';
 import { requireSessionApi } from './session-api.ts';
@@ -8,7 +8,7 @@ export type Mode = 'specify' | 'read-only' | 'diff';
 
 /** `GET config`. */
 export interface LocalConfig {
-  /** Session API version; absent in specify-core 0.2.0. */
+  /** Session API version; absent in specify-pmi 0.2.0. */
   api?: number;
   mode: Mode;
   /** The file's name (NEW's in diff mode), or null before a file is picked in the page. */
@@ -72,10 +72,10 @@ async function json<T>(request: Promise<Response>): Promise<T> {
 /** Whether Specify opens a file of this name: `.step` or `.stp`, or either gzipped. */
 export const isStepName = (name: string) => /\.(step|stp)(\.gz)?$/i.test(name);
 
-/** The largest STEP file accepted (matches specify-core `input::STEP_LIMIT` / `open::MAX_OPEN_BODY`). */
+/** The largest STEP file accepted (matches specify-pmi `input::STEP_LIMIT` / `open::MAX_OPEN_BODY`). */
 export const MAX_OPEN_BYTES = 64 * 1024 * 1024;
 
-/** Upload a STEP file picked or dropped into an empty `specify-core open` page. */
+/** Upload a STEP file picked or dropped into an empty `specify-pmi open` page. */
 export async function openFile(file: File): Promise<LocalConfig> {
   if (file.size === 0) throw new Error('the STEP file is empty');
   if (file.size > MAX_OPEN_BYTES) throw new Error(`larger than ${MAX_OPEN_BYTES} bytes`);
@@ -107,7 +107,7 @@ export async function getFile(rev: 'old' | 'new' | 'saved' = 'new'): Promise<Blo
 
 export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: 'no-store' }));
 
-/** An edit list (specify-core docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
+/** An edit list (specify-pmi docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
  * value meaning none records "decided: none"), ``change`` what the file states (``expect``: the value
  * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``, ``clear``
  * a stored decision. */
@@ -148,7 +148,7 @@ export const discardAnswers = (rev: number, target?: { part: number; id: string 
   }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes
- * (specify-core docs/open.md): a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`;
+ * (specify-pmi docs/open.md): a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`;
  * the scenes are `report.pmi.scenes` (an assembly's, each compared part's). */
 export interface DiffBody { report: unknown; markdown: string; view?: unknown; parts?: unknown[] }
 export const getDiff = () => json<DiffBody>(fetch('diff', { cache: 'no-store' }));

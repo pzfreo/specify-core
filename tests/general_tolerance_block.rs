@@ -9,9 +9,9 @@ use std::path::Path;
 use haecceity::p21::Document;
 use haecceity::pmi::{self, CellValue, GeneralTolerance, LengthUnit, PartPmi, Quantity};
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{LoadedPart, load, load_bytes};
-use specify_core::writer::WriteReport;
+use specify_pmi::api;
+use specify_pmi::part::{LoadedPart, load, load_bytes};
+use specify_pmi::writer::WriteReport;
 
 fn map(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
@@ -35,7 +35,7 @@ fn half_shell() -> LoadedPart {
 /// questions and all.
 fn save(loaded: &LoadedPart, answers: &Map<String, Value>) -> (LoadedPart, WriteReport) {
     let applied =
-        specify_core::writer::apply::apply(loaded, &specify_core::edits::from_answers(answers))
+        specify_pmi::writer::apply::apply(loaded, &specify_pmi::edits::from_answers(answers))
             .unwrap_or_else(|f| panic!("refused: {f:#?}"));
     (
         load_bytes("saved.step", applied.bytes).unwrap(),
@@ -44,7 +44,7 @@ fn save(loaded: &LoadedPart, answers: &Map<String, Value>) -> (LoadedPart, Write
 }
 
 fn pmi_of(loaded: &LoadedPart) -> PartPmi {
-    specify_core::existing::read(loaded)
+    specify_pmi::existing::read(loaded)
         .unwrap()
         .model()
         .clone()
@@ -348,8 +348,8 @@ fn as_another_tool(bytes: &[u8]) -> Vec<u8> {
         t.description = None;
     }
     copied.attributes.retain(|set| {
-        !specify_core::resume::is_answers(set)
-            && set.name != specify_core::characteristics::PROPERTY
+        !specify_pmi::resume::is_answers(set)
+            && set.name != specify_pmi::characteristics::PROPERTY
     });
     let doc = Document::parse(plate().bytes.to_vec()).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
@@ -372,7 +372,7 @@ fn foreign_plate() -> LoadedPart {
     let part = plate();
     let analysis = api::analyse(&part).unwrap();
     let intent = api::preview(&analysis, &answers).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&part, &intent, None).unwrap();
     let other = as_another_tool(&bytes);
     load_bytes("foreign.step", with_foreign_table(&other)).unwrap()
 }
@@ -391,8 +391,8 @@ fn none_needed_is_only_for_a_file_that_states_none() {
     // refused, all or nothing, naming it, so nothing of the table moves (with the whole-intent
     // writer it was written as nothing, listed in not_written).
     let part = foreign_plate();
-    let list = specify_core::edits::from_answers(&map(json!({"part.general_tolerance": "none"})));
-    let failures = specify_core::writer::apply::apply(&part, &list).unwrap_err();
+    let list = specify_pmi::edits::from_answers(&map(json!({"part.general_tolerance": "none"})));
+    let failures = specify_pmi::writer::apply::apply(&part, &list).unwrap_err();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert_eq!(failures[0].entry, r#"none["part.general_tolerance"]"#);
     assert!(
@@ -406,12 +406,12 @@ fn none_needed_is_only_for_a_file_that_states_none() {
 #[test]
 fn a_change_replaces_the_table_and_keeps_every_other_entity() {
     let part = foreign_plate();
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
     intent
         .part
         .insert("general_tolerance".into(), json!(".XX ±.01, angles ±1°"));
     // A raw intent never replaces what the file states (ADR P11): it is refused.
-    let refused = specify_core::writer::write_bytes(&part, &intent, None).unwrap_err();
+    let refused = specify_pmi::writer::write_bytes(&part, &intent, None).unwrap_err();
     assert!(
         refused
             .to_string()
@@ -420,7 +420,7 @@ fn a_change_replaces_the_table_and_keeps_every_other_entity() {
     );
     // The edit list's explicit change does.
     let (bytes, report) =
-        specify_core::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
+        specify_pmi::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
     let saved = load_bytes("changed.step", bytes).unwrap();
     assert_eq!(
         general_row(&saved),
@@ -519,7 +519,7 @@ fn issue_228_surface_finish_can_be_none_needed_or_a_gap() {
 #[test]
 fn a_block_typed_in_one_line_is_shown_back_for_checking() {
     let options = ["ISO 2768-m"];
-    let shown = specify_core::choices::interpret(
+    let shown = specify_pmi::choices::interpret(
         "part.general_tolerance",
         ".XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°",
         &options,
@@ -529,7 +529,7 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
     .unwrap();
     assert_eq!(shown, ".XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°");
     // The issue's own spelling.
-    let shown = specify_core::choices::interpret(
+    let shown = specify_pmi::choices::interpret(
         "part.general_tolerance",
         ".XXX ±.005 in, angular ±1°",
         &options,
@@ -539,7 +539,7 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
     .unwrap();
     assert_eq!(shown, ".XXX ±.005 · angles ±1°");
     // The decimal line is typed PMI and the rest is kept verbatim in a note.
-    let shown = specify_core::choices::interpret(
+    let shown = specify_pmi::choices::interpret(
         "part.general_tolerance",
         ".XX ±.01, three places ±.005",
         &options,
@@ -560,7 +560,7 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
         ),
     ] {
         let e =
-            specify_core::choices::interpret("part.general_tolerance", typed, &options, None, None)
+            specify_pmi::choices::interpret("part.general_tolerance", typed, &options, None, None)
                 .unwrap_err();
         assert!(
             e.0.contains(typed.split(',').next_back().unwrap().trim()) && e.0.contains(why),
@@ -569,7 +569,7 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
         assert!(!e.0.contains("Choose one of"), "{typed}: {e}");
     }
     // An answers file may hold it in the spelling typed.
-    specify_core::choices::check(
+    specify_pmi::choices::check(
         "part.general_tolerance",
         &json!(".XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°"),
         &options,
@@ -588,12 +588,12 @@ fn a_class_changed_to_a_block_is_replaced_and_the_same_block_is_not_written_twic
         &map(json!({"part.general_tolerance": "ISO 2768-m"})),
     );
     let mut intent =
-        specify_core::rules::Intent::new(serde_json::to_value(&classed.binding).unwrap());
+        specify_pmi::rules::Intent::new(serde_json::to_value(&classed.binding).unwrap());
     intent
         .part
         .insert("general_tolerance".into(), json!("X.X ±0.2, X.XX ±0.05"));
     let (bytes, _) =
-        specify_core::writer::write_bytes_changing_general_tolerance(&classed, &intent, None)
+        specify_pmi::writer::write_bytes_changing_general_tolerance(&classed, &intent, None)
             .unwrap();
     let changed = load_bytes("changed.step", bytes).unwrap();
     let p = pmi_of(&changed);
@@ -604,11 +604,11 @@ fn a_class_changed_to_a_block_is_replaced_and_the_same_block_is_not_written_twic
         ("stated".into(), json!("X.X ±0.2 · X.XX ±0.05"))
     );
     let mut intent =
-        specify_core::rules::Intent::new(serde_json::to_value(&changed.binding).unwrap());
+        specify_pmi::rules::Intent::new(serde_json::to_value(&changed.binding).unwrap());
     intent
         .part
         .insert("general_tolerance".into(), json!("X.X ±0.2, X.XX ±0.05"));
-    let (again, report) = specify_core::writer::write_bytes(&changed, &intent, None).unwrap();
+    let (again, report) = specify_pmi::writer::write_bytes(&changed, &intent, None).unwrap();
     assert!(
         report.warnings.iter().any(|w| w.contains("already stated")),
         "{:?}",
@@ -630,9 +630,9 @@ fn a_raw_intent_never_replaces_a_stated_general_tolerance() {
         let (part, _) = save(&plate(), &map(json!({"part.general_tolerance": stated})));
         for other in ["ISO 2768-c", "X.X ±0.2", "±0.3 mm"] {
             let mut intent =
-                specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+                specify_pmi::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
             intent.part.insert("general_tolerance".into(), json!(other));
-            let e = specify_core::writer::write_bytes(&part, &intent, None).unwrap_err();
+            let e = specify_pmi::writer::write_bytes(&part, &intent, None).unwrap_err();
             assert!(
                 e.to_string().contains("already states general tolerance"),
                 "{stated} then {other}: {e}"
@@ -651,7 +651,7 @@ fn a_change_replaces_only_the_table_and_its_note() {
     let answers =
         map(json!({"part.material": "steel", "part.general_tolerance": ".XX ±.01, angles ±1°"}));
     let first = api::preview(&api::analyse(&bare).unwrap(), &answers).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&bare, &first, None).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&bare, &first, None).unwrap();
     let part = load_bytes("block.step", bytes).unwrap();
     let doc = Document::parse(part.bytes.to_vec()).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
@@ -710,12 +710,12 @@ fn a_change_replaces_only_the_table_and_its_note() {
             });
         }
     }
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
     intent
         .part
         .insert("general_tolerance".into(), json!("X.X ±0.2"));
     let (bytes, _) =
-        specify_core::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
+        specify_pmi::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
     let after = Document::parse(bytes.clone()).unwrap();
     let saved = load_bytes("changed.step", bytes).unwrap();
     let q = pmi_of(&saved);
@@ -780,7 +780,7 @@ fn an_explicit_unit_is_kept_in_either_files_unit() {
         ),
     ];
     for (part, typed, unit, value, row) in cases {
-        let canonical = specify_core::choices::interpret(
+        let canonical = specify_pmi::choices::interpret(
             "part.general_tolerance",
             typed,
             &["ISO 2768-m"],
@@ -790,9 +790,9 @@ fn an_explicit_unit_is_kept_in_either_files_unit() {
         .unwrap();
         assert_eq!(canonical, typed, "the unit stays in the canonical text");
         let mut intent =
-            specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+            specify_pmi::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
         intent.part.insert("general_tolerance".into(), json!(typed));
-        let (bytes, report) = specify_core::writer::write_bytes(part, &intent, None).unwrap();
+        let (bytes, report) = specify_pmi::writer::write_bytes(part, &intent, None).unwrap();
         let saved = load_bytes("unit.step", bytes).unwrap();
         assert_eq!(
             cells(&pmi_of(&saved)),
@@ -813,25 +813,25 @@ fn an_explicit_unit_is_kept_in_either_files_unit() {
 #[test]
 fn an_edit_list_change_replaces_iso_2768_m_with_a_block() {
     let bare = plate();
-    let fill = specify_core::edits::parse_value(json!({"fill": {
+    let fill = specify_pmi::edits::parse_value(json!({"fill": {
         "part.material": "steel",
         "part.general_tolerance": "ISO 2768-m",
         "hole.function:holes:9": "fit:H7",
     }}))
     .unwrap();
     let first =
-        specify_core::writer::apply::apply(&bare, &fill).unwrap_or_else(|f| panic!("{f:#?}"));
+        specify_pmi::writer::apply::apply(&bare, &fill).unwrap_or_else(|f| panic!("{f:#?}"));
     let part = load_bytes("iso.step", first.bytes.clone()).unwrap();
     assert_eq!(general_row(&part), ("stated".into(), json!("ISO 2768-m")));
     let before = pmi_of(&part);
     let is_class = |g: &GeneralTolerance| matches!(g, GeneralTolerance::Class { .. });
     assert!(before.general.iter().any(is_class), "{:?}", before.general);
-    let change = specify_core::edits::parse_value(json!({"change": {
+    let change = specify_pmi::edits::parse_value(json!({"change": {
         "part.general_tolerance": {"to": ".XX ±.01, angles ±1°", "expect": "ISO 2768-m"}
     }}))
     .unwrap();
     let applied =
-        specify_core::writer::apply::apply(&part, &change).unwrap_or_else(|f| panic!("{f:#?}"));
+        specify_pmi::writer::apply::apply(&part, &change).unwrap_or_else(|f| panic!("{f:#?}"));
     let saved = load_bytes("block.step", applied.bytes.clone()).unwrap();
     assert_eq!(
         general_row(&saved),
@@ -847,7 +847,7 @@ fn an_edit_list_change_replaces_iso_2768_m_with_a_block() {
     assert_eq!(after.material, before.material);
     assert_eq!(after.dimensions, before.dimensions);
     // Every characteristic keeps its number and its record.
-    let numbers = |l: &LoadedPart| specify_core::characteristics::read(l).unwrap();
+    let numbers = |l: &LoadedPart| specify_pmi::characteristics::read(l).unwrap();
     assert_eq!(numbers(&saved), numbers(&part));
     // Only the old general tolerance (what it reaches and what describes it) and the Notes view
     // that draws the notes change: every other entity, Specify's number record included, keeps
@@ -934,7 +934,7 @@ fn cli_changes_general_tolerance_on_one_assembly_part() {
     let edits = dir.join("edits.json");
     let cli = |input: &Path, part: &str, list: Value, out: &Path| {
         std::fs::write(&edits, list.to_string()).unwrap();
-        let ran = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let ran = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("write")
             .arg(input)
             .arg(&edits)
@@ -969,7 +969,7 @@ fn cli_changes_general_tolerance_on_one_assembly_part() {
         json!({"change":{"part.general_tolerance":{"to":".XX ±.01","expect":"ISO 2768-m"}}}),
         &changed,
     );
-    let selected = specify_core::part::load(&changed, Some(0)).unwrap();
+    let selected = specify_pmi::part::load(&changed, Some(0)).unwrap();
     assert_eq!(general_row(&selected), ("stated".into(), json!(".XX ±.01")));
     let before = Document::parse(std::fs::read(&classed).unwrap()).unwrap();
     let after = Document::parse(std::fs::read(&changed).unwrap()).unwrap();
@@ -991,7 +991,7 @@ fn typed_general_tolerance_replays_and_matches_both_expect_spellings() {
     const TYPED: &str = ".XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°";
     const DISPLAY: &str = ".XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°";
     let apply = |loaded: &LoadedPart, list: Value| {
-        specify_core::writer::apply::apply(loaded, &specify_core::edits::parse_value(list).unwrap())
+        specify_pmi::writer::apply::apply(loaded, &specify_pmi::edits::parse_value(list).unwrap())
             .unwrap()
     };
     let fill = |text: &str| json!({"fill":{"part.general_tolerance":text}});
@@ -1024,11 +1024,11 @@ fn typed_general_tolerance_replays_and_matches_both_expect_spellings() {
 
 #[test]
 fn free_text_round_trips_in_the_general_tolerance_note() {
-    let list = specify_core::edits::parse_value(json!({
+    let list = specify_pmi::edits::parse_value(json!({
         "fill":{"part.general_tolerance":".XX ±.01, Break all sharp edges"}
     }))
     .unwrap();
-    let saved = specify_core::writer::apply::apply(&plate(), &list).unwrap();
+    let saved = specify_pmi::writer::apply::apply(&plate(), &list).unwrap();
     let reopened = load_bytes("note.step", saved.bytes).unwrap();
     assert_eq!(
         general_row(&reopened),
@@ -1037,15 +1037,15 @@ fn free_text_round_trips_in_the_general_tolerance_note() {
     let pmi = pmi_of(&reopened);
     assert_eq!(cells(&pmi).len(), 1);
     assert_eq!(note(&pmi).as_deref(), Some("Break all sharp edges"));
-    let replayed = specify_core::writer::apply::apply(&reopened, &list).unwrap();
+    let replayed = specify_pmi::writer::apply::apply(&reopened, &list).unwrap();
     assert!(replayed.unchanged);
     assert!(replayed.report.written.is_empty());
 
-    let list = specify_core::edits::parse_value(json!({
+    let list = specify_pmi::edits::parse_value(json!({
         "fill":{"part.general_tolerance":".XX ±.01, three places ±.005"}
     }))
     .unwrap();
-    let saved = specify_core::writer::apply::apply(&plate(), &list).unwrap();
+    let saved = specify_pmi::writer::apply::apply(&plate(), &list).unwrap();
     assert!(
         saved
             .report

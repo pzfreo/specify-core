@@ -8,8 +8,8 @@ mod common;
 use std::io::Read;
 
 use serde_json::{Value, json};
-use specify_core::pyfmt;
-use specify_core::standards::{
+use specify_pmi::pyfmt;
+use specify_pmi::standards::{
     self, CLEARANCE, PITCH, TAP_DRILL, clearance_bolts, fit_limits, full_thread,
     largest_bolt_below, match_size, thread_size,
 };
@@ -288,7 +288,7 @@ fn iso286_equals_pythons() {
     common::check_known("iso286", &differences);
 }
 
-/// Q8 end to end: a part with a Ø600 hole is asked about it with fits offered (specify-core with
+/// Q8 end to end: a part with a Ø600 hole is asked about it with fits offered (specify-pmi with
 /// ISO 286 to 500 mm only, as at cc341dd, failed the whole question list there), and each fit is
 /// described with its ISO 286 limits. The plate's captured analysis, its Ø8 hole made Ø600.
 #[test]
@@ -304,7 +304,7 @@ fn a_600_mm_hole_is_offered_fits_with_their_limits() {
         .expect("the plate's Ø8 hole");
     assert_eq!(hole["record"]["diameter"], json!(8.0));
     hole["record"]["diameter"] = json!(600.0);
-    let questions = specify_core::rules::questions(&analysis, &serde_json::Map::new()).unwrap();
+    let questions = specify_pmi::rules::questions(&analysis, &serde_json::Map::new()).unwrap();
     let question = questions
         .iter()
         .find(|q| q.feature.as_deref() == Some("holes:9") && q.prompt.contains("Ø600"))

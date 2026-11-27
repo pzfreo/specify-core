@@ -1,6 +1,6 @@
 //! Face triangulation, the local stand-in until haecceity meshes faces (upstream need U4).
 //!
-//! specify-core meshes with OpenCascade's `BRepMesh_IncrementalMesh`; haecceity has no
+//! specify-pmi meshes with OpenCascade's `BRepMesh_IncrementalMesh`; haecceity has no
 //! triangulation. Each face is triangulated here in its surface's parameter space:
 //!
 //! 1. The face's boundary loops come from haecceity ([`Part::uv_loops`]: unwrapped across

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Turn wasm-pack's `pkg/` into the npm package `@draftwright/specify-core-wasm`.
+"""Turn wasm-pack's `pkg/` into the npm package `@draftwright/specify-pmi-wasm`.
 
-The release asset `specify-core-wasm-<version>.tgz` is wasm-pack's output plus the repository's
+The release asset `specify-pmi-wasm-<version>.tgz` is wasm-pack's output plus the repository's
 NOTICE (release.yml copies it in), and hosts fetch and verify it. The npm package is that same
 `pkg/` with only `package.json` changed: the scoped name, `publishConfig` and `NOTICE` in `files` (npm always packs LICENSE
-and README, but not NOTICE). The module files (`specify_core_wasm.js`, the `.wasm` and the
+and README, but not NOTICE). The module files (`specify_pmi_wasm.js`, the `.wasm` and the
 declarations) are not touched.
 
     python3 tools/npm_package.py <pkg dir> [--version X.Y.Z] [--check-pack]
@@ -20,17 +20,17 @@ import pathlib
 import subprocess
 import sys
 
-NAME = "@draftwright/specify-core-wasm"
-REPOSITORY = "https://github.com/pzfreo/specify-core"
+NAME = "@draftwright/specify-pmi-wasm"
+REPOSITORY = "https://github.com/pzfreo/specify-pmi"
 LICENSE = "Apache-2.0"
-MODULE_FILES = ["specify_core_wasm_bg.wasm", "specify_core_wasm.js", "specify_core_wasm.d.ts"]
+MODULE_FILES = ["specify_pmi_wasm_bg.wasm", "specify_pmi_wasm.js", "specify_pmi_wasm.d.ts"]
 LEGAL_FILES = ["LICENSE", "NOTICE"]
 
 
 def prepare(pkg: pathlib.Path, version: str | None = None) -> dict:
     path = pkg / "package.json"
     meta = json.loads(path.read_text(encoding="utf-8"))
-    if meta.get("name") not in ("specify-core-wasm", NAME):
+    if meta.get("name") not in ("specify-pmi-wasm", NAME):
         raise SystemExit(f"{path}: unexpected package name {meta.get('name')!r}")
     if version is not None and meta.get("version") != version:
         raise SystemExit(f"{path}: version {meta.get('version')!r}, expected {version!r}")

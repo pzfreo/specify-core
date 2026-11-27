@@ -33,8 +33,8 @@ is absent otherwise. A basic dimension has no `upper`/`lower` of its own. Scene 
 (`specify[id]`) carries the same `basic: true` for a basic dimension, and diff words add
 ` (basic)`.
 
-`specify-core-wasm` is a workspace member in `crates/specify-core-wasm`. The root remains
-`specify-core`, with its existing CLI and tests; the default workspace member is the root,
+`specify-pmi-wasm` is a workspace member in `crates/specify-pmi-wasm`. The root remains
+`specify-pmi`, with its existing CLI and tests; the default workspace member is the root,
 so ordinary `cargo build` and `cargo test` retain their scope. The binding is a `cdylib`
 (and an `rlib` for native verification). It calls the same core rules, geometry and verified
 PMI writer as native Specify; there is no copied writer.
@@ -42,15 +42,15 @@ PMI writer as native Specify; there is no copied writer.
 ## Install a release
 
 Each published GitHub release whose tag starts with `v` gets
-`specify-core-wasm-<version>.tgz` and `specify-core-wasm-<version>.tgz.sha256`. The archive
+`specify-pmi-wasm-<version>.tgz` and `specify-pmi-wasm-<version>.tgz.sha256`. The archive
 contains `pkg/`: the web ES module, `.wasm`, TypeScript declarations, package metadata,
 README, LICENSE and NOTICE (from 0.1.18). The same files are on npm as
-[`@draftwright/specify-core-wasm`](https://www.npmjs.com/package/@draftwright/specify-core-wasm)
+[`@draftwright/specify-pmi-wasm`](https://www.npmjs.com/package/@draftwright/specify-pmi-wasm)
 (from 0.1.17), with only `package.json` renamed to the scope; the module is still
-`specify_core_wasm.js`:
+`specify_pmi_wasm.js`:
 
 ```sh
-npm install @draftwright/specify-core-wasm@0.2.1
+npm install @draftwright/specify-pmi-wasm@0.2.1
 ```
 
 To use the release archive instead, pin an exact release and verify the archive before
@@ -58,8 +58,8 @@ extracting it:
 
 ```sh
 version=0.2.1 # choose a release that includes the WASM assets
-archive="specify-core-wasm-${version}.tgz"
-gh release download "v${version}" --repo pzfreo/specify-core \
+archive="specify-pmi-wasm-${version}.tgz"
+gh release download "v${version}" --repo pzfreo/specify-pmi \
   --pattern "$archive" --pattern "$archive.sha256"
 sha256sum -c "$archive.sha256" # macOS: shasum -a 256 -c "$archive.sha256"
 tar -xzf "$archive"
@@ -69,7 +69,7 @@ Serve the JS and WASM together (prefer `application/wasm` for the latter), retai
 filenames. Initialization fetches the `.wasm` beside the JS unless given an explicit URL:
 
 ```js
-import init, { IntentEngine, review, interpret } from './pkg/specify_core_wasm.js';
+import init, { IntentEngine, review, interpret } from './pkg/specify_pmi_wasm.js';
 await init();
 const engine = new IntentEngine('plate.step', new Uint8Array(await file.arrayBuffer()));
 try {
@@ -108,7 +108,7 @@ npm adds a trusted publisher from the package's settings, so the package's first
 (0.1.17) was published with a short-lived token. From 0.1.18 the job passes no token: it
 publishes only through the trusted publisher. The
 `npm` environment needs the maintainer as a required reviewer, and any branch policy must
-allow `v*` tags. The trusted publisher is: organization `pzfreo`, repository `specify-core`, workflow
+allow `v*` tags. The trusted publisher is: organization `pzfreo`, repository `specify-pmi`, workflow
 `release.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires
 unless it publishes within 2 days, so add it shortly before the next release.
 
@@ -120,22 +120,22 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | Export | Behaviour |
 | --- | --- |
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. An assembly, or a part placed more than once, is opened with `IntentEngine.openPart`. |
-| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether the part has an embedded answers payload. Under P11 a PMI-only edit can leave `written` false. `same_as` gives the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts, effective stated process (answer before file; none for bought parts or defaults), and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
+| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-pmi parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether the part has an embedded answers payload. Under P11 a PMI-only edit can leave `written` false. `same_as` gives the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts, effective stated process (answer before file; none for bought parts or defaults), and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
-| `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
+| `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-pmi bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, sources, problems}`; adds geometry anchors to `intent.anchors`. What a reopened file states is not asked (see "Reopening a file" below). |
 | `engine.table()` | The feature table (Specify 0.3.0, ADR P11), read from the file: `{rows, file_pmi, decided_none}`. Each row `{id, kind, feature, faces, state, value?, requirements?, suggestion?, open}`: `state` is `stated` (with the file's `value` and its `requirements`, each `{number?, kind, type, faces, text}`), `gap` (with Specify's `suggestion`, `null` when it has none) or `decided_none`. `file_pmi` lists the requirements on no recognised feature, each with its `id` (`file_pmi:#<entity>`, for `items.remove`). Row ids are question ids, and the ids an edit list names. |
-| `engine.checkEdits(editsJson)` | An edit list (or a 0.2 answers file) checked against this file, all or nothing, as `specify-core write STEP EDITS.json --check` checks it: `{well_formed, checked_against_file, applicable, entries, unchanged, failures: [{entry, reason}], written: false, message}`. Writes nothing; a list it passes is one `edit` applies, and one it refuses `edit` refuses with the same reasons. |
-| `engine.edit(editsJson, project?, payload?)` | An edit list (or a 0.2 answers file) applied to this file in memory, all or nothing, with the same writer as `specify-core write STEP EDITS.json`: `{written: true, bytes, report, source_sha256}`, `bytes` an array of byte values and `report` the writer's report with `retired` (the characteristic numbers the edit retired) and `unchanged` (the list changed nothing: the bytes are the file's own); or `{written: false, failures: [{entry, reason}], message}`, every entry that cannot be applied named, and nothing written. A refused or malformed list is a result, not a thrown error; only an oversized input throws. The engine is not changed: open the returned bytes to edit further. A part of an assembly (opened with `IntentEngine.openPart`) is edited in place: only that part changes, once however often it is placed; every other part and placement keeps its bytes. Its BOM is written with it: `fill` of `bom.<field>` (`bom.description`, `bom.make_buy`, …) with a value, or `accept_suggestions` of `bom.<field>` taking the BOM's suggestion; every part of the file is numbered when the BOM is written. On a file with no assembly structure a `bom.*` entry is refused (`bom_no_assembly`). `project` (the editor's base64 project, stored as `draftwright editor project`) or `payload` (`{name, value}` JSON), at most one, is carried with the record of the original part: it replaces what the file carried under that name, and the file is then always written; a plain edit keeps whatever the file carries. The edit list (`src/edits.rs`): `{fill: {id: value}, change: {id: {to, expect}}, items: {remove: ["#N", {"id": "<stated row or file_pmi:#entity>"}]}, none: [id], accept_suggestions: [id], clear: [id]}`; anything it does not mention is left alone. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). `items.change` is reserved and currently refused. A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. A 0.2 answers file whose `_specify.evidence` is from another revision is refused as stale (`_specify.evidence`). |
+| `engine.checkEdits(editsJson)` | An edit list (or a 0.2 answers file) checked against this file, all or nothing, as `specify-pmi write STEP EDITS.json --check` checks it: `{well_formed, checked_against_file, applicable, entries, unchanged, failures: [{entry, reason}], written: false, message}`. Writes nothing; a list it passes is one `edit` applies, and one it refuses `edit` refuses with the same reasons. |
+| `engine.edit(editsJson, project?, payload?)` | An edit list (or a 0.2 answers file) applied to this file in memory, all or nothing, with the same writer as `specify-pmi write STEP EDITS.json`: `{written: true, bytes, report, source_sha256}`, `bytes` an array of byte values and `report` the writer's report with `retired` (the characteristic numbers the edit retired) and `unchanged` (the list changed nothing: the bytes are the file's own); or `{written: false, failures: [{entry, reason}], message}`, every entry that cannot be applied named, and nothing written. A refused or malformed list is a result, not a thrown error; only an oversized input throws. The engine is not changed: open the returned bytes to edit further. A part of an assembly (opened with `IntentEngine.openPart`) is edited in place: only that part changes, once however often it is placed; every other part and placement keeps its bytes. Its BOM is written with it: `fill` of `bom.<field>` (`bom.description`, `bom.make_buy`, …) with a value, or `accept_suggestions` of `bom.<field>` taking the BOM's suggestion; every part of the file is numbered when the BOM is written. On a file with no assembly structure a `bom.*` entry is refused (`bom_no_assembly`). `project` (the editor's base64 project, stored as `draftwright editor project`) or `payload` (`{name, value}` JSON), at most one, is carried with the record of the original part: it replaces what the file carried under that name, and the file is then always written; a plain edit keeps whatever the file carries. The edit list (`src/edits.rs`): `{fill: {id: value}, change: {id: {to, expect}}, items: {remove: ["#N", {"id": "<stated row or file_pmi:#entity>"}]}, none: [id], accept_suggestions: [id], clear: [id]}`; anything it does not mention is left alone. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). `items.change` is reserved and currently refused. A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. A 0.2 answers file whose `_specify.evidence` is from another revision is refused as stale (`_specify.evidence`). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
 | `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` and `FILE_DESCRIPTION` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
 | `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
-| `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
+| `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_pmi::api::review`. |
 | `acceptDefaults(analysisJson, answersJson)` | Answers object with every unanswered default filled to a fixed point, for previews (showing what the defaults would be). Preserves supplied answers; questions without defaults stay unanswered. Nothing is written: a save writes only what an edit list names. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
-| `diff(oldName, oldBytes, newName, newBytes, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, from their geometry and PMI only (ADR P11); the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
+| `diff(oldName, oldBytes, newName, newBytes, title, scenes?)` | Two revisions of a part compared, as `specify-pmi diff` compares two files, from their geometry and PMI only (ADR P11); the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
 
 **Removed in 0.3.0.** `engine.writePmi` is replaced by `edit`. The free
@@ -222,7 +222,7 @@ exactly; both use `original()` first. Rewriting a file that records its original
 record forward, so `original()` remains the part first opened. A plain edit keeps the stored
 payload and original record. The WASM edit API limits JSON payload arguments to 8 MiB.
 `original()` returns `undefined` when the original cannot be reconstructed and verified.
-Core callers can use `specify_core::carried::{attributes, payload, original}`.
+Core callers can use `specify_pmi::carried::{attributes, payload, original}`.
 
 
 ## Assemblies
@@ -237,7 +237,7 @@ const parts = JSON.parse(IntentEngine.parts('assembly.step', bytes));
 const engine = IntentEngine.openPart('assembly.step', bytes, parts[1].part);
 ```
 
-The part is analysed as `specify-core analyse --part K` analyses it: in its own frame, with
+The part is analysed as `specify-pmi analyse --part K` analyses it: in its own frame, with
 its mates against the file's other parts (read from the same bytes), and its snapshot, review,
 `settle`, `evidence` and `rematchAnswers` are that part’s. `edit` applies one list to the
 selected part’s definition. The returned bytes contain the whole assembly, with every other
@@ -348,12 +348,12 @@ Install wasm-pack 0.15.0 and the WASM target:
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack --version 0.15.0 --locked
-wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
 python3 tools/check_wasm_api.py
 python3 tools/wasm_size.py
 python3 tools/check_quiddity_pin.py
 python3 -m unittest discover -s tools -p 'test_*.py'
-cargo build --locked --release -p specify-core-wasm --example parity_reference
+cargo build --locked --release -p specify-pmi-wasm --example parity_reference
 node scripts/wasm-parity.mjs
 node scripts/wasm-hostile.mjs
 node scripts/wasm-limits.mjs
@@ -375,7 +375,7 @@ on 2026-10-16:
 | Brotli, quality 11 | 2,148,100 | 2.05 |
 | Raw ceiling | 18,000,000 | 17.17 |
 
-These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
+These measure `specify_pmi_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
 with compiler or dependency updates. The committed baseline and ceiling are in
 `tools/wasm-size-budget.json` (see safeguards below).
@@ -428,13 +428,13 @@ Choice values and interpreted text use the same canonical thread answer and STEP
 
 ### Reviewed WASM API
 
-`crates/specify-core-wasm/api.d.ts` is the reviewed snapshot of wasm-pack's
-`pkg/specify_core_wasm.d.ts`. `tools/check_wasm_api.py` removes generated comments (including
+`crates/specify-pmi-wasm/api.d.ts` is the reviewed snapshot of wasm-pack's
+`pkg/specify_pmi_wasm.d.ts`. `tools/check_wasm_api.py` removes generated comments (including
 version noise), normalizes whitespace and sorts declarations and class/interface members.
 It retains the public signatures and initialization types. After an intentional API change:
 
 ```sh
-wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
 python3 tools/check_wasm_api.py --update
 ```
 
@@ -448,7 +448,7 @@ the comparison commit (default `HEAD`).
 
 ### WASM size ceiling
 
-`python3 tools/wasm_size.py` measures the optimized `specify_core_wasm_bg.wasm`: raw bytes,
+`python3 tools/wasm_size.py` measures the optimized `specify_pmi_wasm_bg.wasm`: raw bytes,
 gzip at level 9, and Brotli at quality 11. It uses Node's built-in zlib, already needed for
 parity, with no extra Python packages. Both workflows fail if **raw optimized bytes** exceed
 `ceiling_bytes` in `tools/wasm-size-budget.json`; equality passes. Every run prints all three
@@ -494,8 +494,8 @@ without `--release` only reads GitHub and never edits a release.
 
 Keep the editor's local build until a tagged release actually contains these assets. Download
 and checksum a pinned archive in the editor's dependency/update step, copy `pkg/` into its
-served WASM directory, and change imports from `dw_intent.js` to `specify_core_wasm.js` (and
-any explicit WASM URL from `dw_intent_bg.wasm` to `specify_core_wasm_bg.wasm`). Keep the same
+served WASM directory, and change imports from `dw_intent.js` to `specify_pmi_wasm.js` (and
+any explicit WASM URL from `dw_intent_bg.wasm` to `specify_pmi_wasm_bg.wasm`). Keep the same
 initialization, `IntentEngine`, JSON calls and optional project argument. Then remove
 `crates/intent`, its copied writer, workspace membership and its WASM build from editor CI.
 The editor's separate drawing engine and its WASM build remain independently managed.
@@ -638,13 +638,13 @@ NIST CTC-01's graphics. For `/diff`, request `report.pmi.scenes` from `diff` ins
 changes link to those exact scenes by `id`, optional `old_id` and characteristic
 `number`, with per-side face anchors for focus.
 
-Native Rust exposes `specify_core::pmi_scene::{Scene, pmi_scene}`. Construct `Scene::new`
+Native Rust exposes `specify_pmi::pmi_scene::{Scene, pmi_scene}`. Construct `Scene::new`
 once with a `LoadedPart`, then call `scene` with cached analysis and answers, or
 `scene_with_state` with `tolerancing::State`. Omit answers for the file's stored PMI.
-Python exposes `specify_core.pmi_scene` and `specify_core.api.pmi_scene`: paths and
+Python exposes `specify_pmi.pmi_scene` and `specify_pmi.api.pmi_scene`: paths and
 `LoadedPart` handles accept answers or review state; raw `bytes` are view-only. Its
-packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
-`specify_core/schema/haecceity.presentation-1.json`.
+packaged schemas are `specify_pmi/schema/haecceity.pmi-1.json` and
+`specify_pmi/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
 `json-import` is not enabled. The Python package ships the v0.4.8 schemas as data; its

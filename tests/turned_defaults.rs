@@ -2,14 +2,14 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::problems::problems;
-use specify_core::rules::records::Ctx;
-use specify_core::rules::{DatumKind, Question, datum_kind, preview, questions, with_all_defaults};
+use specify_pmi::api;
+use specify_pmi::problems::problems;
+use specify_pmi::rules::records::Ctx;
+use specify_pmi::rules::{DatumKind, Question, datum_kind, preview, questions, with_all_defaults};
 
 // These tests verify the proposed datum scheme and its dependent geometry after acceptance.
 // #20 keeps suggestions out of preview; tests/default_suggestions.rs guards that distinction.
-fn accepted_preview(a: &Value, answers: &Map<String, Value>) -> specify_core::rules::Intent {
+fn accepted_preview(a: &Value, answers: &Map<String, Value>) -> specify_pmi::rules::Intent {
     preview(a, &with_all_defaults(a, answers).unwrap()).unwrap()
 }
 
@@ -32,7 +32,7 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
     assert_eq!(datum_kind(axis, &ctx.faces).unwrap(), DatumKind::Axis);
     assert_eq!(datum_kind(shoulder, &ctx.faces).unwrap(), DatumKind::Plane);
     // The same seats are measurement origins in ± mode, including parts with no hole.
-    let plus_minus = json!({"part.locating": specify_core::rules::LOCATING[1]})
+    let plus_minus = json!({"part.locating": specify_pmi::rules::LOCATING[1]})
         .as_object()
         .unwrap()
         .clone();
@@ -277,7 +277,7 @@ fn an_axial_hole_needs_no_shoulder_but_removing_a_still_leaves_holes_unlocated()
 
 #[test]
 fn cylinder_ties_use_total_seat_area_and_a_needs_no_plane() {
-    use specify_core::rules::{Faces, default_datums};
+    use specify_pmi::rules::{Faces, default_datums};
     let faces = Faces::from_values(&[
         json!({"id": 0, "kind": "cylinder", "direction": [0,0,1], "origin": [0,0,0], "radius": 5, "area": 10}),
         json!({"id": 1, "kind": "cylinder", "direction": [0,0,-1], "origin": [0,0,5], "radius": 5, "area": 10}),
@@ -362,7 +362,7 @@ fn check_thumbwheel(a: &Value) {
 fn thumbwheel_uses_the_plain_five_mm_seat_and_its_shoulder() {
     check_thumbwheel(&captured("gramel/GRM-03_thumbwheel_drive_screw"));
     if let Some(root) = common::corpus_dir() {
-        let loaded = specify_core::part::load(
+        let loaded = specify_pmi::part::load(
             &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
             None,
         )
@@ -370,8 +370,8 @@ fn thumbwheel_uses_the_plain_five_mm_seat_and_its_shoulder() {
         let a = api::analyse(&loaded).unwrap();
         check_thumbwheel(&a);
         let intent = preview(&a, &thumbwheel_answers()).unwrap();
-        let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, None).unwrap();
-        let reread = specify_core::part::load_bytes("thumbwheel.step", bytes).unwrap();
+        let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, None).unwrap();
+        let reread = specify_pmi::part::load_bytes("thumbwheel.step", bytes).unwrap();
         let mut a = api::analyse(&reread).unwrap();
         for kind in ["external thread", "knurl"] {
             assert!(

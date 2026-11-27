@@ -17,12 +17,12 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::features::{describe_faces, recognise};
-use specify_core::mates::{contacts, mates};
-use specify_core::part::{LoadedPart, load_all};
-use specify_core::rules::{Error, Intent, apply_with_defaults, questions};
-use specify_core::writer::write_parts;
+use specify_pmi::existing::{part_settings, read_existing};
+use specify_pmi::features::{describe_faces, recognise};
+use specify_pmi::mates::{contacts, mates};
+use specify_pmi::part::{LoadedPart, load_all};
+use specify_pmi::rules::{Error, Intent, apply_with_defaults, questions};
+use specify_pmi::writer::write_parts;
 
 /// specify-core's analysis of `loaded` (Python's `api.analyse`), from the Rust engine.
 fn analyse(loaded: &LoadedPart, all: &[LoadedPart]) -> Value {
@@ -70,7 +70,7 @@ fn synthetic_parts() -> Vec<PathBuf> {
 
 fn temp() -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-rust-analyses")
+        .join("specify-pmi-analyses")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -239,7 +239,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         return;
     };
     let dir = std::env::temp_dir()
-        .join("specify-core-modelled-threads")
+        .join("specify-pmi-modelled-threads")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
     // #75 replaces cgb243's member offsets with shared pattern origins/pitches
@@ -286,7 +286,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         ),
     ] {
         let path = corpus.join(file);
-        let analysis = specify_core::api::analyse_file(&path, None).unwrap();
+        let analysis = specify_pmi::api::analyse_file(&path, None).unwrap();
         let features = analysis["features"].as_array().unwrap();
         assert_eq!(
             features
@@ -359,7 +359,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         assert_eq!(applied.requirements.len(), requirements, "{file}");
         assert_eq!(applied.general.len(), general, "{file}");
         assert_eq!(applied.datums.len(), datums, "{file}");
-        let loaded = specify_core::part::load(&path, None).unwrap();
+        let loaded = specify_pmi::part::load(&path, None).unwrap();
         let answers = json!({"part.material": "steel"});
         let output = dir.join(format!(
             "{}.step",
@@ -377,11 +377,11 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             report.not_written, not_written,
             "{file}: exact unresolved proposals"
         );
-        let resumed = specify_core::part::load(&output, None).unwrap();
+        let resumed = specify_pmi::part::load(&output, None).unwrap();
         // ADR P11: stored are the answers that leave no PMI (the material is stated).
         assert_eq!(
-            specify_core::resume::answers_for(&resumed).unwrap(),
-            Some(specify_core::feature_table::storable(
+            specify_pmi::resume::answers_for(&resumed).unwrap(),
+            Some(specify_pmi::feature_table::storable(
                 answers.as_object().unwrap()
             )),
             "{file}"

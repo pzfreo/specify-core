@@ -1,5 +1,5 @@
 // The adapter between the editor's review screens (SpecifyReview) and the 0.3 engine (ADR P11).
-// The screens keep working in answers; the 0.3 engine saves edit lists (specify-core docs/open.md).
+// The screens keep working in answers; the 0.3 engine saves edit lists (specify-pmi docs/open.md).
 // Everything that translates one into the other is here, so the screens change only at the points
 // Paul agreed (draftwright-project handoffs/specify-review-ui.md, change list items 1 and 2):
 // - what the file states is shown as answered rows, each with a pencil and a bin (item 2), and kept

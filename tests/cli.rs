@@ -1,4 +1,4 @@
-//! The command line (`specify-core`, the built binary) and `serve`, against the library and the
+//! The command line (`specify-pmi`, the built binary) and `serve`, against the library and the
 //! Python oracle.
 //!
 //! The oracle sweep, [`the_command_line_matches_the_oracle`], is three checks (docs/design.md,
@@ -14,7 +14,7 @@
 //! 2. **Python's inputs**: given Python's analysis and the oracle's answers (selected cases'
 //!    questions and scenarios), the binary's open questions are compared with Python's. Each
 //!    former whole-intent write has an exact not-applicable entry. Each
-//!    synthetic part's serve transcript is replayed reply by reply through `specify-core serve`
+//!    synthetic part's serve transcript is replayed reply by reply through `specify-pmi serve`
 //!    (an analyse reply by its envelope and mesh summary; questions, interpret, preview and
 //!    write replies, made from Python's analysis, fully, except a preview's anchor points,
 //!    which are compared with the library's on the same request and by which groups have one:
@@ -41,10 +41,10 @@ use common::{
     is_error, load_known, read_json_gz, scenarios, without_threads_beyond_python,
 };
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::pyjson;
-use specify_core::rules;
-use specify_core::serve::Server;
+use specify_pmi::api;
+use specify_pmi::pyjson;
+use specify_pmi::rules;
+use specify_pmi::serve::Server;
 
 /// The areas whose known differences a CLI difference may already be explained by.
 const AREAS: [&str; 7] = [
@@ -65,7 +65,7 @@ struct Run {
 /// Runs the binary with `args`, in the repository root (so committed inputs can be named by
 /// their repository paths, as the CLI oracle names them).
 fn run<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> Run {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
@@ -84,7 +84,7 @@ fn s(path: &Path) -> String {
 /// A fresh scratch directory for this process.
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-cli-tests")
+        .join("specify-pmi-cli-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -348,11 +348,11 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     assert_eq!(stated["requirements"][0]["faces"], json!([2, 3]));
 
     // The next approval uses the same path the panel uses when it keeps one suggestion.
-    let loaded = specify_core::part::load(&next, None).unwrap();
+    let loaded = specify_pmi::part::load(&next, None).unwrap();
     let (second, face, nominal, text) = GRM05_LENGTHS[1];
     let bytes = common::apply_edits(&loaded, json!({"fill": {second: text}})).bytes;
     let updated =
-        api::analyse(&specify_core::part::load_bytes("updated.step", bytes).unwrap()).unwrap();
+        api::analyse(&specify_pmi::part::load_bytes("updated.step", bytes).unwrap()).unwrap();
     assert!(grm05_written(&updated, face, nominal), "{second}");
     assert!(
         grm05_written(&updated, GRM05_LENGTHS[0].1, GRM05_LENGTHS[0].2),
@@ -365,10 +365,10 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     ));
 
     // An isolated approval carries its displayed deviation even if the note is still a gap.
-    let original = specify_core::part::load(&part.input, None).unwrap();
+    let original = specify_pmi::part::load(&part.input, None).unwrap();
     let bytes = common::apply_edits(&original, json!({"fill": {second: text}})).bytes;
     let isolated =
-        api::analyse(&specify_core::part::load_bytes("isolated.step", bytes).unwrap()).unwrap();
+        api::analyse(&specify_pmi::part::load_bytes("isolated.step", bytes).unwrap()).unwrap();
     assert!(grm05_written(&isolated, face, nominal), "{second}");
     assert_eq!(
         grm05_row(&isolated, second)["requirements"][0]["text"],
@@ -495,7 +495,7 @@ fn freecad_write_roundtrip(name: &str) {
 
     let dir = scratch(&format!("freecad-product-type-{name}"));
     let fixture = common::fixtures().join(format!("freecad/{name}.step.gz"));
-    let loaded = specify_core::part::load(&fixture, None).unwrap();
+    let loaded = specify_pmi::part::load(&fixture, None).unwrap();
     let input = dir.join(format!("{name}.step"));
     std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
     let analysis = dir.join("a.json");
@@ -647,7 +647,7 @@ fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
 fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
     use haecceity::{p21::Document, pmi, step::read_part_definitions};
     let dir = scratch("alpha7-tap");
-    let loaded = specify_core::part::load(
+    let loaded = specify_pmi::part::load(
         &common::fixtures().join("thread-depth-alpha7.step.gz"),
         None,
     )
@@ -672,7 +672,7 @@ fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
     assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n,v)| n == "minimum full thread" && matches!(v, pmi::AttributeValue::Measure(m) if matches!(&m.quantity, pmi::Quantity::Length(l) if l.mm() == 2.0))));
 }
 
-/// A `specify-core serve` child, asked one line at a time.
+/// A `specify-pmi serve` child, asked one line at a time.
 struct Session {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -681,7 +681,7 @@ struct Session {
 
 impl Session {
     fn start() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("serve")
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .stdin(Stdio::piped())
@@ -1066,9 +1066,9 @@ fn composition(dir: &Path) -> Vec<Difference> {
             }
             let given = object(&base);
             if api::apply(&analysis, &given, true).is_ok() {
-                let loaded = specify_core::part::load(&input, k).unwrap();
+                let loaded = specify_pmi::part::load(&input, k).unwrap();
                 let stored = api::stored_with_defaults(&loaded, &analysis, &given).unwrap();
-                let storable = specify_core::feature_table::storable;
+                let storable = specify_pmi::feature_table::storable;
                 assert_eq!(
                     storable(&stored),
                     storable(&common::accept_all::stored(
@@ -1093,9 +1093,9 @@ fn composition(dir: &Path) -> Vec<Difference> {
                 let cli_out = dir.join("cli.step");
                 let ran = run(&["write", &s(&input), &s(&edits), "-o", &s(&cli_out)]);
                 assert_eq!(ran.code, 0, "{file}: {}", ran.stderr);
-                let loaded = specify_core::part::load(&input, None).unwrap();
-                let list = specify_core::edits::parse_value(list).unwrap();
-                let applied = specify_core::writer::apply::apply(&loaded, &list).unwrap();
+                let loaded = specify_pmi::part::load(&input, None).unwrap();
+                let list = specify_pmi::edits::parse_value(list).unwrap();
+                let applied = specify_pmi::writer::apply::apply(&loaded, &list).unwrap();
                 let mut expected = applied.to_dict();
                 expected["output"] = json!(s(&cli_out));
                 let got: Value = serde_json::from_str(&ran.stdout).unwrap();
@@ -1333,7 +1333,7 @@ fn without(reply: &Value, path: &[&str], key: &str) -> Value {
     out
 }
 
-/// Each synthetic part's serve transcript replayed through `specify-core serve`.
+/// Each synthetic part's serve transcript replayed through `specify-pmi serve`.
 fn serve_replays(dir: &Path) -> Vec<Difference> {
     let mut out = Vec::new();
     let output = dir.join("served");
@@ -1602,7 +1602,7 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         &session.finish().to_string(),
     ));
     let _ = std::fs::remove_dir_all(&tmp);
-    // The executables: specify-core's package scripts against this crate's binaries.
+    // The executables: specify-pmi's package scripts against this crate's binaries.
     let cargo =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
     let names = regex::Regex::new(r#"(?m)^\[\[bin\]\]\s*\nname = "([^"]+)""#).unwrap();
@@ -1611,7 +1611,11 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         .map(|c| c[1].to_string())
         .collect();
     for program in oracle["programs"].as_array().unwrap() {
-        let program = program.as_str().unwrap();
+        // The oracle's `specify-core` executable is this crate's `specify-pmi`.
+        let program = match program.as_str().unwrap() {
+            "specify-core" => "specify-pmi",
+            other => other,
+        };
         if !ours.contains(program) {
             out.push(difference(
                 "cli/programs",
@@ -2185,7 +2189,7 @@ fn exit_codes_say_what_happened() {
     assert_eq!(ran.code, 0);
     assert!(
         ran.stdout
-            .starts_with("list an assembly's parts\n\nUsage: specify-core parts <STEP>\n"),
+            .starts_with("list an assembly's parts\n\nUsage: specify-pmi parts <STEP>\n"),
         "{}",
         ran.stdout
     );
@@ -2197,7 +2201,7 @@ fn exit_codes_say_what_happened() {
 fn usage_or_help(case: &str, exit: i64, stdout: &str, stderr: &str) {
     let named: &[&str] = match &case[..2] {
         // No command: the commands are listed.
-        "00" => &["Usage: specify-core <COMMAND>", "parts", "write"],
+        "00" => &["Usage: specify-pmi <COMMAND>", "parts", "write"],
         "01" => &["unrecognized subcommand 'bogus'"],
         "02" | "06" => &["required arguments were not provided", "--output", "<STEP>"],
         "03" => &["required arguments were not provided", "--output"],
@@ -2229,8 +2233,8 @@ fn usage_or_help(case: &str, exit: i64, stdout: &str, stderr: &str) {
         assert_eq!((exit, stderr), (0, ""), "{case}");
         let command = case[3..].split(' ').find(|a| !a.starts_with('-'));
         let usage = match command {
-            Some(c) => format!("Usage: specify-core {c}"),
-            None => "Usage: specify-core <COMMAND>".to_string(),
+            Some(c) => format!("Usage: specify-pmi {c}"),
+            None => "Usage: specify-pmi <COMMAND>".to_string(),
         };
         assert!(stdout.contains(&usage), "{case}: {stdout}");
         assert!(stdout.contains("-h, --help"), "{case}: {stdout}");
@@ -2369,7 +2373,7 @@ fn every_command_has_help_and_completions_are_printed() {
             assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{command} {flag}");
             assert!(
                 got.stdout
-                    .contains(&format!("Usage: specify-core {command}")),
+                    .contains(&format!("Usage: specify-pmi {command}")),
                 "{command} {flag}: {}",
                 got.stdout
             );
@@ -2387,7 +2391,7 @@ fn every_command_has_help_and_completions_are_printed() {
     for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
         let got = run(&["completions", shell]);
         assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{shell}");
-        assert!(got.stdout.contains("specify-core"), "{shell}");
+        assert!(got.stdout.contains("specify-pmi"), "{shell}");
         assert!(
             got.stdout.contains("--check") || got.stdout.contains("check"),
             "{shell}"
@@ -2522,8 +2526,8 @@ fn split_answers() -> Value {
 /// *new*'s face evidence: on the old plate itself, as saved; on the new plate, as an earlier
 /// `diff` carried it, its bottom datum dropped. (Diff no longer writes answers: ADR P11.)
 fn split_diff(dir: &Path, new: &Path) -> Value {
-    let loaded = specify_core::part::load(new, None).unwrap();
-    let evidence = specify_core::resume::evidence(&loaded).unwrap();
+    let loaded = specify_pmi::part::load(new, None).unwrap();
+    let evidence = specify_pmi::resume::evidence(&loaded).unwrap();
     let mut answers = split_answers();
     if new == split_plate("new") {
         answers = json!({"part.material": "6061-T6", "_specify": {
@@ -2636,7 +2640,7 @@ fn plain_maps_have_no_geometry_history_and_remain_compatible() {
 fn mesh_max_deviation_mm_is_measured_and_validated() {
     let input = common::fixtures().join("parts/mesh_sphere.step");
     let run = |limit: &str| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("mesh")
             .arg(&input)
             .args(["-o", "-", "--max-deviation-mm", limit])

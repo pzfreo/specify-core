@@ -2,7 +2,7 @@
 //!
 //! Everything downstream (recognition, existing PMI, intent, the writer and the browser's
 //! picking) refers to faces by their position in one part's face list. A part is numbered on its
-//! own shape, not on a placed instance, in specify-core's order (OpenCascade's
+//! own shape, not on a placed instance, in specify-pmi's order (OpenCascade's
 //! `TopExp::MapShapes`), which haecceity's [`PartDefinition`] reproduces: face `i` is the face
 //! read from `definition.faces[i]`. Both engines therefore number the same file's faces alike
 //! and the binding keeps [`LOADER_VERSION`] 2 (docs/design.md, "Face numbering is the same in
@@ -16,7 +16,7 @@
 //! and U9, met; the stand-ins that read the file placed back and rebuilt the part are gone).
 //!
 //! What differs from Python: a gzipped file (by its magic bytes) is read decompressed, and bound
-//! by its STEP text's hash, where specify-core refuses it (maintainer decision 2026-10-15); a file's parts are haecceity's product definitions, so a product whose
+//! by its STEP text's hash, where specify-pmi refuses it (maintainer decision 2026-10-15); a file's parts are haecceity's product definitions, so a product whose
 //! shape is a solid plus surface models (NIST CTC-02, 04, 05) is one part here where
 //! OpenCascade's XCAF splits it into a part per shape (see `parts`, question Q7); a file with
 //! several root shapes, which Python refuses ("expected one part"), is read; part names follow
@@ -32,9 +32,9 @@ use haecceity::step::{PartDefinition, Placement, StepError, StepFile};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Bumped whenever a change here could renumber faces for the same bytes. 2 is specify-core's
+/// Bumped whenever a change here could renumber faces for the same bytes. 2 is specify-pmi's
 /// (an assembly holding one solid is numbered on the solid), kept because haecceity numbers faces
-/// as specify-core does (question Q1).
+/// as specify-pmi does (question Q1).
 pub const LOADER_VERSION: u32 = 2;
 
 /// What face indices are only valid against (Python's `Binding`): the file's bytes, the part's
@@ -146,7 +146,7 @@ pub struct PartSummary {
     pub placements: Vec<Placement>,
 }
 
-/// Why a file or part could not be loaded. The messages are specify-core's where it has one.
+/// Why a file or part could not be loaded. The messages are specify-pmi's where it has one.
 #[derive(Debug)]
 pub enum LoadError {
     /// The file could not be read or parsed as STEP (Python: `cannot read STEP file {path}`);
@@ -244,7 +244,7 @@ pub fn load_all(path: &Path) -> Result<Vec<LoadedPart>, LoadError> {
 /// No part's own geometry is built.
 ///
 /// The parts are haecceity's: one per product definition whose shape has faces, in
-/// specify-core's order. Where OpenCascade's XCAF makes a part of each shape representation of
+/// specify-pmi's order. Where OpenCascade's XCAF makes a part of each shape representation of
 /// one product (a solid with surface models beside it, as in NIST CTC-02, 04 and 05), this lists
 /// the product once with all its faces, the solid's first.
 #[cfg(not(target_arch = "wasm32"))]

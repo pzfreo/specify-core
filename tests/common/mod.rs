@@ -87,7 +87,7 @@ pub fn fixtures() -> PathBuf {
 /// Turn choices already made by an interview into a list of fills and approvals. The
 /// supplied values win over suggestions. An optional BOM or process needs its own opt-in.
 pub fn approve_edits(analysis: &Value, given: &Map<String, Value>) -> Value {
-    let offered = specify_core::rules::with_all_defaults(analysis, given).unwrap();
+    let offered = specify_pmi::rules::with_all_defaults(analysis, given).unwrap();
     let mut fill = given.clone();
     let mut accept = Vec::new();
     for row in analysis["table"]["rows"].as_array().unwrap() {
@@ -369,7 +369,7 @@ fn gunzip(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `gz` decompressed to `<temp>/specify-core-oracle/<sha>/<name without .gz>`, once per
+/// `gz` decompressed to `<temp>/specify-pmi-oracle/<sha>/<name without .gz>`, once per
 /// process and reused across processes; panics unless its sha256 is `expected`.
 pub fn decompressed(gz: &Path, expected: &str) -> PathBuf {
     static DONE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
@@ -384,7 +384,7 @@ pub fn decompressed(gz: &Path, expected: &str) -> PathBuf {
         .or_else(|| name.strip_suffix(".GZ"))
         .unwrap_or_else(|| panic!("{}: not a .gz", gz.display()));
     let dir = std::env::temp_dir()
-        .join("specify-core-oracle")
+        .join("specify-pmi-oracle")
         .join(expected);
     let out = dir.join(name);
     let fresh = std::fs::read(&out).is_ok_and(|bytes| sha256(&bytes) == expected);
@@ -406,7 +406,7 @@ pub fn decompressed(gz: &Path, expected: &str) -> PathBuf {
     out
 }
 
-/// A scenario: an answer set transcribed from one of specify-core's tests, on one case.
+/// A scenario: an answer set transcribed from one of specify-pmi's tests, on one case.
 #[derive(Debug, Clone)]
 pub struct Scenario {
     /// The file stem under `tests/fixtures/oracle/scenarios/`.
@@ -1163,7 +1163,7 @@ pub fn explained_with(entries: &[KnownDifference], differences: &[Difference]) -
 pub fn is_thread_beyond_python(option: &str) -> bool {
     option.strip_prefix("thread:").is_some_and(|spec| {
         spec.contains('x')
-            || specify_core::standards::lookup(&specify_core::standards::PITCH, spec).is_none()
+            || specify_pmi::standards::lookup(&specify_pmi::standards::PITCH, spec).is_none()
     })
 }
 
@@ -1212,9 +1212,9 @@ pub mod upgrade;
 
 /// Apply the public edit-list representation and report every refusal on failure.
 pub fn apply_edits(
-    part: &specify_core::part::LoadedPart,
+    part: &specify_pmi::part::LoadedPart,
     list: Value,
-) -> specify_core::writer::apply::Applied {
-    let list = specify_core::edits::parse_value(list).unwrap();
-    specify_core::writer::apply::apply(part, &list).unwrap_or_else(|errors| panic!("{errors:#?}"))
+) -> specify_pmi::writer::apply::Applied {
+    let list = specify_pmi::edits::parse_value(list).unwrap();
+    specify_pmi::writer::apply::apply(part, &list).unwrap_or_else(|errors| panic!("{errors:#?}"))
 }

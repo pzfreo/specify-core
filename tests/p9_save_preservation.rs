@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 
 use haecceity::{p21::Document, pmi, step};
 use serde_json::{Map, Value, json};
-use specify_core::{api, existing, part::LoadedPart, process, rules};
+use specify_pmi::{api, existing, part::LoadedPart, process, rules};
 
 fn plate() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step")
 }
 
 fn load(bytes: Vec<u8>) -> LoadedPart {
-    specify_core::part::load_bytes("plate.step", bytes).unwrap()
+    specify_pmi::part::load_bytes("plate.step", bytes).unwrap()
 }
 
 fn answers(value: Value) -> Map<String, Value> {

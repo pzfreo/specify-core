@@ -5,8 +5,8 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::problems::problems;
-use specify_core::rules::{Error, apply, preview, questions, with_all_defaults};
+use specify_pmi::problems::problems;
+use specify_pmi::rules::{Error, apply, preview, questions, with_all_defaults};
 
 fn plate() -> Value {
     common::case("parts/plate")
@@ -151,7 +151,7 @@ fn a_pending_position_preserves_the_chosen_frame_order() {
 #[test]
 fn explicit_plus_minus_locations_report_each_missing_measurement_datum() {
     let plate = plate();
-    let mut given = answers(json!({"part.locating": specify_core::rules::LOCATING[1]}));
+    let mut given = answers(json!({"part.locating": specify_pmi::rules::LOCATING[1]}));
     let qs = questions(&plate, &given).unwrap();
     let location = qs
         .iter()

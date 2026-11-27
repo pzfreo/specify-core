@@ -37,7 +37,7 @@ def check(sizes, budget):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--wasm", type=Path, default=ROOT / "crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm")
+    parser.add_argument("--wasm", type=Path, default=ROOT / "crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm")
     parser.add_argument("--budget", type=Path, default=ROOT / "tools/wasm-size-budget.json")
     args = parser.parse_args()
     try:

@@ -18,9 +18,9 @@ use common::{
 };
 use haecceity::geom::{self, V3};
 use serde_json::{Map, Value, json};
-use specify_core::anchors::{anchor_from_point, anchors, key};
-use specify_core::mesh;
-use specify_core::part::{self, LoadedPart};
+use specify_pmi::anchors::{anchor_from_point, anchors, key};
+use specify_pmi::mesh;
+use specify_pmi::part::{self, LoadedPart};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -8,8 +8,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SNAPSHOT = Path("crates/specify-core-wasm/api.d.ts")
-GENERATED = Path("crates/specify-core-wasm/pkg/specify_core_wasm.d.ts")
+SNAPSHOT = Path("crates/specify-pmi-wasm/api.d.ts")
+GENERATED = Path("crates/specify-pmi-wasm/pkg/specify_pmi_wasm.d.ts")
 # Preserve string literals while discarding generated documentation/version comments.
 TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*', re.S)
 SPACE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|\s+')

@@ -6,9 +6,9 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::features::{self, UNMEASURED_REASON};
-use specify_core::part::{self, LoadedPart};
+use specify_pmi::api;
+use specify_pmi::features::{self, UNMEASURED_REASON};
+use specify_pmi::part::{self, LoadedPart};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     common::fixtures().join(name)
@@ -236,7 +236,7 @@ fn a_diff_reads_the_faces_after_the_unmeasured_one_by_their_own_index() {
     // other face is carried, so nothing is reported changed or lost.
     let old = part::load(&wall_first("diff"), Some(0)).unwrap();
     let new = part::load(&fixture("unmeasured_face_closed.step"), Some(0)).unwrap();
-    let revised = specify_core::revision::diff(&old, &new).unwrap();
+    let revised = specify_pmi::revision::diff(&old, &new).unwrap();
     assert!(revised.other_faces.is_empty(), "{:?}", revised.other_faces);
     assert!(revised.unchanged_faces >= 6, "{}", revised.unchanged_faces);
 
@@ -252,7 +252,7 @@ fn a_diff_reads_the_faces_after_the_unmeasured_one_by_their_own_index() {
     )
     .unwrap();
     let new = part::load(&longer, Some(0)).unwrap();
-    let revised = specify_core::revision::diff(&old, &new).unwrap();
+    let revised = specify_pmi::revision::diff(&old, &new).unwrap();
     let moved: Vec<_> = revised
         .other_faces
         .iter()
@@ -271,14 +271,14 @@ fn location_axes_follow_the_reference_face_after_the_unmeasured_one() {
     let parameters = |path: &std::path::Path| {
         let loaded = part::load(path, Some(0)).unwrap();
         let analysis = api::analyse(&loaded).unwrap();
-        let answers = specify_core::rules::with_all_defaults(
+        let answers = specify_pmi::rules::with_all_defaults(
             &analysis,
             json!({"part.material": "steel"}).as_object().unwrap(),
         )
         .unwrap();
         let intent = api::apply(&analysis, &answers, true).unwrap();
         let (bytes, _) =
-            specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+            specify_pmi::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
         let written = part::load_bytes("origins.step", bytes).unwrap();
         let read = haecceity::pmi::read(
             &haecceity::p21::Document::parse(written.bytes.to_vec()).unwrap(),
@@ -288,7 +288,7 @@ fn location_axes_follow_the_reference_face_after_the_unmeasured_one() {
         let p = &read.parts[0];
         let mut out: Vec<String> = (0..p.dimensions.len())
             .filter_map(|i| {
-                specify_core::pmi_origin::read(
+                specify_pmi::pmi_origin::read(
                     p,
                     haecceity::pmi::NoteOwner::Dimension(haecceity::pmi::DimensionId(i)),
                 )
@@ -315,19 +315,19 @@ fn a_reopened_file_resumes_its_answers_with_the_unmeasured_face_first() {
     let path = wall_first("resume");
     let loaded = part::load(&path, Some(0)).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
-    let answers = specify_core::rules::with_all_defaults(
+    let answers = specify_pmi::rules::with_all_defaults(
         &analysis,
         json!({"part.material": "steel"}).as_object().unwrap(),
     )
     .unwrap();
     let intent = api::apply(&analysis, &answers, true).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
     let written = part::load_bytes("resume.step", bytes).unwrap();
     let again = api::analyse(&written).unwrap();
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         again["resume"]["answers"],
-        Value::Object(specify_core::feature_table::storable(&answers))
+        Value::Object(specify_pmi::feature_table::storable(&answers))
     );
     assert!(
         again["resume"].get("conflicts").is_none(),

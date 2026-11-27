@@ -1,7 +1,7 @@
 //! For #79: exercise question/completeness/intent/write through the actual public APIs and CLI.
 mod common;
 use serde_json::{Map, Value, json};
-use specify_core::{api, part::File, rules};
+use specify_pmi::{api, part::File, rules};
 use std::{path::Path, process::Command};
 #[test]
 fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
@@ -48,9 +48,9 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             // Import them through the public ID matcher before the strict current-ID
             // question/apply APIs. Keep their old keys to exercise floor-ID migration.
             let mut answers = if all_answered {
-                let imported = specify_core::resume::rematch_answers(
+                let imported = specify_pmi::resume::rematch_answers(
                     &part,
-                    &specify_core::features::recognise(&part).unwrap(),
+                    &specify_pmi::features::recognise(&part).unwrap(),
                     &answers,
                     None,
                     None,
@@ -104,20 +104,20 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             .unwrap()
             .0;
         assert!(
-            !String::from_utf8_lossy(&bytes).contains(&format!("'{}", specify_core::bom::PROPERTY)),
+            !String::from_utf8_lossy(&bytes).contains(&format!("'{}", specify_pmi::bom::PROPERTY)),
             "API {fixture}, complete={all_answered}, defaults={defaults}"
         );
         let mut input = path;
         for (k, (edits, list)) in pairs.iter().zip(cli_jobs).enumerate() {
-            let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+            let mut command = Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
             command.arg("write").arg(&input).arg(edits);
             if fixture == "assembly" {
                 command.arg("--part").arg(k.to_string());
             }
             let selected = (fixture == "assembly").then_some(k);
-            let loaded = specify_core::part::load(&input, selected).unwrap();
-            let list = specify_core::edits::parse_value(list).unwrap();
-            let expected = specify_core::writer::apply::apply(&loaded, &list).unwrap();
+            let loaded = specify_pmi::part::load(&input, selected).unwrap();
+            let list = specify_pmi::edits::parse_value(list).unwrap();
+            let expected = specify_pmi::writer::apply::apply(&loaded, &list).unwrap();
             let next = output.with_extension(format!("{k}.step"));
             let result = command.arg("-o").arg(&next).output().unwrap();
             assert!(
@@ -129,7 +129,7 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             assert_eq!(actual, expected.bytes);
             assert!(
                 !String::from_utf8_lossy(&actual)
-                    .contains(&format!("'{}", specify_core::bom::PROPERTY))
+                    .contains(&format!("'{}", specify_pmi::bom::PROPERTY))
             );
             input = next;
         }

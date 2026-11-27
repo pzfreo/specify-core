@@ -16,7 +16,7 @@ test('the app build has index.html and the versioned session API manifest at its
   await build({ configFile: fileURLToPath(new URL('../vite.app.config.ts', import.meta.url)),
     logLevel: 'silent', build: { outDir: app } });
   const expected = { name: 'specify-ui-app', version: pkg.version, api: SESSION_API };
-  // specify-core's build.rs builds in a dist-app with exactly these at its root, of its own version.
+  // specify-pmi's build.rs builds in a dist-app with exactly these at its root, of its own version.
   assert.deepEqual(JSON.parse(readFileSync(join(app, 'specify-ui-app.json'), 'utf8')), expected);
   assert.ok(existsSync(join(app, 'index.html')));
   // Nothing it ships names the viewer's lighting host.

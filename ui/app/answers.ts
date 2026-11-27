@@ -3,7 +3,7 @@ import type { AnswerDraft, AnswersEvent, SessionAnswers, Source } from './local.
 
 export type AnswersSource = Source;
 
-/** One part's answers in the command's session (specify-core docs/open.md, "The session"): everyone
+/** One part's answers in the command's session (specify-pmi docs/open.md, "The session"): everyone
  * else's changes (an agent's) come down as `answers` events. The page's own changes stay in the page
  * until Save sends them as an edit list (session API 2: there is no `PUT answers`). What the page
  * shows is always the session's answers, with the page's own unsaved changes laid over them. */

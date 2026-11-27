@@ -1,4 +1,4 @@
-//! Assemblies on haecceity's part API (specify-core-rust #2, slice 2 of the assemblies design;
+//! Assemblies on haecceity's part API (specify-pmi #2, slice 2 of the assemblies design;
 //! decisions D1, D3 and D4 of 2026-10-15), on `parts/assembly.step` (a plate, and a pin placed
 //! twice; byte-identical to the editor's `scripts/fixtures/assembly.step`):
 //!
@@ -19,10 +19,10 @@ use haecceity::p21::Document;
 use haecceity::pmi;
 use haecceity::step::read_part_definitions;
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{self, File, LoadError};
-use specify_core::resume::{answers_for, stored};
-use specify_core::writer::WriteError;
+use specify_pmi::api;
+use specify_pmi::part::{self, File, LoadError};
+use specify_pmi::resume::{answers_for, stored};
+use specify_pmi::writer::WriteError;
 
 const PLATE: usize = 0;
 const PIN: usize = 1;
@@ -33,7 +33,7 @@ fn assembly() -> PathBuf {
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-assemblies-tests")
+        .join("specify-pmi-assemblies-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -111,7 +111,7 @@ fn parts_are_listed_by_index_with_name_and_product_id() {
         assert_eq!(value["written"], json!(false));
     }
 
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("parts")
         .arg(assembly())
         .output()
@@ -183,7 +183,7 @@ fn a_part_is_analysed_as_before_from_one_read() {
     .unwrap();
     for k in [PLATE, PIN] {
         let want = &base[k.to_string()];
-        let bom = serde_json::to_value(&specify_core::bom::read(&file).unwrap()[k]).unwrap();
+        let bom = serde_json::to_value(&specify_pmi::bom::read(&file).unwrap()[k]).unwrap();
         let legacy = |mut analysis: Value, at: &str| {
             // For #79 the only additive analysis field is the sourced BOM row.
             // Keep comparing every pre-existing key, value and ordering to the old capture.
@@ -314,7 +314,7 @@ fn parts_written_alone_in_memory_keep_each_others_answers() {
         assert_eq!(
             answers_for(&file.load(Some(k)).unwrap()).unwrap(),
             // ADR P11: stored are the answers that leave no PMI behind.
-            Some(specify_core::feature_table::storable(&answers(k))),
+            Some(specify_pmi::feature_table::storable(&answers(k))),
             "part {k}"
         );
     }

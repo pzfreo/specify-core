@@ -131,7 +131,7 @@ accepted suggestion stored in the file is the question's default only while the 
 material still suggests it. The edit list can approve the current suggestion or fill an
 explicit process. A `general tolerance`
 note is read as the part's general tolerance only when Specify wrote it.
-`specify_core::process::of(analysis, answers)` gives the current value and source (none for a
+`specify_pmi::process::of(analysis, answers)` gives the current value and source (none for a
 bought part); `process::read(&Document, product_definition)` reads a file's.
 
 ## Compatibility

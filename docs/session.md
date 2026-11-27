@@ -4,7 +4,7 @@ Specify on a person's computer is **agent-first**. The person sets Specify up on
 normal stdio MCP server in their AI agent, with no addresses or tokens:
 
 ```sh
-claude mcp add specify -- specify-core mcp
+claude mcp add specify -- specify-pmi mcp
 ```
 
 The agent opens a part (or two revisions of it) through MCP, and Specify holds that file in
@@ -14,7 +14,7 @@ and opens the browser. Both sides change the file the same way: each sends an ed
 (fill gaps, change what the file states, remove requirements by number, decide none), applied
 all or nothing, and each save is what the other reads next.
 
-`specify-core open FILE` and `specify-core open --diff OLD NEW` are the manual way in: the same
+`specify-pmi open FILE` and `specify-pmi open --diff OLD NEW` are the manual way in: the same
 session and the same page, with no agent attached.
 
 ## The session
@@ -56,7 +56,7 @@ The existing tools (docs/mcp.md) work on the session, plus these:
 | `discard` | `doc`, `rev?` | `rev`, `parts`. Drops working answers on all parts of the file and restores the saved answers without writing |
 
 `write_pmi`, which wrote the whole intent of the answers to a path of the agent's choosing, is
-gone (ADR P11: a write applies an edit list). `specify-core write STEP EDITS.json -o OUT` writes
+gone (ADR P11: a write applies an edit list). `specify-pmi write STEP EDITS.json -o OUT` writes
 an edit list to another path.
 
 A suggestion is written only when the list names it, in `fill` with the value the person saw
@@ -100,7 +100,7 @@ way to push to the agent unasked.
   docs/open.md says (90 s after `closed`, or 30 minutes with no request). `show` can be called
   again at any time, for example after the tab was closed, and starts a new one (a new address).
   Several sessions may each have a page.
-- **`specify-core open`** holds one session and one page server, and exits when the page
+- **`specify-pmi open`** holds one session and one page server, and exits when the page
   server stops.
 
 ## Rules kept from MCP and the page

@@ -1,4 +1,4 @@
-//! Choosing by purpose or by code, and typed specs checked against the part: specify-core's
+//! Choosing by purpose or by code, and typed specs checked against the part: specify-pmi's
 //! `tests/test_choices.py` (the parts that need no analysed part), the choices parts of
 //! `test_threads.py`, and a comparison with Python over a generated grid.
 //!
@@ -12,8 +12,8 @@
 use std::io::Read;
 
 use serde_json::{Value, json};
-use specify_core::choices::{SpecError, callout, check, code, describe, interpret, split};
-use specify_core::standards;
+use specify_pmi::choices::{SpecError, callout, check, code, describe, interpret, split};
+use specify_pmi::standards;
 
 const HOLE: &str = "hole.function:x";
 const SHAFT: &str = "diameter.fit:x";
@@ -371,7 +371,7 @@ fn choices_equal_pythons_over_the_grid() {
             "split" => {
                 // The depth as its repr (inf, nan and -0.0 included).
                 let (kind, spec, depth) = split(text(1));
-                let depth = depth.map(specify_core::pyfmt::repr);
+                let depth = depth.map(specify_pmi::pyfmt::repr);
                 (record(Ok::<_, String>(json!([kind, spec, depth]))), &c[2])
             }
             "code" => (record(Ok::<_, String>(code(text(1)))), &c[2]),

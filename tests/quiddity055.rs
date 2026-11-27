@@ -2,7 +2,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, edits, part, rules, writer};
+use specify_pmi::{api, edits, part, rules, writer};
 
 fn corpus_part(name: &str) -> Option<part::LoadedPart> {
     Some(part::load(&common::corpus_dir()?.join(name), None).unwrap())

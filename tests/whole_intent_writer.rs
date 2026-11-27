@@ -3,7 +3,7 @@
 //! The library retains whole-intent replay, which these native tests exercise. The CLI
 //! writes edit lists.
 use serde_json::{Map, Value, json};
-use specify_core::{api, part, rules, writer};
+use specify_pmi::{api, part, rules, writer};
 
 /// The whole intent of `answers` (what is answered; the rows not asked listed), written and
 /// verified with the answers stored, as the engine's `writePmi` wrote it.
@@ -39,7 +39,7 @@ fn not_written(report: &Value) -> Vec<String> {
     serde_json::from_value(report["not_written"].clone()).unwrap()
 }
 
-/// Moved from crates/specify-core-wasm/tests/unasked_answers.rs (#126; it needs the
+/// Moved from crates/specify-pmi-wasm/tests/unasked_answers.rs (#126; it needs the
 /// whole-intent write, which lists answers whose question is not asked): the write lists an
 /// unasked answer and an unasked carry block, and reopening restores the block.
 #[test]

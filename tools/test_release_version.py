@@ -43,7 +43,7 @@ class ReleaseVersionTests(unittest.TestCase):
         expected_rows = []
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject = root / "crates/specify-pmi-py/pyproject.toml"
             pyproject.parent.mkdir(parents=True)
             event = root / "event.json"
             output = root / "output"
@@ -93,7 +93,7 @@ class ReleaseVersionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "Cargo.toml").write_text('[package]\nversion = "0.3.0-rc.1"\n')
-            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject = root / "crates/specify-pmi-py/pyproject.toml"
             pyproject.parent.mkdir(parents=True)
             for version, exit_code in (("0.3.0", 1), ("0.3.0rc1", 0)):
                 with self.subTest(pyproject=version):
@@ -108,7 +108,7 @@ class ReleaseVersionTests(unittest.TestCase):
         script = Path(__file__).with_name("release_version.py").resolve()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject = root / "crates/specify-pmi-py/pyproject.toml"
             pyproject.parent.mkdir(parents=True)
             pyproject.write_text('[project]\nversion = "0.3.0"\n')
             output = root / "outputs"
