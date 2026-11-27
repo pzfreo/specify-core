@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - run: python3 -m pip install build && python3 -m build forwarders/pypi/specify-core
+      - run: pipx run build forwarders/pypi/specify-core
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: forwarders/pypi/specify-core/dist
