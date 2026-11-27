@@ -17,13 +17,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
-| [features](#features) | 4530 | 1255 | 570 | 2725 | 1060 | 1879 | 12019 |
+| [features](#features) | 4793 | 1255 | 570 | 2462 | 1060 | 1879 | 12019 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 587 | 0 | 0 | 28 | 729 |
 | [writer](#writer) | 2267 | 0 | 0 | 0 | 15 | 13 | 2295 |
-| **all** | 8329 | 1274 | 1176 | 2731 | 1327 | 1941 | 16778 |
+| **all** | 8592 | 1274 | 1176 | 2468 | 1327 | 1941 | 16778 |
 
 ## analysis
 
@@ -489,7 +489,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (4530 entries)
+### features: rust-correct (4793 entries)
 
 - **quiddity #134: boss end treatment** (8 entries, 4 case globs)
 
@@ -679,6 +679,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Quiddity 0.5.6 #353 publishes measured bounds on developed sheet-metal flanges; the frozen Python oracle predates #353.
 
+- **0.5.6 / STEP-selected face boundary (#317)** (263 entries, 4 case globs)
+
+  The evidence is stated per entry (214 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `faces[16].area`: Rust follows the boundary the file declares (Quiddity 0.5.6, #317): each edge's selected PCURVE_S1/PCURVE_S2/CURVE_3D, where Python measured OpenCascade's own 3D-edge boundary. #317 was checked against closed forms (torus cgb242/#16214 exact, sphere cgb202/#151680 within 1e-9 mm2) and 0.5.6's accuracy survey (86,410 parts, 99.71% within 1e-7 mm). This face was not checked separately. Measured: Python integrates OpenCascade's own edge boundary. Reference: OCCT adaptive integral (eps 1e-9) over OpenCascade's boundary, which neither engine's published number was shown to be the file's intent against; Torus: area ref 112.7658974 py 112.7658988 rs 112.7422003. Python is at the reference, Rust off it (within 1e-6).
+
 ### features: rust-wrong (1255 entries)
 
 - **Python at the adaptive integral, Rust off (U11)** (1248 entries, 16 case globs)
@@ -827,7 +831,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity 0.5.4 (#285, for specify-core#180) adds a sorted `faces` listing to a hole's nested cbore, spotface, outer_steps items and csink, the faces that locate that sub-record among the hole's own defining faces; it changes no face, id or other record field (published hole faces are identical at v0.5.3 and v0.5.4, e.g. nist_ctc_04 holes/31 [69,70,71,72,171,172] in both). The frozen Python sub-records have no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
 
-### features: undetermined (2725 entries)
+### features: undetermined (2462 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -980,10 +984,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Native hole mouth chamfers are absent from the frozen Python record** (7 entries, 4 case globs)
 
   The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=holes:*].record.mouth_chamfers`: At quiddity v0.5.0 (#247) holes publish measured coaxial conical mouth edge breaks as mouth_chamfers; the frozen Python record has no such field. First, holes:17 (diameter 10, at [-45,0,140]): size 1.0, depth 1.0, angle 45, face 36; the six bolt-circle holes each have one. Recorded as an unverified addition, not a certified measurement. Only the added mouth_chamfers field is explained: every other hole field, face and feature remains compared.
-
-- **0.5.6 / STEP-selected face boundary (#317)** (263 entries, 4 case globs)
-
-  The evidence is stated per entry (214 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `faces[16].area`: Quiddity 0.5.6 #317 integrates STEP's declared edge pcurves where they differ from the 3D edge by more than the file's length uncertainty; Python integrates OpenCascade's own edge boundary. Reference: OCCT adaptive integral (eps 1e-9) over OpenCascade's boundary, which neither engine's published number was shown to be the file's intent against; Torus: area ref 112.7658974 py 112.7658988 rs 112.7422003. Python is at the reference, Rust off it (within 1e-6).
 
 ### features: not-applicable (1060 entries)
 
@@ -2035,11 +2035,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb202`: `features[id=holes:*].record.mouth_chamfers`, `features[id=hole_patterns.*].record.holes[*].mouth_chamfers`
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=holes:*].record.mouth_chamfers`, `features[id=hole_patterns.*].record.holes[*].mouth_chamfers`
   - `nist/nist_ctc_05_asme1_ap242`: `features[id=holes:*].record.mouth_chamfers`
-- **0.5.6 / STEP-selected face boundary (#317)** (263 entries)
-  - `corpus/cadgenbench_inputs/cgb202`: `faces[16].area`, `faces[16].centroid[*]`, `faces[17].area`, `faces[17].centroid[*]`, `faces[21].area`, `faces[21].centroid[*]`, `faces[25].area`, `faces[25].centroid[*]`, `faces[30].centroid[*]`, `faces[48].area`, `faces[353].area`, `faces[353].centroid[*]`, `faces[354].area`, `faces[354].centroid[*]`, `faces[574].area`, `faces[574].centroid[*]`, `faces[603].area`, `faces[603].centroid[*]`, `faces[619].area`, `faces[619].centroid[*]`, `faces[629].centroid[*]`, `faces[630].area`, `faces[644].area`, `faces[665].centroid[*]`, `faces[669].centroid[*]`, `faces[670].centroid[*]`, `faces[675].area`, `faces[675].centroid[*]`, `faces[679].centroid[*]`, `faces[680].area`, `faces[684].area`, `faces[701].area`, `faces[710].centroid[*]`, `faces[714].centroid[*]`, `faces[726].area`, `faces[726].centroid[*]`, `faces[734].area`, `faces[747].area`, `faces[824].area`, `faces[836].area`, `faces[836].centroid[*]`, `faces[853].area`, `faces[858].area`, `faces[882].area`, `faces[930].area`, `faces[930].centroid[*]`, `faces[932].area`, `faces[944].area`, `faces[946].area`, `faces[946].centroid[*]`, `faces[957].area`, `faces[957].centroid[*]`, `faces[961].area`, `faces[962].area`, `faces[962].centroid[*]`, `faces[966].area`, `faces[985].area`, `faces[990].area`, `faces[994].area`, `faces[994].centroid[*]`, `faces[1005].area`, `faces[1005].centroid[*]`, `faces[1021].area`, `faces[1021].centroid[*]`, `faces[1038].area`, `faces[1038].centroid[*]`, `faces[1046].area`, `faces[1046].centroid[*]`, `faces[1057].area`, `faces[1057].centroid[*]`, `faces[1230].area`, `faces[1230].centroid[*]`, `faces[1231].area`, `faces[1231].centroid[*]`, `faces[1232].area`, `faces[1232].centroid[*]`, `faces[1233].area`, `faces[1233].centroid[*]`, `faces[1234].area`, `faces[1234].centroid[*]`, `faces[1236].area`, `faces[1236].centroid[*]`, `faces[1237].area`, `faces[1237].centroid[*]`, `faces[1238].area`, `faces[1238].centroid[*]`, `faces[1239].area`, `faces[1239].centroid[*]`, `faces[1240].area`, `faces[1240].centroid[*]`, `faces[1241].area`, `faces[1241].centroid[*]`, `faces[1242].area`, `faces[1242].centroid[*]`, `faces[1243].area`, `faces[1243].centroid[*]`, `faces[1244].area`, `faces[1244].centroid[*]`, `faces[1245].area`, `faces[1245].centroid[*]`, `faces[1246].area`, `faces[1246].centroid[*]`, `faces[1247].area`, `faces[1247].centroid[*]`, `faces[1333].area`, `faces[1333].centroid[*]`, `faces[1353].centroid[*]`, `faces[1358].centroid[*]`, `faces[1361].centroid[*]`, `faces[1365].centroid[*]`, `faces[1370].centroid[*]`, `faces[1377].centroid[*]`, `faces[1390].area`, `faces[1390].centroid[*]`, `faces[1397].area`, `faces[1397].centroid[*]`, `faces[1399].area`, `faces[1399].centroid[*]`, `faces[1401].area`, `faces[1401].centroid[*]`, `faces[1405].area`, `faces[1405].centroid[*]`, `faces[1418].area`, `faces[1420].area`, `faces[1420].centroid[*]`, `faces[1516].area`, `faces[1516].centroid[*]`, `faces[1644].centroid[*]`, `faces[1661].area`, `faces[1662].area`, `faces[1662].centroid[*]`, `faces[1664].area`, `faces[1664].centroid[*]`, `faces[1665].area`, `faces[1665].centroid[*]`, `faces[1668].area`, `faces[1674].centroid[*]`, `faces[1685].area`, `faces[1687].area`, `faces[1688].area`, `faces[1688].centroid[*]`, `faces[1691].area`, `faces[1691].centroid[*]`, `faces[1693].area`, `faces[1693].centroid[*]`, `faces[1706].area`, `faces[1707].area`, `faces[1707].centroid[*]`, `faces[1717].area`, `faces[1717].centroid[*]`, `faces[1726].area`, `faces[1727].area`, `faces[1727].centroid[*]`, `faces[1729].area`, `faces[1736].centroid[*]`, `faces[1803].area`, `faces[1912].area`, `faces[1912].centroid[*]`, `faces[1917].area`, `faces[1917].centroid[*]`, `faces[1919].area`, `faces[1919].centroid[*]`, `faces[1934].area`, `faces[1934].centroid[*]`, `faces[1936].area`, `faces[1936].centroid[*]`, `faces[2024].area`, `faces[2024].centroid[*]`, `faces[2037].area`, `faces[2037].centroid[*]`, `faces[2039].area`, `faces[2039].centroid[*]`, `faces[2049].area`, `faces[2049].centroid[*]`, `faces[2074].area`, `faces[2074].centroid[*]`, `faces[2088].area`, `faces[2088].centroid[*]`, `faces[2091].area`, `faces[2091].centroid[*]`, `faces[2094].area`, `faces[2099].area`, `faces[2099].centroid[*]`, `faces[2114].area`, `faces[2114].centroid[*]`, `faces[2116].area`, `faces[2116].centroid[*]`, `faces[2120].area`, `faces[2120].centroid[*]`, `faces[2121].area`, `faces[2121].centroid[*]`, `faces[2122].area`, `faces[2132].centroid[*]`, `faces[2133].area`, `faces[2133].centroid[*]`, `faces[2134].area`, `faces[2134].centroid[*]`, `faces[2135].area`, `faces[2135].centroid[*]`, `faces[2137].centroid[*]`, `faces[2139].area`, `faces[2139].centroid[*]`, `faces[2140].area`, `faces[2140].centroid[*]`, `faces[2144].area`, `faces[2144].centroid[*]`, `faces[2145].area`, `faces[2145].centroid[*]`, `faces[2146].area`, `faces[2146].centroid[*]`, `faces[2147].area`, `faces[2154].area`, `faces[2154].centroid[*]`
-  - `corpus/cadgenbench_inputs/cgb217`: `faces[31].area`, `faces[31].centroid[*]`, `faces[41].centroid[*]`, `faces[94].area`, `faces[94].centroid[*]`, `faces[104].area`, `faces[104].centroid[*]`, `faces[312].area`, `faces[322].centroid[*]`, `faces[363].area`, `faces[363].centroid[*]`
-  - `corpus/cadgenbench_inputs/cgb241`: `faces[17].centroid[*]`, `faces[37].centroid[*]`, `faces[43].area`, `faces[43].centroid[*]`
-  - `corpus/cadgenbench_inputs/cgb243`: `faces[0].area`, `faces[0].centroid[*]`, `faces[19].centroid[*]`, `faces[126].area`, `faces[129].area`, `faces[308].area`, `faces[308].centroid[*]`, `faces[332].area`, `faces[338].centroid[*]`, `faces[339].area`, `faces[347].area`, `faces[347].centroid[*]`, `faces[381].area`, `faces[381].centroid[*]`, `faces[389].centroid[*]`, `faces[429].area`, `faces[429].centroid[*]`, `faces[434].area`, `faces[434].centroid[*]`, `faces[436].area`, `faces[436].centroid[*]`, `faces[450].area`, `faces[450].centroid[*]`, `faces[490].area`, `faces[490].centroid[*]`, `faces[501].centroid[*]`, `faces[506].centroid[*]`, `faces[510].area`, `faces[510].centroid[*]`, `faces[528].area`, `faces[528].centroid[*]`, `faces[532].area`, `faces[532].centroid[*]`, `faces[544].centroid[*]`, `faces[570].centroid[*]`
 
 ### mesh: rust-wrong
 
