@@ -1226,12 +1226,11 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
     );
     let (saved, report) =
         api::write_bytes(located.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
-    let positions =
-        specify_pmi::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.r#type == "Position" && e.faces == [12])
-            .count();
+    let positions = specify_pmi::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "Position" && e.faces == [12])
+        .count();
     assert_eq!(positions, 0, "{:?}", report.written);
 }
 
@@ -1240,8 +1239,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
 #[test]
 fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
     let shaft = load(&common::fixtures().join("parts/GRM-02_shaft.step"), None).unwrap();
-    let mut intent =
-        specify_pmi::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
     intent
         .datums
         .push(map(json!({"letter": "A", "faces": [0]})));

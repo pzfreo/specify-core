@@ -37,6 +37,8 @@ Documentation = "https://github.com/pzfreo/specify-pmi/blob/main/crates/specify-
 [project.scripts]
 # The engine's command line; specify-pmi's second name for it, pmi-assist, is not kept.
 specify-pmi = "specify_pmi.cli:run"
+# The old name, kept for all of 0.3.x and removed in 0.4.
+specify-core = "specify_pmi.cli:run_alias"
 
 [tool.maturin]
 python-source = "python"

@@ -1252,10 +1252,8 @@ fn a_carried_history_cannot_reuse_numbers_retired_in_the_destination_file() {
     let removed = back(
         writer::apply::apply(
             &added,
-            &specify_pmi::edits::parse_value(
-                json!({"items": {"remove": [format!("#{retired}")]}}),
-            )
-            .unwrap(),
+            &specify_pmi::edits::parse_value(json!({"items": {"remove": [format!("#{retired}")]}}))
+                .unwrap(),
         )
         .unwrap()
         .bytes,

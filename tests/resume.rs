@@ -11,9 +11,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use specify_pmi::part::load;
 use specify_pmi::pyjson;
-use specify_pmi::resume::{
-    self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored,
-};
+use specify_pmi::resume::{self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored};
 use specify_pmi::rules::{Intent, apply_with_defaults};
 use specify_pmi::writer::write;
 
@@ -63,8 +61,7 @@ fn long_saved_answers_resume_from_ordered_text_chunks() {
     let resumed = specify_pmi::api::analyse(&back).unwrap();
     let intent = apply(&resumed, given.clone());
     let (again, _) =
-        specify_pmi::writer::write_bytes(&back, &intent, Some(given.as_object().unwrap()))
-            .unwrap();
+        specify_pmi::writer::write_bytes(&back, &intent, Some(given.as_object().unwrap())).unwrap();
     assert_eq!(
         again, bytes,
         "unchanged chunked answers must resave without drift"
@@ -720,8 +717,7 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
         }
         // Saving again uses current recognition, and the exact old answers remain readable.
         let intent = specify_pmi::api::apply(&analysis, applied, true).unwrap();
-        let (bytes, _) =
-            specify_pmi::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
+        let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
         let rewritten = specify_pmi::part::load_bytes(name, bytes).unwrap();
         assert_eq!(answers_for(&rewritten).unwrap().as_ref(), Some(applied));
         eprintln!(
@@ -1116,8 +1112,7 @@ fn swapping_spindle_faces_4_and_8_rebinds_general_plane_length_none() {
     let spindle = load(&common::fixtures().join("spindle.step"), None).unwrap();
     // Dismiss the 12 mm plane length (faces 8-10), leaving the 34 mm plane length (faces 4-10) open.
     let applied = common::apply_edits(&spindle, json!({"none": ["length:planes:8-10"]}));
-    let before =
-        specify_pmi::part::load_bytes("spindle-none.step", applied.bytes.clone()).unwrap();
+    let before = specify_pmi::part::load_bytes("spindle-none.step", applied.bytes.clone()).unwrap();
     let a_before = specify_pmi::api::analyse(&before).unwrap();
     assert_eq!(
         a_before["resume"]["answers"]["length:planes:8-10"],

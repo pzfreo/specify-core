@@ -245,10 +245,7 @@ fn fixture(name: &str) -> Vec<u8> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures")
         .join(name);
-    specify_pmi::part::load(&path, None)
-        .unwrap()
-        .bytes
-        .to_vec()
+    specify_pmi::part::load(&path, None).unwrap().bytes.to_vec()
 }
 
 /// Through `edit`: an added requirement the file states is a byte-identical no-op when filled

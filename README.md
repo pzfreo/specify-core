@@ -308,6 +308,9 @@ toolchain in `rust-toolchain.toml`, run `cargo build --release`, which produces
 `target/release/specify-pmi`; build the WASM and the app first (`wasm-pack build
 crates/specify-pmi-wasm --target web --profile wasm-release --locked`, then `npm ci && npm run
 build:app` in `ui/`) to build them in, or `open` asks for `--app` ([docs/open.md](docs/open.md#where-the-app-and-the-engine-come-from)).
+The old command name `specify-core` is installed beside `specify-pmi` by all of these routes (the
+crate, the wheel and each archive) for all of 0.3.x and is removed in 0.4. It runs the same
+command and prints a one-line notice on stderr.
 Release binaries carry a build provenance attestation: `gh attestation verify
 specify-pmi-$v-$t.tar.gz --repo pzfreo/specify-pmi`.
 

@@ -534,8 +534,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 );
             }
             readbacks.push(
-                serde_json::to_value(specify_pmi::existing::read_existing(&back).unwrap())
-                    .unwrap(),
+                serde_json::to_value(specify_pmi::existing::read_existing(&back).unwrap()).unwrap(),
             );
             let doc = Document::parse(back.bytes.to_vec()).unwrap();
             written_pmi.push(

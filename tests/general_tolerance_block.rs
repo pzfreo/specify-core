@@ -44,10 +44,7 @@ fn save(loaded: &LoadedPart, answers: &Map<String, Value>) -> (LoadedPart, Write
 }
 
 fn pmi_of(loaded: &LoadedPart) -> PartPmi {
-    specify_pmi::existing::read(loaded)
-        .unwrap()
-        .model()
-        .clone()
+    specify_pmi::existing::read(loaded).unwrap().model().clone()
 }
 
 /// The general tolerance row of the feature table: (state, value).
@@ -348,8 +345,7 @@ fn as_another_tool(bytes: &[u8]) -> Vec<u8> {
         t.description = None;
     }
     copied.attributes.retain(|set| {
-        !specify_pmi::resume::is_answers(set)
-            && set.name != specify_pmi::characteristics::PROPERTY
+        !specify_pmi::resume::is_answers(set) && set.name != specify_pmi::characteristics::PROPERTY
     });
     let doc = Document::parse(plate().bytes.to_vec()).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();

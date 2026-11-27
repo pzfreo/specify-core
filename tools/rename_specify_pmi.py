@@ -70,7 +70,20 @@ def git(*args):
     return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True).stdout
 
 
+# The 0.3.x `specify-core` alias (a binary, a console script, an archive copy and their notice)
+# keeps its name: these lines are left as they are.
+ALIAS_LINE = re.compile(
+    r'specify-core is now|specify_core_alias|BIN_EXE_specify-core|^name = "specify-core"|'
+    r'specify-core-copy|specify-core\$\{\{|^specify-core = |which\("specify-core"|specify-core\{\}|'
+    r'old command name|`specify-core` still works|named `specify-core`|'
+    r'`specify-core` (alias|console script)|specify-core alias|``specify-core`` console|'
+    r'"specify-core"\.as_ref|`specify-core`: the old name'
+)
+
+
 def new_path(p):
+    if p == "src/specify_core_alias.rs":
+        return p
     return p.replace("specify-core-wasm", "specify-pmi-wasm").replace("specify_core_wasm", "specify_pmi_wasm") \
         .replace("specify-core-py", "specify-pmi-py").replace("specify_core", "specify_pmi")
 
@@ -105,7 +118,10 @@ def rewrite(path, text):
         protect = not under(path, FULL)
         if path in ENV_FILES:
             masked = re.sub(r"SPECIFY_CORE\b", "SPECIFY_PMI", masked)
-        masked = "".join(bare_line(l, protect) for l in masked.splitlines(keepends=True))
+        masked = "".join(
+            l if ALIAS_LINE.search(l) else bare_line(l, protect)
+            for l in masked.splitlines(keepends=True)
+        )
     for i, m in enumerate(MASKS):
         masked = masked.replace(f"\0{i}\0", m)
     return masked

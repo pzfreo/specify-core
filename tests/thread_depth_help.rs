@@ -171,9 +171,7 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
         common::numbering::legacy_existing(
             specify_pmi::existing::read_existing(&baseline).unwrap()
         ),
-        common::numbering::legacy_existing(
-            specify_pmi::existing::read_existing(&current).unwrap()
-        ),
+        common::numbering::legacy_existing(specify_pmi::existing::read_existing(&current).unwrap()),
         "quiddity-rust#137 must preserve every legacy semantic PMI field"
     );
     assert_eq!(

@@ -101,11 +101,19 @@ jobs:
           test ! -e /tmp/smoke/answers.json
           SMOKE
           done
+      - name: The specify-core alias notices its name
+        run: |
+          bin="target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}"
+          alias="target/${{ matrix.target }}/release/specify-core-copy${{ matrix.exe }}"
+          cp "$bin" "$alias"
+          "$alias" --version 2>&1 >/dev/null | grep -q 'removed in 0.4'
       - name: Package and checksum
         run: |
           name="specify-pmi-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
           cp "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" LICENSE README.md "$name/"
+          # The old name, for all of 0.3.x: the same binary, which notices its name.
+          cp "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" "$name/specify-core${{ matrix.exe }}"
           if [ "${{ runner.os }}" = Windows ]; then
             asset="$name.zip"; 7z a -bd "dist/$asset" "$name" > /dev/null
           else

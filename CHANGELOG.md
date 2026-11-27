@@ -10,6 +10,11 @@ To be released as 0.3.0 (every package; see "Lockstep versions").
 
 Read first:
 
+- **`specify-core` still works as a command for all of 0.3.x, and is removed in 0.4.** The crate
+  installs a second binary, the Python wheel a second console script and each release archive a
+  copy of the binary named `specify-core`. It is the same command (`mcp` and exit codes included);
+  it first prints `specify-core is now specify-pmi; this alias will be removed in 0.4` to stderr,
+  never stdout.
 - **Renamed: specify-core is now specify-pmi.** Every package, the command and the repository:
   the crate and the command are `specify-pmi` (library `specify_pmi`); the WASM crate is
   `specify-pmi-wasm` and its npm package `@draftwright/specify-pmi-wasm` (generated

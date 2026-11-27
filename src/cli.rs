@@ -307,6 +307,15 @@ fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
     Ok(Cli::from_arg_matches_mut(&mut matches)?.command)
 }
 
+/// What the `specify-core` alias prints, once, to stderr (stdout carries replies and MCP).
+pub const ALIAS_NOTICE: &str = "specify-core is now specify-pmi; this alias will be removed in 0.4";
+
+/// [`main`] as the `specify-core` alias: the notice on stderr, then the same command.
+pub fn alias_main(argv: &[String]) -> u8 {
+    let _ = writeln!(io::stderr(), "{ALIAS_NOTICE}");
+    main(argv)
+}
+
 /// Runs the command line on `argv` (the arguments after the program's name) and returns the
 /// exit code; replies go to stdout, messages to stderr.
 pub fn main(argv: &[String]) -> u8 {

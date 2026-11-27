@@ -82,11 +82,7 @@ fn a_turned_part_has_not_changed() {
     let given =
         json!({ "part.material": "6061-T6", "hole.function:holes:8": "clearance", "datum.A": [4] });
     let (old, new) = (written(&old, given.clone()), written(&new, given));
-    assert!(
-        !specify_pmi::characteristics::read(&new)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(!specify_pmi::characteristics::read(&new).unwrap().is_empty());
     let r = diff(&old, &new).unwrap();
     assert!(edits(&r).is_empty(), "{:?}", r.pmi.items);
     assert_eq!(r.verdict, "ok", "{}", r.summary);

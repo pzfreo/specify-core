@@ -384,11 +384,7 @@ fn an_explicit_edit_marks_a_legacy_note_and_a_noop_keeps_it() {
     }
     let legacy_bytes = doc.apply(&edit).unwrap().bytes;
     let legacy = part::load_bytes("legacy.step", legacy_bytes.clone()).unwrap();
-    assert!(
-        specify_pmi::resume::answers_for(&legacy)
-            .unwrap()
-            .is_some()
-    );
+    assert!(specify_pmi::resume::answers_for(&legacy).unwrap().is_some());
     assert_eq!(
         existing::part_settings(&legacy).unwrap()["notes"],
         json!(["Legacy note"])

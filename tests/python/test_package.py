@@ -461,3 +461,15 @@ def test_dropped_carry_cannot_default(tmp_path):
         api.apply(analysis, carried, accept_defaults=True)
     carried["datum.A"] = [4, 8]
     write_answers(new, carried, tmp_path / "resolved.step", accept_defaults=True)
+
+
+def test_specify_core_alias_script_prints_a_notice_on_stderr_only():
+    import shutil
+
+    new, old = shutil.which("specify-pmi"), shutil.which("specify-core")
+    if not (new and old):
+        pytest.skip("the console scripts are not installed")
+    a = subprocess.run([new, "--help"], capture_output=True, text=True)
+    b = subprocess.run([old, "--help"], capture_output=True, text=True)
+    assert b.returncode == 0 and b.stdout == a.stdout
+    assert b.stderr == "specify-core is now specify-pmi; this alias will be removed in 0.4\n"

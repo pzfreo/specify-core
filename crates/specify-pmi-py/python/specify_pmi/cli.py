@@ -40,6 +40,12 @@ def run() -> None:
     sys.exit(main())
 
 
+def run_alias() -> None:
+    """The ``specify-core`` console script, the old name: a notice on stderr, then ``run``."""
+    print("specify-core is now specify-pmi; this alias will be removed in 0.4", file=sys.stderr)
+    run()
+
+
 def _is_fd(stream, fd: int) -> bool:
     try:
         return stream.fileno() == fd
