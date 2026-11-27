@@ -236,8 +236,21 @@ try {
     };
     const pageSave = async () => {
       const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
-      await page.getByRole('button', { name: 'Save', exact: true }).click();
-      const saved = await response;
+      let saved;
+      try {
+        await page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 30_000 });
+        saved = await response;
+      } catch (error) {
+        // Say why no save was sent: the button's state, what the bar holds, and the page's own messages.
+        const state = await page.evaluate(() => ({
+          save: [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Save')
+            .map(b => ({ disabled: b.disabled, title: b.title, aria: b.getAttribute('aria-disabled') })),
+          bar: document.querySelector('.spec-bar')?.innerText,
+          status: [...document.querySelectorAll('[role=status], [role=alert], .app-agent, .error')].map(e => e.innerText),
+          ops: window.__engineOps.slice(-12),
+        })).catch(e => `state unavailable: ${e}`);
+        throw new Error(`no save sent: ${error.message}\n${JSON.stringify(state, null, 1)}\nproblems: ${JSON.stringify(problems)}`);
+      }
       assert.equal(saved.status(), 200, await saved.text());
       return saved;
     };
