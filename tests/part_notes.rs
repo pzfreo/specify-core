@@ -104,7 +104,7 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
     let doc = Document::parse(bytes.clone()).unwrap();
     // quiddity-rust#137 must not produce an empty coordinates/curve list for the blank row.
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     // haecceity 0.4.8 (#193) names curve sets by the PMI RP 4.1 Table 18 (`note`) instead of
     // the drawn text, so the drawn block is checked through the kernel's own notes layout of

@@ -2595,10 +2595,10 @@ fn mcp_checks_and_saves_one_or_more_parts_atomically() {
     let saved_bytes = std::fs::read(&input).unwrap();
     let pin = Document::parse(pin_only).unwrap();
     let updated = Document::parse(saved_bytes).unwrap();
-    for id in pin.graph().entities.keys() {
+    for id in pin.ids() {
         assert_eq!(
-            &pin.bytes()[pin.span(*id).unwrap()],
-            &updated.bytes()[updated.span(*id).unwrap()],
+            &pin.bytes()[pin.span(id).unwrap()],
+            &updated.bytes()[updated.span(id).unwrap()],
             "pin and assembly entity #{id}"
         );
     }

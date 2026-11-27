@@ -198,6 +198,7 @@ Read first:
   default it is taken with every other default, so accepting all of them on such a part gives sheet
   metal's: no surface finish, edges `Deburr only`, ± dimensions. Recorded expectations change for
   sm-hanger, cgb245 and NIST CTC-03 only; answering `machined` there gives the rules as before.
+- **Quiddity 0.6.0.** Bumped `quiddity` and `haecceity` to `v0.6.0` (haecceity's own Part 21 types and step-io 0.4.0; meshes follow the STEP-selected boundary, quiddity #349, so `cgb207_torus_dense_deviation` runs again). Internal only: no behaviour change for users.
 - **Quiddity 0.5.6.** Bumped `quiddity` and `haecceity` to `v0.5.6` (tangent fillet chains and radius groups, sheet-metal flange bounds, and STEP-selected boundary face integrals; grouped fillet rows remain planned for 0.3.2).
 - **Saved answers use Quiddity's own fingerprints (schema 3) and are never dropped silently.**
   - New saves always write stored-answer schema 3 carrying Quiddity's versioned `geometry` fingerprints (`fingerprint_version`, `scale`, `features`, `faces`) instead of Specify's own 0.001 mm rounded-centroid SHA-256 hash (`faces`). Unique authored `f:` names keep `face_names` (all-named parts use `face_names` alone).

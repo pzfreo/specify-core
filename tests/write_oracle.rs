@@ -477,7 +477,7 @@ fn violations(bytes: Vec<u8>) -> Vec<String> {
         Ok(d) => d,
         Err(e) => return vec![e.to_string()],
     };
-    let mut out: Vec<String> = haecceity::express::validate_document(doc.graph())
+    let mut out: Vec<String> = haecceity::express::validate_document(&doc)
         .iter()
         .map(|v| format!("{v:?}"))
         .collect();

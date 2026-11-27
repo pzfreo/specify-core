@@ -1300,7 +1300,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     }
     let written = doc.apply(&edit).map_err(|e| e.to_string())?.bytes;
     let after = Document::parse(written.clone()).map_err(|e| e.to_string())?;
-    let new_violations: Vec<_> = haecceity::express::validate_document(after.graph())
+    let new_violations: Vec<_> = haecceity::express::validate_document(&after)
         .into_iter()
         .filter(|v| v.id > doc.max_id())
         .collect();

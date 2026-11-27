@@ -101,7 +101,7 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
             .all(|a| a.description.as_deref() == Some("user defined attribute"))
     );
     let mut unmark = haecceity::p21::Edit::new();
-    for (&id, e) in &doc.graph().entities {
+    for (id, e) in doc.iter() {
         if matches!(e, RawEntity::Simple { name, .. } if name == "DESCRIPTION_ATTRIBUTE") {
             unmark.remove(id);
         }
@@ -135,7 +135,7 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
     let plain_read = pmi::read(&plain, &defs).unwrap();
     assert_eq!(p.attributes, plain_read.parts[0].attributes);
     assert_eq!(read.findings, plain_read.findings);
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     p.clone()
 }
@@ -318,7 +318,7 @@ fn imported_ap242_pmi_is_never_marked_even_when_new_pmi_uses_the_same_face() {
     );
     let old = Document::parse(loaded.bytes.to_vec()).unwrap();
     let new = Document::parse(bytes).unwrap();
-    for &id in old.graph().entities.keys() {
+    for id in old.ids() {
         let text = |doc: &Document| doc.bytes()[doc.span(id).unwrap()].to_vec();
         assert_eq!(text(&old), text(&new), "input #{id} changed");
     }
@@ -491,10 +491,8 @@ fn two_sizes_on_one_aspect_keep_provenance_separate_from_their_numeric_identifie
         (pmi::DimensionKind::Size { feature: a, .. }, pmi::DimensionKind::Size { feature: b, .. }) if a == b));
     let doc = Document::parse(bytes).unwrap();
     let roots: Vec<_> = doc
-        .graph()
-        .entities
         .iter()
-        .filter_map(|(&id, e)| {
+        .filter_map(|(id, e)| {
             matches!(e, RawEntity::Simple { name, .. } if name == "DIMENSIONAL_SIZE").then_some(id)
         })
         .collect();

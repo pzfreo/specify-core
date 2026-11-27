@@ -57,10 +57,8 @@ fn marked_process(replacement: Option<(&str, &str)>) -> Document {
 fn edited_process(replacement: Option<(&str, &str)>) -> Vec<u8> {
     let doc = marked_process(replacement);
     let property = doc
-        .graph()
-        .entities
         .iter()
-        .find_map(|(&id, entity)| {
+        .find_map(|(id, entity)| {
             matches!(entity, RawEntity::Simple {name, attributes, ..}
             if name == "PROPERTY_DEFINITION"
                 && attributes.first() == Some(&Attribute::String(process::PROPERTY.into())))
@@ -216,7 +214,7 @@ fn strip_description_markers(bytes: Vec<u8>) -> Vec<u8> {
     let doc = Document::parse(bytes).unwrap();
     let mut edit = Edit::new();
     let mut removed = 0;
-    for (&id, record) in &doc.graph().entities {
+    for (id, record) in doc.iter() {
         if matches!(record, RawEntity::Simple { name, attributes, .. }
             if name == "DESCRIPTION_ATTRIBUTE"
                 && matches!(attributes.first(), Some(Attribute::String(s))

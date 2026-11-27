@@ -540,7 +540,7 @@ fn freecad_write_roundtrip(name: &str) {
     }
     assert_eq!(rewritten, 1);
     assert_eq!(std::fs::read(&input).unwrap(), loaded.bytes.as_slice());
-    let violations = haecceity::express::validate_document(after.graph());
+    let violations = haecceity::express::validate_document(&after);
     assert!(violations.is_empty(), "{violations:?}");
     let violations = haecceity::express_rules::check_all(&after);
     assert!(violations.is_empty(), "{violations:?}");

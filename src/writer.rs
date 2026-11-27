@@ -1905,7 +1905,7 @@ fn name_depth_points(
     defs: &[PartDefinition],
     edit: &mut p21::Edit,
 ) -> Result<(), WriteError> {
-    if !after.graph().entities.iter().any(|(&id, e)| {
+    if !after.iter().any(|(id, e)| {
         before.get(id).is_none()
             && matches!(e,RawEntity::Simple{name,..} if name=="DERIVED_SHAPE_ASPECT")
     }) {

@@ -111,7 +111,7 @@ fn write_file(path: &Path, dir: &Path) -> Vec<String> {
             assert!(!report.written.is_empty(), "{name}: nothing written");
             // Every file written passes the EXPRESS check (test_conformance.py, as kept).
             let doc = haecceity::p21::Document::parse(std::fs::read(&out).unwrap()).unwrap();
-            let violations = haecceity::express::validate_document(doc.graph());
+            let violations = haecceity::express::validate_document(&doc);
             let rules = haecceity::express_rules::check_all(&doc);
             if !violations.is_empty() || !rules.is_empty() {
                 problems.push(format!("{name}: {violations:?} {rules:?}"));

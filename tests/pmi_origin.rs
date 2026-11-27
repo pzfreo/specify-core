@@ -66,7 +66,7 @@ fn every_dimension_has_origin_and_recognised_sources_round_trip_losslessly_and_r
             "#{id}"
         );
     }
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     let read = read(&written);
     let p = &read.parts[0];
@@ -283,7 +283,7 @@ fn reserved_name_refuses_spoofing_and_schema_one_header_upgrades_losslessly() {
         after.file_schema().unwrap(),
         vec![haecceity::express::TARGET_SCHEMA]
     );
-    assert!(haecceity::express::validate_document(after.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&after).is_empty());
     let before = Document::parse(ed1.bytes.to_vec()).unwrap();
     for id in before.ids() {
         assert_eq!(
@@ -354,7 +354,7 @@ fn v026_split_datum_composite_size_and_location_own_their_origin_and_source() {
             matches!(doc.get(id), Some(RawEntity::Simple {name,attributes,..})
                 if name == "PROPERTY_DEFINITION" && attributes.get(2) == Some(&Attribute::EntityRef(root)))));
     }
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     let signature = |p: &part::LoadedPart| {
         characteristics::read(p)

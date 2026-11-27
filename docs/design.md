@@ -89,8 +89,8 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
-  pinned to release tag `v0.5.6` in both manifests and Cargo.lock; the root manifest also
-  names the same crates.io version (`version = "=0.5.6"`), which the published crate uses
+  pinned to release tag `v0.6.0` in both manifests and Cargo.lock; the root manifest also
+  names the same crates.io version (`version = "=0.6.0"`), which the published crate uses
   (crates.yml refuses a release whose version and tag differ); the root crate takes
   quiddity with `default-features = false, features = ["presentation"]`, so clap stays out.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
@@ -412,7 +412,7 @@ Local upgrade checks select the touched binaries plus features, resume, cross-en
 WASM, with both corpus paths exported, `CARGO_BUILD_JOBS=6`, `RUST_TEST_THREADS=6`.
 The full workspace suite remains CI's check.
 
-Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;
+Part-21 strings are decoded text in step-io 0.3 and 0.4 (#62): do not decode an attribute twice;
 haecceity's `Document::span` continues to provide checked `usize` slices of its own bytes.
 
 ### The legacy fingerprint (schemas 1 and 2, byte for byte)
