@@ -21,12 +21,6 @@ name = "specify-pmi"
 path = "src/main.rs"
 required-features = ["cli"]
 
-# The old name, kept for all of 0.3.x and removed in 0.4: the same command, plus a notice on stderr.
-[[bin]]
-name = "specify-core"
-path = "src/specify_core_alias.rs"
-required-features = ["cli"]
-
 [features]
 default = ["cli", "bundled-app"]
 # The command line (src/cli.rs, the binary and the Python console script). The WASM build

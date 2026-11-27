@@ -2749,9 +2749,10 @@ fn write_refuses_a_different_general_tolerance_than_the_file_states() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The `specify-core` alias (all of 0.3.x): the same output as `specify-pmi`, plus one notice on
-/// stderr and nothing more on stdout. A copy of `specify-pmi` named `specify-core` is the alias
-/// too (the release archives ship one).
+/// The `specify-core` alias (all of 0.3.x): a copy of `specify-pmi` named `specify-core`, as the
+/// release archives ship, gives the same output plus one notice on stderr and nothing more on
+/// stdout. (The crate has no second binary: `cargo install` would refuse it beside an installed
+/// `specify-core` crate; cargo users get the alias from the 0.3.1 `specify-core` forwarder.)
 #[test]
 fn specify_core_alias_prints_a_notice_on_stderr_only() {
     let notice = "specify-core is now specify-pmi; this alias will be removed in 0.4\n";
@@ -2763,10 +2764,8 @@ fn specify_core_alias_prints_a_notice_on_stderr_only() {
     let dir = scratch("alias-copy");
     let copy = dir.join(format!("specify-core{}", std::env::consts::EXE_SUFFIX));
     std::fs::copy(env!("CARGO_BIN_EXE_specify-pmi"), &copy).unwrap();
-    for exe in [
-        std::path::PathBuf::from(env!("CARGO_BIN_EXE_specify-core")),
-        copy,
-    ] {
+    {
+        let exe = copy;
         let out = Command::new(&exe).arg("--help").output().unwrap();
         assert!(out.status.success(), "{exe:?}");
         assert_eq!(out.stdout, pmi.stdout, "{exe:?}");
