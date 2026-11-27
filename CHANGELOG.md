@@ -378,7 +378,9 @@ Read first:
 - The reviewed WASM size ceiling is raised from 16,500,000 to **17,000,000** bytes (approved by Paul,
   2026-11-22, for the 0.3.0 feature set), after the integrated 0.3.0 stack measured 16,568,361 bytes.
   Raised again to **18,000,000** bytes (approved by Paul, 2026-11-24) at 0.3.0-rc.2, which measured
-  16,988,345 bytes on Linux CI, 11,655 under 17,000,000.
+  16,988,345 bytes on Linux CI, 11,655 under 17,000,000. Raised again to **20,000,000** bytes
+  (approved by Paul, 2026-11-27) for Quiddity 0.6.0 and the Save read cache, which together
+  measured 17,923,913 bytes, 76,087 under 18,000,000.
 
 ### Removed
 
