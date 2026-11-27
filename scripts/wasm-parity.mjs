@@ -166,7 +166,12 @@ for (const [part, path] of parts) {
       assert.deepEqual(unknown.answers, answers);
       assert.ok(unknown.unverified);
       // Evidence that contradicts the part leaves every answer on a feature or a datum open.
-      const other = JSON.stringify({ ...JSON.parse(evidence), faces: '0'.repeat(64) });
+      // Schema 3 evidence carries Quiddity's fingerprints (`geometry`): moving a face 5 mm contradicts it.
+      const saved = JSON.parse(evidence);
+      const moved = faces => faces.map((f, i) => i === 0 && f.centroid ? { ...f, centroid: f.centroid.map(c => c + 5) } : f);
+      const other = JSON.stringify(saved.geometry
+        ? { ...saved, geometry: { ...saved.geometry, faces: moved(saved.geometry.faces) } }
+        : { ...saved, faces: '0'.repeat(64) });
       const mismatched = JSON.parse(carrying.rematchAnswers(JSON.stringify(given), other));
       const geometric = id => /^(hole|diameter|datum)\./.test(id);
       assert.deepEqual(mismatched.unresolved.map(u => [u.id, u.answer]),
