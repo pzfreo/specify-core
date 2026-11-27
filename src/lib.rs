@@ -30,6 +30,7 @@ pub mod mesh;
 pub mod open;
 pub mod part;
 pub mod pmi_origin;
+mod pmi_read;
 pub mod pmi_scene;
 pub mod problems;
 pub mod process;

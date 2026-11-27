@@ -645,7 +645,7 @@ impl Source {
         let failed = |e: String| WriteError::Failed(format!("cannot read the file: {e}"));
         let defs = read_part_definitions(bytes).map_err(|e| failed(e.to_string()))?;
         let doc = Document::parse(bytes.to_vec()).map_err(|e| failed(e.to_string()))?;
-        let read = pmi::read(&doc, &defs).map_err(|e| failed(e.to_string()))?;
+        let read = crate::pmi_read::read(&doc, &defs).map_err(|e| failed(e.to_string()))?;
         if read.parts.len() != defs.len() {
             return Err(failed(format!(
                 "{} parts read with PMI, {} in the file",
@@ -1858,7 +1858,8 @@ fn write_by_modes(
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
         let mut caller_links = BTreeSet::new();
         if !extra.is_empty() {
-            let read = pmi::read(&after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
+            let read = crate::pmi_read::read(&after, defs)
+                .map_err(|e| WriteError::Failed(e.to_string()))?;
             for (part, _) in &these {
                 let attributes = &read.parts[part.0].attributes;
                 let provenance = &read.provenance.parts[part.0].attributes;
@@ -1911,7 +1912,7 @@ fn name_depth_points(
     }) {
         return Ok(());
     }
-    let read = pmi::read(after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
+    let read = crate::pmi_read::read(after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
     fn points(p: &PartPmi, f: FeatureId, out: &mut BTreeSet<usize>) {
         match &p.features[f.0] {
             Feature::Group { members, .. } => {
@@ -2054,7 +2055,7 @@ fn verify(
         |why: String| VerificationError(format!("the file written does not read back: {why}"));
     let after_defs = read_part_definitions(back).map_err(|e| fail(e.to_string()))?;
     let after_doc = Document::parse(back.to_vec()).map_err(|e| fail(e.to_string()))?;
-    let after = pmi::read(&after_doc, &after_defs).map_err(|e| fail(e.to_string()))?;
+    let after = crate::pmi_read::read(&after_doc, &after_defs).map_err(|e| fail(e.to_string()))?;
     let (defs, before) = (&source.defs, &source.read);
     let mut problems: Vec<String> = Vec::new();
     if after_defs.len() != defs.len() || after.parts.len() != defs.len() {

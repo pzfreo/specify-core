@@ -1146,9 +1146,16 @@ fn save_with(
     let mut answers = BTreeMap::new();
     // The required questions the saved file still leaves open, as `write` would list them.
     let mut missing = Vec::new();
+    let loaded_parts = resumed
+        .step
+        .load_all()
+        .map_err(|e| SaveError::Failed(e.to_string()))?;
     for k in 0..resumed.part_count() {
-        let analysis =
-            Arc::new(analyse(&resumed.step, k).map_err(|e| SaveError::Failed(e.to_string()))?);
+        let analysis = Arc::new(
+            api::analyse_among(&resumed.step, &loaded_parts, k)
+                .map_err(|e| SaveError::Failed(e.to_string()))?
+                .0,
+        );
         let resumed_answers = analysis["resume"]["answers"]
             .as_object()
             .cloned()

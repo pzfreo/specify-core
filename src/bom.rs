@@ -303,7 +303,7 @@ pub(crate) fn read_parsed(
     definitions: &[haecceity::step::PartDefinition],
     offset: usize,
 ) -> Result<Vec<Item>, String> {
-    let pmi = haecceity::pmi::read(doc, definitions).map_err(|e| e.to_string())?;
+    let pmi = crate::pmi_read::read(doc, definitions).map_err(|e| e.to_string())?;
     read_rows(doc, definitions, offset, &pmi.parts)
 }
 

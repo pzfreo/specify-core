@@ -279,7 +279,8 @@ pub fn read_parsed(
     doc: Document,
     parts: &[step::PartDefinition],
 ) -> Result<Reading, ExistingError> {
-    let mut read = pmi::read(&doc, parts).map_err(|e| ExistingError::Pmi(e.to_string()))?;
+    let mut read =
+        crate::pmi_read::read(&doc, parts).map_err(|e| ExistingError::Pmi(e.to_string()))?;
     let index = loaded.binding.part;
     if index >= read.parts.len() {
         return Err(ExistingError::Pmi(format!(

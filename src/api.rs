@@ -220,6 +220,30 @@ pub fn analyse_reporting_in(
     analyse_with(loaded, assembly.as_deref(), Some(file.definitions()), None)
 }
 
+/// [`analyse_reporting_in`] of part `part` of `file`, `assembly` being every part of `file`
+/// ([`part::File::load_all`]) already loaded, so analysing each part of an assembly loads the
+/// parts once, not once for every part.
+pub(crate) fn analyse_among(
+    file: &part::File,
+    assembly: &[LoadedPart],
+    part: usize,
+) -> Result<(Value, Vec<String>)> {
+    let loaded = assembly.get(part).ok_or_else(|| {
+        Error::Analysis(format!(
+            "{}: there is no part {part}",
+            file.path().display()
+        ))
+    })?;
+    if loaded.binding.source_sha256 != file.sha256() {
+        return Err(Error::Analysis(format!(
+            "{}: the part is not of the file given",
+            loaded.path.display()
+        )));
+    }
+    let among = (loaded.part_count > 1).then_some(assembly);
+    analyse_with(loaded, among, Some(file.definitions()), None)
+}
+
 /// [`analyse`], from quiddity's recognition of `loaded`'s part already made, so a caller that
 /// also needs its fingerprints (a revision) recognises the part once.
 pub(crate) fn analyse_recognised(
