@@ -87,9 +87,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
-use specify_core::part::{self, LoadedPart};
-use specify_core::rules::Intent;
-use specify_core::writer::write_parts;
+use specify_pmi::part::{self, LoadedPart};
+use specify_pmi::rules::Intent;
+use specify_pmi::writer::write_parts;
 
 /// One case of the cross-engine check: an oracle case of a whole input file.
 pub struct Written {
@@ -211,7 +211,7 @@ pub fn gzip(bytes: &[u8]) -> Vec<u8> {
 /// A scratch directory for the staged outputs, under the system's temporary directory.
 pub fn scratch() -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-cross-engine")
+        .join("specify-pmi-cross-engine")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).expect("scratch directory");
     dir

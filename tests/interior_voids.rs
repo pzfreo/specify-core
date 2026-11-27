@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
+use specify_pmi::api;
 
 fn sealed_cavities() -> Value {
     let step =
@@ -145,7 +145,7 @@ fn serve_returns_the_same_void_facts() {
     let review = api::review(&analysis, &Map::new()).unwrap();
     let request = json!({"op": "questions", "analysis": analysis, "answers": {}}).to_string();
     let mut out = Vec::new();
-    specify_core::serve::serve(format!("{request}\n").as_bytes(), &mut out).unwrap();
+    specify_pmi::serve::serve(format!("{request}\n").as_bytes(), &mut out).unwrap();
     let reply: Value = serde_json::from_slice(&out).unwrap();
     let served = &reply["result"]["problems"];
     assert_eq!(void_facts(served), void_facts(&review["problems"]));

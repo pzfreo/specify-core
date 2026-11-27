@@ -1,4 +1,4 @@
-//! `specify-core serve`: a long-lived child process speaking JSON lines (port of `serve.py`).
+//! `specify-pmi serve`: a long-lived child process speaking JSON lines (port of `serve.py`).
 //!
 //! A host sends one request per line on stdin; one reply per line comes back on stdout, and
 //! nothing else is ever written to stdout (diagnostics, such as a panic's message, go to
@@ -31,7 +31,7 @@
 //! ```
 //!
 //! Errors are `{code, message}`: `incomplete` (with `missing`, and `part` in an assembly),
-//! `invalid` (an answer specify-core refuses, or a malformed request: a missing field is
+//! `invalid` (an answer specify-pmi refuses, or a malformed request: a missing field is
 //! `missing field 'name'`, as Python's `KeyError` reads), or `failed` (anything else, with a
 //! `trace`: the error's debug form, or a panic's message, location and backtrace). A line that
 //! is not JSON, or JSON that is not an object, is answered as `invalid` and the child carries
@@ -130,7 +130,7 @@ pub fn serve(input: impl BufRead, mut replies: impl Write) -> io::Result<()> {
     panic::set_hook(Box::new(|info| {
         let text = format!("{info}\n{}", std::backtrace::Backtrace::force_capture());
         // The panic goes to stderr as well, never to stdout.
-        eprintln!("specify-core serve: {info}");
+        eprintln!("specify-pmi serve: {info}");
         PANIC.with(|p| *p.borrow_mut() = Some(text));
     }));
     let mut server = Server::default();

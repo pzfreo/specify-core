@@ -1,5 +1,5 @@
 // Save: the page sends the edits the review panel has collected (`POST save {rev, edits}` or `{rev, partEdits}`,
-// specify-core docs/open.md, session API 2) and the command applies them to the file, all or
+// specify-pmi docs/open.md, session API 2) and the command applies them to the file, all or
 // nothing, with the same writer and naming as the agent's `save`. Anything not sent is left as the
 // file has it. It never refuses for open questions: many AP242 files have no complete answer to
 // everything. It says what is still open.

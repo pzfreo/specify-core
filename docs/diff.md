@@ -1,7 +1,7 @@
-# Comparing revisions: `specify-core diff`
+# Comparing revisions: `specify-pmi diff`
 
 ```bash
-specify-core diff old.step new.step [--title TITLE] [--part N] [--pmi-scenes] [--viewer URL] -o DIR
+specify-pmi diff old.step new.step [--title TITLE] [--part N] [--pmi-scenes] [--viewer URL] -o DIR
 ```
 
 `diff` compares two revisions of a part, or of an assembly part by part (see
@@ -228,7 +228,7 @@ Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
 
 - Rust: `revision::diff_with_options(old, new, DiffOptions { scenes: true })`
   (also `revision::assembly::diff_with_options`). `revision::diff` keeps its default.
-- CLI: `specify-core diff old.step new.step -o result --pmi-scenes`.
+- CLI: `specify-pmi diff old.step new.step -o result --pmi-scenes`.
 - WASM: `diff(oldName, oldBytes, newName, newBytes, "{}", title, true)` (the fifth argument is
   not read).
 - Python: `api.diff(old, new, scenes=True)`.
@@ -260,7 +260,7 @@ The deprecated `pmi.stored`, `pmi.existing` and `pmi.existing_count` are gone (0
 
 WASM `diff` returns these items in `report.pmi.items` (and in each assembly part's
 report), with ids and numbers suitable for highlighting `pmiScene` characteristics
-in `/diff`. The Python package exposes `specify_core.api.diff(old, new,
+in `/diff`. The Python package exposes `specify_pmi.api.diff(old, new,
 *, title="Revision", part=None, scenes=False)`, returning `{report, markdown}` for the selected
 part. It accepts paths or loaded part handles; paths accept a part index.
 

@@ -4,7 +4,7 @@ mod carry_values;
 
 use haecceity::p21::{self, Attribute as A, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{api, bom, carry, part, resume, rules, writer};
+use specify_pmi::{api, bom, carry, part, resume, rules, writer};
 use std::path::{Path, PathBuf};
 
 fn fixture() -> part::File {
@@ -85,7 +85,7 @@ fn round_trip_lossless_resumed_and_noop_with_sources_and_standard_material() {
         // ADR P11: the material writes PMI, so it is not stored; the BOM answers are.
         assert_eq!(
             resume::answers_for(p).unwrap(),
-            Some(specify_core::feature_table::storable(&a))
+            Some(specify_pmi::feature_table::storable(&a))
         );
     }
     assert_eq!(write(&back, &answers()), bytes);
@@ -549,7 +549,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     let bytes = writer::write_bytes(&loaded, &intent, Some(&a)).unwrap().0;
     let back = file(bytes.clone());
     let part = back.load(Some(0)).unwrap();
-    assert_eq!(specify_core::characteristics::read(&part).unwrap().len(), 1);
+    assert_eq!(specify_pmi::characteristics::read(&part).unwrap().len(), 1);
     assert_eq!(
         bom::read(&back).unwrap()[0].description.value,
         "Plate with datum A"
@@ -580,7 +580,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     }}});
     let check = writer::apply::check(&plate, &changed.to_string());
     assert!(check.applicable, "BOM change refused: {}", check.message());
-    let table = specify_core::api::analyse(&plate).unwrap()["table"].clone();
+    let table = specify_pmi::api::analyse(&plate).unwrap()["table"].clone();
     let row = table["rows"]
         .as_array()
         .unwrap()
@@ -612,7 +612,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     ] {
         let check = writer::apply::check(&plate, &list.to_string());
         let failures =
-            writer::apply::apply(&plate, &specify_core::edits::parse_value(list).unwrap())
+            writer::apply::apply(&plate, &specify_pmi::edits::parse_value(list).unwrap())
                 .unwrap_err();
         assert_eq!(check.failures, failures);
         assert_eq!(failures.len(), 1);
@@ -620,7 +620,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
         assert_eq!(failures[0].reason, message);
     }
     let apply = |plate: &part::LoadedPart, list| {
-        writer::apply::apply(plate, &specify_core::edits::parse_value(list).unwrap())
+        writer::apply::apply(plate, &specify_pmi::edits::parse_value(list).unwrap())
             .unwrap_or_else(|failures| panic!("{failures:?}"))
     };
     let applied = apply(&plate, changed);
@@ -1217,13 +1217,13 @@ fn a_removed_assembly_part_reports_every_stated_characteristic() {
     let source = added(&fixture());
     let parts = source.load_all().unwrap();
     let index = parts.iter().position(|p| p.name == "plate").unwrap();
-    let edits = specify_core::edits::parse_value(json!({
+    let edits = specify_pmi::edits::parse_value(json!({
         "accept_suggestions": ["hole.function:holes:11"]
     }))
     .unwrap();
     let old = file(writer::apply::apply(&parts[index], &edits).unwrap().bytes);
     let old_part = old.load(Some(index)).unwrap();
-    let characteristics = specify_core::characteristics::read(&old_part).unwrap();
+    let characteristics = specify_pmi::characteristics::read(&old_part).unwrap();
     assert!(!characteristics.is_empty());
     let outcome = carry::carry(&old, &removed(&source, index)).unwrap();
     let report = outcome.report;

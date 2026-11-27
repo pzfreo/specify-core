@@ -9,7 +9,7 @@ use haecceity::{
     },
 };
 use serde_json::json;
-use specify_core::{existing, part, rules, writer};
+use specify_pmi::{existing, part, rules, writer};
 
 #[test]
 fn six_ap203_repairs_refuse_kernel_add_but_specify_uses_replace_without_foreign_pmi() {

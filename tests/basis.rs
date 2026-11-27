@@ -1,10 +1,10 @@
-//! Every default specify-core chooses says why, so it can be shown as a choice made:
+//! Every default specify-pmi chooses says why, so it can be shown as a choice made:
 //! specify-core's `tests/test_basis.py`, on the oracle's captured analysis of the plate.
 
 mod common;
 
 use serde_json::{Map, json};
-use specify_core::rules::{Question, questions};
+use specify_pmi::rules::{Question, questions};
 
 fn plate_questions() -> Vec<Question> {
     let plate = common::case("parts/plate")

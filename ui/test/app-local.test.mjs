@@ -8,12 +8,12 @@ import { SESSION_API, SessionApiMismatch } from '../app/session-api.ts';
 const config = { name: 'part.step', saveTarget: '/tmp/part.specified.step' };
 const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
 
-// Session API 2 (specify-core 0.3.0): Save sends an edit list. specify-core 0.2.0 gives no api and
+// Session API 2 (specify-pmi 0.3.0): Save sends an edit list. specify-pmi 0.2.0 gives no api and
 // speaks contract 1 (answers PUT and saved), which this page can no longer follow.
-test('config without api (specify-core 0.2.0, contract 1) refuses startup', async (t) => {
+test('config without api (specify-pmi 0.2.0, contract 1) refuses startup', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json(config));
   await assert.rejects(getConfig(), (error) => error instanceof SessionApiMismatch
-    && error.message === 'This Specify page speaks session API 2, but specify-core speaks 1: update specify-core or the app');
+    && error.message === 'This Specify page speaks session API 2, but specify-pmi speaks 1: update specify-pmi or the app');
 });
 
 test('config with the supported session API is accepted', async (t) => {
@@ -24,7 +24,7 @@ test('config with the supported session API is accepted', async (t) => {
 test('config with a mismatched API refuses startup and names both versions', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json({ api: 3, ...config }));
   await assert.rejects(getConfig(), (error) => error instanceof SessionApiMismatch
-    && error.message === 'This Specify page speaks session API 2, but specify-core speaks 3: update specify-core or the app');
+    && error.message === 'This Specify page speaks session API 2, but specify-pmi speaks 3: update specify-pmi or the app');
 });
 
 /** Browser timers run against wall time. Sleeping moves time without executing callbacks. */
@@ -85,7 +85,7 @@ function command(t) {
   t.mock.method(globalThis, 'fetch', (_url, { signal }) => {
     const call = { signal, started: Date.now() };
     calls.push(call);
-    // The command's config names its session API (2): one without it is specify-core 0.2.0's, refused.
+    // The command's config names its session API (2): one without it is specify-pmi 0.2.0's, refused.
     if (state.mode === 'ok') return Promise.resolve(Response.json({ api: SESSION_API, ...config }));
     if (state.mode === 'busy') return Promise.resolve(Response.json({ error: 'busy' }, { status: 503 }));
     if (state.mode === 'offline') return Promise.reject(new TypeError('connection refused'));

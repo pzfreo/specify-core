@@ -15,11 +15,11 @@ def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
     for name in npm_package.MODULE_FILES + npm_package.LEGAL_FILES:
         (pkg / name).write_text("x", encoding="utf-8")
     base = {
-        "name": "specify-core-wasm",
+        "name": "specify-pmi-wasm",
         "version": "0.1.17",
         "license": "Apache-2.0",
-        "repository": {"type": "git", "url": "https://github.com/pzfreo/specify-core"},
-        "main": "specify_core_wasm.js",
+        "repository": {"type": "git", "url": "https://github.com/pzfreo/specify-pmi"},
+        "main": "specify_pmi_wasm.js",
         "files": list(npm_package.MODULE_FILES),
     }
     base.update(meta)
@@ -51,10 +51,10 @@ class NpmPackageTests(unittest.TestCase):
             pkg = write_pkg(pathlib.Path(tmp))
             npm_package.prepare(pkg, "0.1.17")
             meta = json.loads((pkg / "package.json").read_text(encoding="utf-8"))
-            self.assertEqual(meta["name"], "@draftwright/specify-core-wasm")
+            self.assertEqual(meta["name"], "@draftwright/specify-pmi-wasm")
             self.assertEqual(meta["publishConfig"], {"access": "public", "provenance": True})
-            self.assertEqual(meta["repository"]["url"], "https://github.com/pzfreo/specify-core")
-            self.assertEqual(meta["main"], "specify_core_wasm.js")
+            self.assertEqual(meta["repository"]["url"], "https://github.com/pzfreo/specify-pmi")
+            self.assertEqual(meta["main"], "specify_pmi_wasm.js")
             self.assertEqual(meta["version"], "0.1.17")
             self.assertIn("NOTICE", meta["files"])
 
@@ -67,7 +67,7 @@ class NpmPackageTests(unittest.TestCase):
     def test_refuses_a_missing_module_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             pkg = write_pkg(pathlib.Path(tmp))
-            (pkg / "specify_core_wasm_bg.wasm").unlink()
+            (pkg / "specify_pmi_wasm_bg.wasm").unlink()
             with self.assertRaises(SystemExit):
                 npm_package.prepare(pkg)
 
@@ -93,7 +93,7 @@ class NpmPackageTests(unittest.TestCase):
             finally:
                 os.chdir(cwd)
             self.assertIn("NOTICE", packed)
-            self.assertIn("specify_core_wasm_bg.wasm", packed)
+            self.assertIn("specify_pmi_wasm_bg.wasm", packed)
 
 
 if __name__ == "__main__":

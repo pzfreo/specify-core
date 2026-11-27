@@ -1,4 +1,4 @@
-# `specify-core open`: the local app contract
+# `specify-pmi open`: the local app contract
 
 The Specify page serves the Specify app, the engine and one STEP file (two for a diff) from
 this computer on 127.0.0.1 and opens the browser at the app. This page is the contract between
@@ -7,15 +7,15 @@ that page server (src/open.rs) and the app (ui/app, built in this repository) th
 The page server is started in one of two ways, with the same code and the same contract:
 
 - **By an AI agent** (the usual way): Specify is set up once as the agent's stdio MCP server,
-  `specify-core mcp`; the agent opens a part and calls the `show` tool, which starts the page
+  `specify-pmi mcp`; the agent opens a part and calls the `show` tool, which starts the page
   server for that session and returns its address (docs/session.md).
-- **By hand**, with no agent: `specify-core open [FILE]` or `specify-core open --diff OLD NEW`,
+- **By hand**, with no agent: `specify-pmi open [FILE]` or `specify-pmi open --diff OLD NEW`,
   below.
 
 ```text
-specify-core open [FILE] [--read-only | --in-place] [--port N] [--no-browser]
+specify-pmi open [FILE] [--read-only | --in-place] [--port N] [--no-browser]
                          [--app DIR] [--wasm DIR]
-specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
+specify-pmi open --diff OLD NEW [--in-place] [--port N] [--no-browser]
                          [--app DIR] [--wasm DIR]
 ```
 
@@ -23,7 +23,7 @@ specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
 `--in-place` cannot be combined; `--read-only` cannot be combined with `--diff`; `--in-place`
 requires a file. Without `FILE`, the page opens empty with a drop target and file picker; dropping
 or choosing a file opens it in the same review and Save writes `<stem>.specified.step` (then `-2`,
-`-3`, …) into the working directory where `specify-core open` was started. Every path
+`-3`, …) into the working directory where `specify-pmi open` was started. Every path
 the command shows or returns (`saveTarget`, a save's `path`, its notices) is the file as given,
 made absolute, never resolved: a link stays the link, and nothing is shown in a canonical form
 such as Windows' `\\?\C:\…`.
@@ -43,7 +43,7 @@ The session lives in the process that serves the page (the *session*, below, and
 docs/session.md): the file as last saved, its stored answers and their revision. The page
 collects its edits itself and sends them all at once with Save as one edit list per edited part (ADR P11).
 The agent's answers reach the page as they are made. In what follows, "the
-command" is that process: `specify-core open`, or `specify-core mcp` after `show`.
+command" is that process: `specify-pmi open`, or `specify-pmi mcp` after `show`.
 
 ## Addresses
 
@@ -106,7 +106,7 @@ every mode, `diff` included:
   "oldName": null,
   "oldPath": null,
   "readOnly": false,
-  "wasmUrl": "wasm/specify_core_wasm.js",
+  "wasmUrl": "wasm/specify_pmi_wasm.js",
   "saveTarget": "/home/me/parts/part.specified.step",
   "savedPath": null,
   "specifyCore": "0.3.0"
@@ -124,7 +124,7 @@ every mode, `diff` included:
   (above), or `null` when started with no file (including after one is picked in the browser,
   which does not expose the input file's real path on disk).
 - `part`: the part index the page is shown for: under an agent, the part (`doc`) `show` was
-  called for, in a file of several parts; otherwise `null` (`specify-core open`, or a file of
+  called for, in a file of several parts; otherwise `null` (`specify-pmi open`, or a file of
   one part).
 - `oldName`, `oldPath`: `OLD`'s name and absolute path in `diff` mode, otherwise `null`.
 - `readOnly`: saves are refused (`--read-only`); hide or disable Save.
@@ -140,7 +140,7 @@ every mode, `diff` included:
 
 ### `open`
 
-When `specify-core open` starts with no file, the page drops or chooses a STEP file and uploads
+When `specify-pmi open` starts with no file, the page drops or chooses a STEP file and uploads
 its bytes to the local server once via `POST <token>/open`:
 
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent);
@@ -156,12 +156,12 @@ or drop another file. Once a file is open, a second upload is refused (409, also
 a file on the command line or under MCP `show`). On success it prints `Opened <name>.` and returns
 `200` with the new `config` JSON. Save writes `<stem>.specified.step` (then `-2`, `-3`, …; updating
 only this session's own copy, never overwriting any other file) in the working directory where
-`specify-core open` was started, shown in `config.saveTarget` before saving.
+`specify-pmi open` was started, shown in `config.saveTarget` before saving.
 
 ### `save`
 
 The page collects the person's edits and sends them together; the command applies them to the
-file, all or nothing, with the same code as `specify-core write STEP EDITS.json` (ADR P11). The
+file, all or nothing, with the same code as `specify-pmi write STEP EDITS.json` (ADR P11). The
 page sends no STEP bytes.
 
 `POST <token>/save` with a JSON body:
@@ -176,7 +176,7 @@ page sends no STEP bytes.
   saves over changes it has not shown. The session checks the revision again under the same
   lock it uses to commit the file and publish the new session state. The page refreshes
   after a conflict so the person can save again.
-- `edits` (an object for a single-part file, `{}` for none): the edit list, as `specify-core write STEP EDITS.json` takes it:
+- `edits` (an object for a single-part file, `{}` for none): the edit list, as `specify-pmi write STEP EDITS.json` takes it:
   `fill` gaps, `change` stated feature-and-kinds (with the value the person saw as `expect`),
   `items.remove` requirements by characteristic number, `none` feature-and-kinds decided none,
   `accept_suggestions`, gaps filled with Specify's suggestion, and `clear`. Ids are the feature
@@ -326,12 +326,12 @@ toward the 16 connections.
 
 ## `diff` mode
 
-`specify-core open --diff OLD NEW` runs the same comparison as `specify-core diff OLD NEW`
+`specify-pmi open --diff OLD NEW` runs the same comparison as `specify-pmi diff OLD NEW`
 when it starts: from the two files' PMI only (docs/diff.md). Nothing is carried from `OLD`
 (ADR P11); the session is `NEW`'s, as `open NEW` starts it.
 
 **The comparison comes from the command's `diff`, not from the engine in the page.** The
-command's comparison is the one `specify-core diff` and MCP's `diff` give, so the page, the AI
+command's comparison is the one `specify-pmi diff` and MCP's `diff` give, so the page, the AI
 and a CI run cannot disagree. The page does not compare the parts again.
 
 `GET <token>/diff` → exactly what WASM `diff()` returns for the two files with `scenes` true
@@ -351,7 +351,7 @@ list to `NEW` and writes it (beside it, or over it with `--in-place`).
 
 ## The agent's side
 
-Under `specify-core mcp` the agent reads and changes the same session through MCP tools
+Under `specify-pmi mcp` the agent reads and changes the same session through MCP tools
 (docs/session.md): its answers reach the page as `answers` events with `source: "mcp"`. Its
 `save` tool applies an edit list as the page's Save does and sends the same `saved` event.
 
@@ -380,7 +380,7 @@ page servers stop with it, with one exception: a page holding unsaved edits send
 `GET <token>/config?unsaved=1`, and once the agent's end of stdio closes the process waits while one has
 been heard in the last 90 s, so the edits can still be saved. Another tab's plain heartbeat does not
 clear it. A client that then kills the process ends that wait: the page offers the edit lists Save would
-have sent as files, for `specify-core write`.
+have sent as files, for `specify-pmi write`.
 
 ## Which answers have a body
 
@@ -431,7 +431,7 @@ have sent as files, for `specify-core write`.
 
 ## Where the app and the engine come from
 
-The app (built from [ui/](../ui/)) and its WASM engine are built into the `specify-core`
+The app (built from [ui/](../ui/)) and its WASM engine are built into the `specify-pmi`
 command ([ADR P12](https://github.com/pzfreo/draftwright-project/blob/main/adr/P12-specify-ships-whole.md)):
 the release binaries, the Python wheels and the crates.io crate carry them, gzipped (about
 6 MB), and `open` and MCP `show` serve them from the binary. Nothing is downloaded or cached:
@@ -454,17 +454,17 @@ MCP `show` reads the overrides from the server process's environment.
 
 **Building it in.** With the `bundled-app` feature (on by default), `build.rs` builds in the
 app from `ui/dist-app` (else `bundle/app`, the copy a published crate carries) when its
-manifest names the crate's version, and the engine from `crates/specify-core-wasm/pkg` (else
+manifest names the crate's version, and the engine from `crates/specify-pmi-wasm/pkg` (else
 `bundle/wasm`) when its `package.json` names the crate's version. A development build has them once they are built:
 
 ```sh
-wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
 (cd ui && npm ci && npm run build:app)
 cargo build --release
 ```
 
 A build without them still compiles (with a build warning), and its `open` asks for `--app`
-(or a release: `pip install specify-core`). `SPECIFY_REQUIRE_BUNDLE=1` makes a missing app or
+(or a release: `pip install specify-pmi`). `SPECIFY_REQUIRE_BUNDLE=1` makes a missing app or
 engine a build error (the release jobs set it). `cargo test` builds in the small fake app and
 engine of `tests/fixtures/bundle` instead (the `bundle-test-fixture` feature).
 `tools/open_smoke.py BINARY STEP` checks that a binary serves its built-in app and engine with

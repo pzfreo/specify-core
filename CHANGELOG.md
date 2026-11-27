@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to specify-core-rust. The format follows
+All notable changes to specify-pmi (formerly specify-core and specify-core-rust). The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
@@ -10,6 +10,22 @@ To be released as 0.3.0 (every package; see "Lockstep versions").
 
 Read first:
 
+- **`specify-core` still works as a command for all of 0.3.x, and is removed in 0.4.** The Python
+  wheel installs a second console script and each release archive a copy of the binary named
+  `specify-core`; with cargo, the `specify-core` 0.3.1 forwarder crate provides it. It is the
+  same command (`mcp` and exit codes included); it first prints `specify-core is now specify-pmi;
+  this alias will be removed in 0.4` to stderr, never stdout.
+- **Renamed: specify-core is now specify-pmi.** Every package, the command and the repository:
+  the crate and the command are `specify-pmi` (library `specify_pmi`); the WASM crate is
+  `specify-pmi-wasm` and its npm package `@draftwright/specify-pmi-wasm` (generated
+  `specify_pmi_wasm.js` and `specify_pmi_wasm_bg.wasm`); the Python distribution is
+  `specify-pmi` and its module `specify_pmi`; the release assets are `specify-pmi-<target>…`;
+  the repository is `pzfreo/specify-pmi` (GitHub redirects the old links).
+  `@draftwright/specify-ui` keeps its name. The old names get forwarding releases that
+  re-export the new ones. The `SPECIFY_CORE` test variable that names the command's
+  binary is now `SPECIFY_PMI`; `SPECIFY_CORE` is still read for one release. Nothing in the
+  files changes: `_specify` in STEP, the edit lists and session `api` 2 are as before.
+  Entries below keep the names they were written under.
 - **The app and engine ship inside the command** ([ADR P12](https://github.com/pzfreo/draftwright-project/blob/main/adr/P12-specify-ships-whole.md)):
   the release binaries, the Python wheels and the crates.io crate carry the Specify app and its
   WASM engine (about 6 MB more), and `open` and MCP `show` serve them from the binary. Nothing is
@@ -377,6 +393,9 @@ Read first:
 
 ### WASM API
 
+- Renamed with the package: the npm package is `@draftwright/specify-pmi-wasm` and the generated
+  module is `specify_pmi_wasm.js` (`specify_pmi_wasm_bg.wasm`, `specify_pmi_wasm.d.ts`). Import from
+  the new names; the exports are otherwise unchanged.
 - `IntentEngine.edit(editsJson, project?, payload?)`: an edit list (or a 0.2 answers file)
   applied to the file in memory, all or nothing: `{written: true, bytes, report, source_sha256}`
   (the report with `retired` and `unchanged`), or `{written: false, failures, message}` naming

@@ -2,7 +2,7 @@
 //! alpha.6 inputs, not outputs recaptured from Python or regenerated after the pin changed.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{
+use specify_pmi::{
     api,
     features::{self, Feature},
     part, resume, rules, writer,
@@ -37,7 +37,7 @@ fn p11_resumed(
     analysis: &Value,
     warnings: &[String],
 ) -> (Map<String, Value>, BTreeSet<String>) {
-    use specify_core::feature_table::{is_requirement, leaves_nothing};
+    use specify_pmi::feature_table::{is_requirement, leaves_nothing};
     let state = |id: &str| {
         analysis["table"]["rows"]
             .as_array()
@@ -57,7 +57,7 @@ fn p11_resumed(
         }
         let said = format!(
             "saved answer {id} ({}){tail}",
-            specify_core::choices::short_repr(value, 6)
+            specify_pmi::choices::short_repr(value, 6)
         );
         let times = warnings.iter().filter(|w| **w == said).count();
         match row.as_deref() {
@@ -266,7 +266,7 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             "{name}"
         );
         assert!(after[&0].get("faces").is_none(), "{name}");
-        let settings = specify_core::existing::part_settings(&back).unwrap();
+        let settings = specify_pmi::existing::part_settings(&back).unwrap();
         assert_eq!(settings["notes"], base["answers"]["part.notes"]);
     }
     assert_eq!(total, 87);
@@ -516,7 +516,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 .unwrap()
                 .load(None)
                 .unwrap();
-            let existing = specify_core::existing::read_existing(&back).unwrap();
+            let existing = specify_pmi::existing::read_existing(&back).unwrap();
             if name.starts_with("corpus/") {
                 // Some generic dimensions on 10224 have no semantic writer mapping.
                 // The explicit write/refusal report must also be invariant under motion.
@@ -534,8 +534,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 );
             }
             readbacks.push(
-                serde_json::to_value(specify_core::existing::read_existing(&back).unwrap())
-                    .unwrap(),
+                serde_json::to_value(specify_pmi::existing::read_existing(&back).unwrap()).unwrap(),
             );
             let doc = Document::parse(back.bytes.to_vec()).unwrap();
             written_pmi.push(

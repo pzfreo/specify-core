@@ -8,9 +8,9 @@ use std::process::Command;
 use haecceity::p21::{Attribute, Document};
 use haecceity::pmi::{self, AttributeSet, AttributeValue};
 use serde_json::{Map, Value, json};
-use specify_core::part::{self, LoadedPart};
-use specify_core::rules::{self, Intent};
-use specify_core::{api, existing, resume, writer};
+use specify_pmi::part::{self, LoadedPart};
+use specify_pmi::rules::{self, Intent};
+use specify_pmi::{api, existing, resume, writer};
 
 fn fixture(stem: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -138,7 +138,7 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     assert_eq!(existing::part_settings(&reopened).unwrap()["notes"], notes);
     // ADR P11: the notes and material write PMI, so they are not stored; the file states
     // them, and a stated part.notes is not asked.
-    let stored = specify_core::feature_table::storable(&answers);
+    let stored = specify_pmi::feature_table::storable(&answers);
     assert_eq!(
         resume::answers_for(&reopened).unwrap(),
         Some(stored.clone())
@@ -306,7 +306,7 @@ fn assembly_notes_belong_to_their_part() {
         assert_eq!(
             api::analyse(&loaded).unwrap()["resume"]["answers"],
             // ADR P11: stored are the answers that leave no PMI behind.
-            json!(specify_core::feature_table::storable(answers))
+            json!(specify_pmi::feature_table::storable(answers))
         );
     }
 }
@@ -346,7 +346,7 @@ fn a_part_setting_added_to_an_assemblys_stated_notes_has_a_scene() {
     for k in 0..2 {
         let loaded = file.load(Some(k)).unwrap();
         let analysis = api::analyse(&loaded).unwrap();
-        let scene = specify_core::pmi_scene::Scene::new(&loaded)
+        let scene = specify_pmi::pmi_scene::Scene::new(&loaded)
             .unwrap()
             .scene(&loaded, Some(&analysis), Some(&finish))
             .unwrap_or_else(|e| panic!("part {k}: {e}"));

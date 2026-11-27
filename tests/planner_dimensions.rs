@@ -3,7 +3,7 @@
 use haecceity::{p21::Document, pmi};
 use quiddity::dimensioning::{Input, PatternRole, Required, Tolerance};
 use serde_json::{Value, json};
-use specify_core::{api, characteristics, part, rules, writer};
+use specify_pmi::{api, characteristics, part, rules, writer};
 use std::{collections::BTreeSet, path::Path};
 
 fn plate() -> part::LoadedPart {

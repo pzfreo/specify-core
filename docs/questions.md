@@ -174,7 +174,7 @@ engines (analyse with one, write with the other), or should the Rust engine mark
 
 **Q2. Moving to `prototype/rust-port`.** Once it contains a16d7af, the dependency moves there,
 where recognition is framed (`recognise_placed`: records found in the part's own frame and
-reported in the file's coordinates). Should specify-core-rust use the framed recognition (as
+reported in the file's coordinates). Should specify-pmi use the framed recognition (as
 quiddity-rust's own default now is) or the caller-space `correspondence::recognise` it uses on
 `ap242`? *Meanwhile:* caller-space, the only one on `ap242`. *Status (2026-10-09): done.* Both
 dependencies follow branch `prototype/rust-port`, Cargo.lock pinning 5798c59 (5d39eee for

@@ -1,7 +1,7 @@
 //! For #87: only names authored into STEP are persistent face identities.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{api, features, part, resume, writer};
+use specify_pmi::{api, features, part, resume, writer};
 use std::path::Path;
 
 fn load(name: &str) -> part::LoadedPart {
@@ -226,7 +226,7 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
         // ADR P11: stored are the answers that leave no PMI behind.
-        json!(specify_core::feature_table::storable(&answers(&new)))
+        json!(specify_pmi::feature_table::storable(&answers(&new)))
     );
     // Exercise the normal writer, not just an attribute-only embed.
     let a = object(
@@ -244,7 +244,7 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
-        json!(specify_core::feature_table::storable(&a))
+        json!(specify_pmi::feature_table::storable(&a))
     );
 }
 
@@ -311,7 +311,7 @@ fn unnamed_revision_writes_schema_three_quiddity_geometry_and_keeps_presentation
     // ADR P11: stored are the answers that leave no PMI (the material is stated).
     assert_eq!(
         stored["answers"],
-        json!(specify_core::feature_table::storable(&a))
+        json!(specify_pmi::feature_table::storable(&a))
     );
     assert_eq!(stored["part"], 0);
     assert_eq!(stored["face_count"], 11);
@@ -339,7 +339,7 @@ fn unnamed_revision_writes_schema_three_quiddity_geometry_and_keeps_presentation
     assert!(text.contains("TESSELLATED_CURVE_SET('note'"));
     let reopened = part::load_bytes("pre87.step", written.clone()).unwrap();
     assert_eq!(
-        specify_core::existing::part_settings(&reopened).unwrap()["material"],
+        specify_pmi::existing::part_settings(&reopened).unwrap()["material"],
         "steel"
     );
     let defs = haecceity::step::read_part_definitions(&written).unwrap();
@@ -396,7 +396,7 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
         // ADR P11: stored are the answers that leave no PMI behind.
-        json!(specify_core::feature_table::storable(&before))
+        json!(specify_pmi::feature_table::storable(&before))
     );
 }
 

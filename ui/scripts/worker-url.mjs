@@ -1,6 +1,6 @@
 // Vite's library build wraps the worker's URL (new Worker(new URL(new URL("assets/…", import.meta.url).href, …))),
 // which a host's bundler takes for a plain asset: it copies (or inlines) the worker without resolving the worker's
-// import of @draftwright/specify-core-wasm. Rewritten to the standard form, the host's bundler (Vite, webpack 5)
+// import of @draftwright/specify-pmi-wasm. Rewritten to the standard form, the host's bundler (Vite, webpack 5)
 // builds the worker as an entry of its own and resolves the engine and its .wasm, so a host need pass nothing.
 import { readFileSync, writeFileSync } from 'node:fs';
 

@@ -6,7 +6,7 @@ fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 export REAL_GIT
 REAL_GIT=$(command -v git)
-mkdir -p "$fixture/bin" "$fixture/repo" "$fixture/release/specify-core-test-x86_64-unknown-linux-gnu"
+mkdir -p "$fixture/bin" "$fixture/repo" "$fixture/release/specify-pmi-test-x86_64-unknown-linux-gnu"
 cat > "$fixture/bin/git" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -47,7 +47,7 @@ if ! command -v sha256sum > /dev/null; then
 exec shasum -a 256 "$@"
 STUB
 fi
-cat > "$fixture/release/specify-core-test-x86_64-unknown-linux-gnu/specify-core" <<'STUB'
+cat > "$fixture/release/specify-pmi-test-x86_64-unknown-linux-gnu/specify-pmi" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 while [ "$1" != -o ]; do shift; done
@@ -57,9 +57,9 @@ for arg in "$@"; do [ "$arg" != --answers ] || { echo 'unexpected --answers' >&2
 printf '### plate.step: Specify\n\n✅ 1 change to the PMI.\n' > "$out/report.md"
 printf '%s\n' "$TEST_REPORT" > "$out/report.json"
 STUB
-chmod +x "$fixture/bin/"* "$fixture/release/"*/specify-core
+chmod +x "$fixture/bin/"* "$fixture/release/"*/specify-pmi
 export PATH="$fixture/bin:$PATH" TEST_RELEASE="$fixture/release"
-(cd "$TEST_RELEASE" && tar -czf specify-core-test-x86_64-unknown-linux-gnu.tar.gz specify-core-test-x86_64-unknown-linux-gnu && sha256sum specify-core-test-x86_64-unknown-linux-gnu.tar.gz > specify-core-test-x86_64-unknown-linux-gnu.tar.gz.sha256)
+(cd "$TEST_RELEASE" && tar -czf specify-pmi-test-x86_64-unknown-linux-gnu.tar.gz specify-pmi-test-x86_64-unknown-linux-gnu && sha256sum specify-pmi-test-x86_64-unknown-linux-gnu.tar.gz > specify-pmi-test-x86_64-unknown-linux-gnu.tar.gz.sha256)
 cd "$fixture/repo"
 "$REAL_GIT" init -q -b main
 "$REAL_GIT" config user.name 'Fixture'

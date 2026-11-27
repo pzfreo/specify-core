@@ -12,10 +12,10 @@ mod common;
 use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
-use specify_core::api::{self, Error};
-use specify_core::part::load;
-use specify_core::rules::{self, IncompleteError};
-use specify_core::serve::Server;
+use specify_pmi::api::{self, Error};
+use specify_pmi::part::load;
+use specify_pmi::rules::{self, IncompleteError};
+use specify_pmi::serve::Server;
 
 const PLATE: usize = 0;
 const PIN: usize = 1;
@@ -37,7 +37,7 @@ fn assembly_answers(k: usize) -> Map<String, Value> {
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-api-tests")
+        .join("specify-pmi-api-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -128,7 +128,7 @@ fn an_assembly_is_analysed_a_part_at_a_time() {
 
 /// The analysis retains Python key order, with the shared planner input after features (#75).
 /// `mates` and contacts appear only
-/// for a part of an assembly, `existing` and `part` for a file specify-core did not write.
+/// for a part of an assembly, `existing` and `part` for a file specify-pmi did not write.
 #[test]
 fn analyses_have_python_layout() {
     for stem in [
@@ -164,8 +164,8 @@ fn analyses_have_python_layout() {
     }
     let mut differences = Vec::new();
     for (stem, count) in [("stack", 3), ("assembly", 2)] {
-        let file = specify_core::part::File::read(&part(stem)).unwrap();
-        let rows = specify_core::bom::read(&file).unwrap();
+        let file = specify_pmi::part::File::read(&part(stem)).unwrap();
+        let rows = specify_pmi::bom::read(&file).unwrap();
         for (k, row) in rows.iter().enumerate().take(count) {
             let mut a = api::analyse_file(&part(stem), Some(k)).unwrap();
             let case = format!("parts/{stem}#{k}");
@@ -291,7 +291,7 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         let resumed = back["resume"]["answers"].as_object().unwrap();
         assert_eq!(
             resumed,
-            &specify_core::feature_table::storable(&assembly_answers(k))
+            &specify_pmi::feature_table::storable(&assembly_answers(k))
         );
         assert!(back["resume"].get("conflicts").is_none());
         let existing = back["existing"].as_array().unwrap();
@@ -299,7 +299,7 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         assert!(
             existing
                 .iter()
-                .all(|e| e["provenance"] == specify_core::writer::PMI_PROVENANCE),
+                .all(|e| e["provenance"] == specify_pmi::writer::PMI_PROVENANCE),
             "{existing:?}"
         );
         assert_eq!(back["part"], json!({}));
@@ -355,7 +355,7 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     );
     let mut accepted = accepted;
     accepted.insert("_specify".into(), resumed["_specify"].clone());
-    assert_eq!(resumed, &specify_core::feature_table::storable(&accepted));
+    assert_eq!(resumed, &specify_pmi::feature_table::storable(&accepted));
     assert_eq!(
         analysed["result"]["mesh"]["faces"]
             .as_array()
@@ -417,7 +417,7 @@ fn an_analysis_from_before_parts_still_previews_with_anchors() {
     let mut analysis = api::analyse_file(&pin, None).unwrap();
     analysis["binding"].as_object_mut().unwrap().remove("part");
     // #20: labels exist only for accepted specifications, including legacy bindings.
-    let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let accepted = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     let reply = Server::default().reply(&json!({
         "id": 1, "op": "preview", "analysis": analysis, "answers": accepted, "step": pin,
     }));
@@ -435,7 +435,7 @@ fn preview_carries_anchors_for_its_labels_when_given_the_file() {
     let analysis = api::analyse_file(&pin, None).unwrap();
     let mut server = Server::default();
     // #20: anchor geometry is tested on explicitly accepted specifications.
-    let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let accepted = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     let request = json!({"id": 1, "op": "preview", "analysis": analysis, "answers": accepted});
     let plain = server.reply(&request);
     assert!(plain["result"]["intent"].get("anchors").is_none());
@@ -452,7 +452,7 @@ fn preview_carries_anchors_for_its_labels_when_given_the_file() {
                 .iter()
                 .map(|f| f.as_u64().unwrap() as usize)
                 .collect();
-            (!faces.is_empty()).then(|| specify_core::anchors::key(&faces))
+            (!faces.is_empty()).then(|| specify_pmi::anchors::key(&faces))
         })
         .collect();
     assert!(!labelled.is_empty());
@@ -478,7 +478,7 @@ fn preview_carries_anchors_for_its_labels_when_given_the_file() {
 fn anchors_are_not_given_for_a_different_file() {
     let analysis = api::analyse_file(&part("pin"), None).unwrap();
     // #20: use accepted PMI so an empty result actually checks the foreign binding.
-    let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let accepted = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     let reply = Server::default().reply(&json!({
         "id": 1, "op": "preview", "analysis": analysis, "answers": accepted, "step": part("plate"),
     }));
@@ -493,7 +493,7 @@ fn anchors_are_cached_for_the_last_two_parts() {
     for stem in ["pin", "plate", "wrapped", "pin"] {
         let analysis = api::analyse_file(&part(stem), None).unwrap();
         // #20: keep exercising actual label anchors as parts enter and leave the cache.
-        let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let accepted = specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
         let reply = server.reply(&json!({
             "id": 1, "op": "preview", "analysis": analysis, "answers": accepted, "step": part(stem),
         }));

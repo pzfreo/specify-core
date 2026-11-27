@@ -26,7 +26,7 @@ export function validateOpening(name, bytes, answers) {
   try {
     const snapshot = JSON.parse(engine.snapshot());
     const given = JSON.stringify(answers);
-    // As the worker previews defaults (specify-core 0.3.0: the free acceptDefaults on the analysis).
+    // As the worker previews defaults (specify-pmi 0.3.0: the free acceptDefaults on the analysis).
     const accepted = acceptDefaults(JSON.stringify(snapshot.analysis), given);
     const review = JSON.parse(engine.review(accepted));
     engine.review(given);

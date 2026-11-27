@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Value, json};
-use specify_core::part::{LoadedPart, load};
-use specify_core::revision::{Revised, diff, picture};
+use specify_pmi::part::{LoadedPart, load};
+use specify_pmi::revision::{Revised, diff, picture};
 
 fn pair(case: &str) -> (LoadedPart, LoadedPart) {
     let path = |which: &str| -> PathBuf {
@@ -23,15 +23,15 @@ fn pair(case: &str) -> (LoadedPart, LoadedPart) {
 
 /// *part* written with *given* and every default, as `write --accept-defaults` writes it.
 fn annotated(part: &LoadedPart, given: Value) -> LoadedPart {
-    let analysis = specify_core::api::analyse(part).unwrap();
+    let analysis = specify_pmi::api::analyse(part).unwrap();
     let mut given = given.as_object().unwrap().clone();
     given.remove("_specify");
-    let answers = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
-    let intent = specify_core::api::preview(&analysis, &answers).unwrap();
-    let bytes = specify_core::writer::write_bytes(part, &intent, Some(&answers))
+    let answers = specify_pmi::rules::with_all_defaults(&analysis, &given).unwrap();
+    let intent = specify_pmi::api::preview(&analysis, &answers).unwrap();
+    let bytes = specify_pmi::writer::write_bytes(part, &intent, Some(&answers))
         .unwrap()
         .0;
-    specify_core::part::load_bytes("annotated.step", bytes).unwrap()
+    specify_pmi::part::load_bytes("annotated.step", bytes).unwrap()
 }
 
 fn revised(case: &str) -> Revised {
@@ -82,11 +82,7 @@ fn a_turned_part_has_not_changed() {
     let given =
         json!({ "part.material": "6061-T6", "hole.function:holes:8": "clearance", "datum.A": [4] });
     let (old, new) = (written(&old, given.clone()), written(&new, given));
-    assert!(
-        !specify_core::characteristics::read(&new)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(!specify_pmi::characteristics::read(&new).unwrap().is_empty());
     let r = diff(&old, &new).unwrap();
     assert!(edits(&r).is_empty(), "{:?}", r.pmi.items);
     assert_eq!(r.verdict, "ok", "{}", r.summary);
@@ -118,7 +114,7 @@ fn the_picture_is_a_png() {
 
 #[test]
 fn the_command_line_writes_the_report_and_picture_and_no_answers() {
-    let dir = std::env::temp_dir().join(format!("specify-core-revision-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("specify-pmi-revision-{}", std::process::id()));
     let fixture = |which: &str| {
         Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
             "tests/fixtures/revisions/hole_removed.{which}.step.gz"
@@ -126,7 +122,7 @@ fn the_command_line_writes_the_report_and_picture_and_no_answers() {
     };
     std::fs::create_dir_all(&dir).unwrap();
     let _ = std::fs::remove_file(dir.join("answers.json"));
-    let cli = || Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let cli = || Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
     let out = cli()
         .arg("diff")
         .args([fixture("old"), fixture("new")])
@@ -219,11 +215,11 @@ fn a_part_the_old_file_lacks_is_named() {
             "tests/fixtures/revisions/hole_moved.{which}.step.gz"
         ))
     };
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("diff")
         .args([fixture("old"), fixture("new")])
         .args(["--part", "1", "-o"])
-        .arg(std::env::temp_dir().join("specify-core-revision-part"))
+        .arg(std::env::temp_dir().join("specify-pmi-revision-part"))
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -249,7 +245,7 @@ fn unpacked(fixture: &str, to: &Path, edit: impl Fn(String) -> String) -> PathBu
 
 #[test]
 fn a_changed_cad_tolerance_is_reported() {
-    let dir = std::env::temp_dir().join(format!("specify-core-diff-cad-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("specify-pmi-diff-cad-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let nist = "tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz";
     let old = unpacked(nist, &dir.join("old.stp"), |t| t);
@@ -283,9 +279,9 @@ fn a_changed_cad_tolerance_is_reported() {
 
 #[test]
 fn specify_pmi_in_the_files_is_read_and_compared() {
-    let dir = std::env::temp_dir().join(format!("specify-core-diff-pmi-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("specify-pmi-diff-pmi-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let cli = || Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let cli = || Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
     let fixture = "tests/fixtures/revisions/hole_removed";
     // Each revision written with Specify's PMI: the Ø8 hole (face 8, face 7 on the new part)
     // general before, fit:H8 after.
@@ -295,7 +291,7 @@ fn specify_pmi_in_the_files_is_read_and_compared() {
             &dir.join(format!("{which}.step")),
             |t| t,
         );
-        let analysis = specify_core::api::analyse_file(&step, None).unwrap();
+        let analysis = specify_pmi::api::analyse_file(&step, None).unwrap();
         let edits = common::approve_edits(&analysis, answers.as_object().unwrap());
         let given = dir.join(format!("{which}-edits.json"));
         std::fs::write(&given, edits.to_string()).unwrap();
@@ -659,7 +655,7 @@ fn a_part_is_recognised_once_however_often_it_is_analysed_or_diffed() {
         old.recognition.get().is_none(),
         "nothing is recognised on load"
     );
-    let first = specify_core::api::analyse(&old).unwrap();
+    let first = specify_pmi::api::analyse(&old).unwrap();
     let made = std::ptr::from_ref(old.recognition.get().expect("analyse recognised the part"));
     let r1 = diff(&old, &new).unwrap();
     let r2 = diff(&old, &new).unwrap();
@@ -670,7 +666,7 @@ fn a_part_is_recognised_once_however_often_it_is_analysed_or_diffed() {
     );
     assert!(new.recognition.get().is_some());
     // Caching changes no output.
-    assert_eq!(specify_core::api::analyse(&old).unwrap(), first);
+    assert_eq!(specify_pmi::api::analyse(&old).unwrap(), first);
     assert_eq!(
         serde_json::to_value(&r1).unwrap(),
         serde_json::to_value(&r2).unwrap()
@@ -816,7 +812,7 @@ fn a_symmetric_tie_is_matched_in_the_file_s_frame_and_said() {
     assert_eq!(json["frame_tie"]["alternative"], "a 180° turn about Z");
     // The hole at (30, 30) is face 6 of the new part, as of the old.
     let (_, new) = pair("symmetric_tie");
-    let analysis = specify_core::api::analyse(&new).unwrap();
+    let analysis = specify_pmi::api::analyse(&new).unwrap();
     let hole = analysis["features"]
         .as_array()
         .unwrap()
@@ -1004,8 +1000,8 @@ fn a_new_feature_with_nothing_stated_is_listed_as_information() {
     // A saved decision on the same new hole keeps it out of the gap list, without adding PMI.
     let id = format!("hole.position:{}", entry.feature);
     let decided = common::apply_edits(&new, json!({"none": [&id]}));
-    let decided = specify_core::part::load_bytes("decided.step", decided.bytes).unwrap();
-    let analysis = specify_core::api::analyse(&decided).unwrap();
+    let decided = specify_pmi::part::load_bytes("decided.step", decided.bytes).unwrap();
+    let analysis = specify_pmi::api::analyse(&decided).unwrap();
     assert!(
         analysis["table"]["decided_none"]
             .as_array()
@@ -1108,17 +1104,17 @@ fn a_hole_cut_in_a_pocket_floor_does_not_move_the_pocket() {
 
 /// *part* written with *given* only (no defaults taken).
 fn written(part: &LoadedPart, given: Value) -> LoadedPart {
-    let analysis = specify_core::api::analyse(part).unwrap();
+    let analysis = specify_pmi::api::analyse(part).unwrap();
     let given = given.as_object().unwrap().clone();
-    let intent = specify_core::api::preview(&analysis, &given).unwrap();
-    let bytes = specify_core::writer::write_bytes(part, &intent, Some(&given))
+    let intent = specify_pmi::api::preview(&analysis, &given).unwrap();
+    let bytes = specify_pmi::writer::write_bytes(part, &intent, Some(&given))
         .unwrap()
         .0;
-    specify_core::part::load_bytes("written.step", bytes).unwrap()
+    specify_pmi::part::load_bytes("written.step", bytes).unwrap()
 }
 
 /// The PMI items of a report that are more than a renumbering.
-fn edits(r: &Revised) -> Vec<&specify_core::revision::PmiItemChange> {
+fn edits(r: &Revised) -> Vec<&specify_pmi::revision::PmiItemChange> {
     r.pmi
         .items
         .iter()

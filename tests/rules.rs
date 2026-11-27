@@ -6,7 +6,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{Error, Question, apply_with_defaults, questions};
+use specify_pmi::rules::{Error, Question, apply_with_defaults, questions};
 
 fn analysis(case: &str) -> Value {
     common::case(case)
@@ -226,7 +226,7 @@ fn many_holes(distinct: usize, alike: usize) -> Value {
     })
 }
 
-// Not from specify-core: the rules recompute questions to a fixed point, so a part with
+// Not from specify-pmi: the rules recompute questions to a fixed point, so a part with
 // hundreds of holes must not make them quadratic.
 #[test]
 fn hundreds_of_holes_take_seconds() {
@@ -242,7 +242,7 @@ fn hundreds_of_holes_take_seconds() {
     let intent =
         apply_with_defaults(&analysis, &answers(json!({"part.material": "steel"})), true).unwrap();
     assert!(intent.requirements.len() > 500);
-    specify_core::problems::problems(&analysis, &Map::new()).unwrap();
+    specify_pmi::problems::problems(&analysis, &Map::new()).unwrap();
     let elapsed = started.elapsed().as_secs_f64();
     println!("500 holes: {elapsed:.2} s");
     assert!(elapsed < 10.0, "{elapsed:.1} s");

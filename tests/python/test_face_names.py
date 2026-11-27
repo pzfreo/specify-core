@@ -5,8 +5,8 @@ import json
 import re
 from pathlib import Path
 
-from specify_core import api
-from specify_core.rules import with_all_defaults
+from specify_pmi import api
+from specify_pmi.rules import with_all_defaults
 
 from p11 import storable
 from written import write_answers

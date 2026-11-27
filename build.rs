@@ -4,7 +4,7 @@
 //! With the `bundled-app` feature, the app is the first of `ui/dist-app` (`npm run build:app`)
 //! and `bundle/app` (the copy a published crate carries) that holds `index.html` and a
 //! `specify-ui-app.json` naming this version; the engine is the first of
-//! `crates/specify-core-wasm/pkg` (wasm-pack) and `bundle/wasm` that holds its glue and WASM and
+//! `crates/specify-pmi-wasm/pkg` (wasm-pack) and `bundle/wasm` that holds its glue and WASM and
 //! a `package.json` naming this version.
 //! Each file is stored gzipped. A build without them still compiles, with nothing built in, and
 //! `open` then asks for `--app`; `SPECIFY_REQUIRE_BUNDLE=1` (the release jobs) makes that an error.
@@ -21,7 +21,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 
 const MANIFEST: &str = "specify-ui-app.json";
-const ENGINE: [&str; 2] = ["specify_core_wasm.js", "specify_core_wasm_bg.wasm"];
+const ENGINE: [&str; 2] = ["specify_pmi_wasm.js", "specify_pmi_wasm_bg.wasm"];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -43,7 +43,7 @@ fn main() {
         )
     } else if feature("BUNDLED_APP") {
         let app = ["ui/dist-app", "bundle/app"].map(|p| root.join(p));
-        let wasm = ["crates/specify-core-wasm/pkg", "bundle/wasm"].map(|p| root.join(p));
+        let wasm = ["crates/specify-pmi-wasm/pkg", "bundle/wasm"].map(|p| root.join(p));
         for dir in app.iter().chain(&wasm) {
             watch(&root, dir);
         }
@@ -62,7 +62,7 @@ fn main() {
             Some(found) if found == version => true,
             Some(found) => {
                 println!(
-                    "cargo:warning={} is Specify engine {found}, not {version}: not built in (rebuild it: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release)",
+                    "cargo:warning={} is Specify engine {found}, not {version}: not built in (rebuild it: wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release)",
                     dir.display()
                 );
                 false
@@ -83,13 +83,13 @@ fn main() {
         if require {
             panic!(
                 "SPECIFY_REQUIRE_BUNDLE=1, but {missing} not built for {version}: build the WASM \
-                 (wasm-pack build crates/specify-core-wasm --target web --profile wasm-release) and \
+                 (wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release) and \
                  the app (npm run build:app in ui/) first"
             );
         }
         if !feature("BUNDLE_TEST_FIXTURE") {
             println!(
-                "cargo:warning={missing} not built (ui/dist-app, crates/specify-core-wasm/pkg): `open` and MCP `show` will need --app/--wasm (see docs/open.md)"
+                "cargo:warning={missing} not built (ui/dist-app, crates/specify-pmi-wasm/pkg): `open` and MCP `show` will need --app/--wasm (see docs/open.md)"
             );
         }
     }

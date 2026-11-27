@@ -1,12 +1,12 @@
 //! A Specify session (docs/session.md): one opened STEP file (or, for a diff, the pair), its
 //! answers by part, a revision number `rev` that goes up by one on every change, the recent
-//! changes, and the pages listening for them. The MCP server (`specify-core mcp`) holds one per
+//! changes, and the pages listening for them. The MCP server (`specify-pmi mcp`) holds one per
 //! opened file and the page server (src/open.rs) serves one, so the agent and the page edit one
-//! set of answers; `specify-core open` holds one with no agent.
+//! set of answers; `specify-pmi open` holds one with no agent.
 //!
 //! Save applies an edit list (ADR P11, src/edits.rs: all or nothing, touching only what it
 //! names) to the file as the session's last save left it, with the same writer as
-//! `specify-core write STEP EDITS.json`, beside the file under the first free
+//! `specify-pmi write STEP EDITS.json`, beside the file under the first free
 //! `<stem>.specified.step` (later saves update that copy while it is as the session left it),
 //! or over it when opened in place (the original kept once as `.bak`). The session's answers
 //! include the decisions stored in the file and draft answers. The agent can save both its
@@ -282,7 +282,7 @@ impl Session {
         }
     }
 
-    /// `specify-core open FILE`: a session starting from the answers stored in the file (a
+    /// `specify-pmi open FILE`: a session starting from the answers stored in the file (a
     /// file Specify wrote resumes them, part by part, as `analyse` reports them).
     pub fn open(file: Opened, in_place: bool) -> Result<Session, Error> {
         let mut session = Session::new(file, in_place)?;
@@ -439,8 +439,8 @@ impl Session {
         Ok(self.rev)
     }
 
-    /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
-    /// as `specify-core diff` compares them (part `part`, or the files' only parts, or their
+    /// `specify-pmi open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
+    /// as `specify-pmi diff` compares them (part `part`, or the files' only parts, or their
     /// assemblies), from the PMI in the two files only. The session is NEW's, as `open` starts
     /// it: the caller resumes it.
     pub fn diff(

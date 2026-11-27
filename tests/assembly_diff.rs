@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::Value;
-use specify_core::part::load_all;
-use specify_core::revision::assembly;
+use specify_pmi::part::load_all;
+use specify_pmi::revision::assembly;
 
 fn fixture(which: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
@@ -16,13 +16,13 @@ fn fixture(which: &str) -> PathBuf {
 
 fn dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "specify-core-assembly-{name}-{}",
+        "specify-pmi-assembly-{name}-{}",
         std::process::id()
     ))
 }
 
 fn diff(out: &Path, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("diff")
         .args([fixture("old"), fixture("new")])
         .args(["--title", "gramil_assembly.step", "-o"])

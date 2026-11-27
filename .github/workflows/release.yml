@@ -1,10 +1,10 @@
 name: Release WASM and UI
 
 # A published v* release builds the engine (WASM) and the UI (ui/) from the tagged commit:
-# - wasm: builds and checks the WASM, attaches specify-core-wasm-<version>.tgz (+ .sha256);
-# - npm: publishes it as @draftwright/specify-core-wasm (environment `npm`);
+# - wasm: builds and checks the WASM, attaches specify-pmi-wasm-<version>.tgz (+ .sha256);
+# - npm: publishes it as @draftwright/specify-pmi-wasm (environment `npm`);
 # - ui: checks the tag, runs the UI's suites on that WASM, packs @draftwright/specify-ui;
-# - app: builds the local app, compiles it and the WASM into the specify-core command from the
+# - app: builds the local app, compiles it and the WASM into the specify-pmi command from the
 #   same commit (ADR P12), and runs the app's tests against that command's built-in app;
 # - ui-npm: publishes @draftwright/specify-ui (environment `npm`) once its engine is on npm.
 # The command line (cli.yml), crates.io (crates.yml) and PyPI (python.yml) run on the same
@@ -61,21 +61,21 @@ jobs:
           python3 - <<'PY'
           import json, os, tomllib
           version = os.environ['TAG'].removeprefix('v')
-          for path in ['Cargo.toml', 'crates/specify-core-wasm/Cargo.toml']:
+          for path in ['Cargo.toml', 'crates/specify-pmi-wasm/Cargo.toml']:
               with open(path, 'rb') as source:
                   assert tomllib.load(source)['package']['version'] == version, path
           with open('ui/package.json', encoding='utf-8') as source:
               assert json.load(source)['version'] == version, 'ui/package.json'
           PY
-      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - run: wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
       # The UI jobs build and test on this very build (the same files the archive below holds).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wasm-pkg
-          path: crates/specify-core-wasm/pkg
+          path: crates/specify-pmi-wasm/pkg
           if-no-files-found: error
       - run: python3 tools/wasm_size.py
-      - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
+      - run: cargo build --locked --release -p specify-pmi-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs
       - run: node scripts/wasm-face-names.mjs
       - run: node scripts/wasm-hostile.mjs
@@ -92,14 +92,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           version="${TAG#v}"
-          archive="specify-core-wasm-${version}.tgz"
+          archive="specify-pmi-wasm-${version}.tgz"
           # Apache-2.0 4(d): the NOTICE travels with the package (wasm-pack copies only LICENSE).
-          cp NOTICE crates/specify-core-wasm/pkg/NOTICE
-          tar -czf "$archive" -C crates/specify-core-wasm pkg
+          cp NOTICE crates/specify-pmi-wasm/pkg/NOTICE
+          tar -czf "$archive" -C crates/specify-pmi-wasm pkg
           sha256sum "$archive" > "$archive.sha256"
           gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
 
-  # Publishes the archive the wasm job attached to npm as @draftwright/specify-core-wasm: the
+  # Publishes the archive the wasm job attached to npm as @draftwright/specify-pmi-wasm: the
   # same files, with only package.json renamed to the scope and given publishConfig
   # (tools/npm_package.py). npm trusted publishing: the package trusts this repository, this
   # workflow and the `npm` environment, where the maintainer approves; no token is stored.
@@ -136,7 +136,7 @@ jobs:
         run: |
           case "$TAG" in v[0-9]*) ;; *) echo "::error::$TAG is not a release tag"; exit 1 ;; esac
           version="${TAG#v}"
-          archive="specify-core-wasm-${version}.tgz"
+          archive="specify-pmi-wasm-${version}.tgz"
           mkdir release && cd release
           gh release download "$TAG" -p "$archive" -p "$archive.sha256"
           sha256sum -c "$archive.sha256"
@@ -153,12 +153,18 @@ jobs:
         env:
           PRERELEASE: ${{ needs.release-check.outputs.prerelease }}
         run: |
-          url="https://registry.npmjs.org/@draftwright%2fspecify-core-wasm"
+          url="https://registry.npmjs.org/@draftwright%2fspecify-pmi-wasm"
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url/$VERSION")
           latest=
           if [ "$status" = 404 ] && [ "$PRERELEASE" = false ]; then
-            metadata=$(curl -fsS --retry 3 "$url")
-            latest=$(jq -r '."dist-tags".latest // empty' <<<"$metadata")
+            # A package's first publish has no metadata yet (404): no latest to compare with.
+            package_status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url")
+            if [ "$package_status" = 404 ]; then
+              latest=none
+            else
+              metadata=$(curl -fsS --retry 3 "$url")
+              latest=$(jq -r '."dist-tags".latest // empty' <<<"$metadata")
+            fi
           fi
           python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
             --registry-status="$status" --latest="$latest"
@@ -191,7 +197,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wasm-pkg
-          path: crates/specify-core-wasm/pkg
+          path: crates/specify-pmi-wasm/pkg
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -205,8 +211,8 @@ jobs:
           fail=0
           err() { echo "::error::$1"; fail=1; }
           pkg_version=$(node -p "require('./package.json').version")
-          wasm_spec=$(node -p "require('./package.json').dependencies?.['@draftwright/specify-core-wasm'] ?? ''")
-          wasm_built=$(node -p "require('../crates/specify-core-wasm/pkg/package.json').version")
+          wasm_spec=$(node -p "require('./package.json').dependencies?.['@draftwright/specify-pmi-wasm'] ?? ''")
+          wasm_built=$(node -p "require('../crates/specify-pmi-wasm/pkg/package.json').version")
 
           # A release on a v* tag whose commit is on main, never a branch or a stray commit.
           case "$GITHUB_REF" in
@@ -224,8 +230,8 @@ jobs:
             err "Tag $TAG does not match ui/package.json version v$pkg_version."
           fi
           # In the repository the engine is the in-repo build; the tarball pins this version.
-          if [ "$wasm_spec" != "file:../crates/specify-core-wasm/pkg" ]; then
-            err "ui/package.json depends on @draftwright/specify-core-wasm '$wasm_spec', not the in-repo build."
+          if [ "$wasm_spec" != "file:../crates/specify-pmi-wasm/pkg" ]; then
+            err "ui/package.json depends on @draftwright/specify-pmi-wasm '$wasm_spec', not the in-repo build."
           fi
           if [ "$wasm_built" != "$pkg_version" ]; then
             err "The WASM build is $wasm_built, ui/package.json $pkg_version: versions are lockstep."
@@ -251,8 +257,8 @@ jobs:
           path: npm-tarball/*.tgz
           if-no-files-found: error
 
-  # The local app `specify-core open` serves (ui/app): built, compiled with the WASM into the
-  # specify-core command from this commit (build.rs), and tested against that command's built-in
+  # The local app `specify-pmi open` serves (ui/app): built, compiled with the WASM into the
+  # specify-pmi command from this commit (build.rs), and tested against that command's built-in
   # app and engine (no --app, no --wasm), as the released binaries and wheels carry them.
   app:
     needs: wasm
@@ -270,7 +276,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wasm-pkg
-          path: crates/specify-core-wasm/pkg
+          path: crates/specify-pmi-wasm/pkg
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -289,16 +295,16 @@ jobs:
           [ "$TAG" = "v$version" ] || { echo "::error::Tag $TAG, app $version: they must agree."; exit 1; }
       - run: rustup toolchain install
       # SPECIFY_REQUIRE_BUNDLE: the build fails rather than leave the app or engine out.
-      - name: Build the specify-core command with the app and engine
+      - name: Build the specify-pmi command with the app and engine
         env:
           SPECIFY_REQUIRE_BUNDLE: '1'
         run: |
-          cargo build --release --locked --bin specify-core
-          echo "SPECIFY_CORE=$PWD/target/release/specify-core" >> "$GITHUB_ENV"
+          cargo build --release --locked --bin specify-pmi
+          echo "SPECIFY_PMI=$PWD/target/release/specify-pmi" >> "$GITHUB_ENV"
       - name: Open serves the built-in app and engine
         run: |
           gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > "$RUNNER_TEMP/part.step"
-          python3 tools/open_smoke.py "$SPECIFY_CORE" "$RUNNER_TEMP/part.step"
+          python3 tools/open_smoke.py "$SPECIFY_PMI" "$RUNNER_TEMP/part.step"
       - name: Cache Playwright browsers
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -306,19 +312,19 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
       - run: npx playwright install --with-deps chromium
         working-directory: ui
-      # The app against `specify-core open` and `mcp`, served from the command itself.
+      # The app against `specify-pmi open` and `mcp`, served from the command itself.
       - name: Test the built-in app
         working-directory: ui
         env:
           SPECIFY_APP_BUILT_IN: '1'
         run: |
           node test/app-browser.mjs && node test/app-agent.mjs || {
-            echo "::error::The local app's tests failed against this commit's specify-core with the app built in."
+            echo "::error::The local app's tests failed against this commit's specify-pmi with the app built in."
             exit 1
           }
 
   # Publishes @draftwright/specify-ui with npm trusted publishing (OIDC): configured on
-  # npmjs.com for pzfreo/specify-core, release.yml and environment `npm`. No npm token is
+  # npmjs.com for pzfreo/specify-pmi, release.yml and environment `npm`. No npm token is
   # passed. It waits for the engine it depends on to be published (the npm job above).
   ui-npm:
     needs: [release-check, ui, npm]
@@ -353,11 +359,11 @@ jobs:
           [ "$#" -eq 1 ] || { echo "::error::Expected one tarball, found $#."; exit 1; }
           file=$1 # ./ prefix: npm reads a bare "dir/file.tgz" as a GitHub owner/repo
           version=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
-          engine=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['@draftwright/specify-core-wasm']")
+          engine=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['@draftwright/specify-pmi-wasm']")
           [ "$TAG" = "v$version" ] || { echo "::error::Tag $TAG does not match the tarball version $version."; exit 1; }
-          [ "$engine" = "$version" ] || { echo "::error::The tarball depends on @draftwright/specify-core-wasm $engine, not $version."; exit 1; }
+          [ "$engine" = "$version" ] || { echo "::error::The tarball depends on @draftwright/specify-pmi-wasm $engine, not $version."; exit 1; }
           # npm can take a few minutes to serve a version after publish succeeds.
-          engine_package="@draftwright/specify-core-wasm@$engine"
+          engine_package="@draftwright/specify-pmi-wasm@$engine"
           deadline=$((SECONDS + 300))
           attempt=0
           published=
@@ -371,7 +377,7 @@ jobs:
             (( deadline - SECONDS > 10 )) || break
             sleep 10
           done
-          [ "$published" = "$engine" ] || { echo "::error::@draftwright/specify-core-wasm@$engine is not on npm."; exit 1; }
+          [ "$published" = "$engine" ] || { echo "::error::@draftwright/specify-pmi-wasm@$engine is not on npm."; exit 1; }
           status=404
           latest=
           if [ "$(npm view "@draftwright/specify-ui@$version" version 2>/dev/null || true)" = "$version" ]; then

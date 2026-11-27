@@ -23,7 +23,7 @@ const RANGES: [f64; 21] = [
 ];
 
 /// Standard tolerance grades IT5 to IT11, micrometres, per size range: ISO 286-1:2010 Table 1
-/// (up to 500 mm as specify-core has them; 500 to 3150 mm from the same table, cross-checked with
+/// (up to 500 mm as specify-pmi has them; 500 to 3150 mm from the same table, cross-checked with
 /// the h6, k6, m6, g6 and f7 limits of ISO 286-2:2010 Table 17).
 const IT: [(u64, [i32; 21]); 7] = [
     (

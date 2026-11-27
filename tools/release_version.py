@@ -53,7 +53,7 @@ def cargo_tag() -> str:
 
 
 def read_python_version() -> str:
-    with open("crates/specify-core-py/pyproject.toml", "rb") as pyproject:
+    with open("crates/specify-pmi-py/pyproject.toml", "rb") as pyproject:
         return tomllib.load(pyproject)["project"]["version"]
 
 
@@ -85,6 +85,9 @@ def decide_publish(
         version = tag.removeprefix("v")
         if "-" in version:
             return Decision(dist_tag="next")
+        if latest.strip() == "none":
+            # The package has never been published: its first release is latest.
+            return Decision(dist_tag="latest")
         if not latest.strip():
             raise ValueError(f"npm latest is missing for {tag}: publish refused.")
         ordered = subprocess.check_output(["sort", "-V"], input=f"{latest}\n{version}\n", text=True)

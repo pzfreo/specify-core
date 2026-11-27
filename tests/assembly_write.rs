@@ -1,4 +1,4 @@
-//! An assembly written a part at a time and together: the write tests of specify-core's
+//! An assembly written a part at a time and together: the write tests of specify-pmi's
 //! `tests/test_assembly.py`, on the oracle's analyses of `parts/assembly` (a plate and a pin
 //! placed twice). The parts come from `part::load_all` and the jobs are built over references
 //! to them, as stage 4's API composes `write_parts`.
@@ -12,11 +12,11 @@ use haecceity::pmi::{self, DimTolerance};
 use haecceity::step::read_part_definitions;
 use regex::Regex;
 use serde_json::{Map, Value, json};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::part::{LoadedPart, load, load_all};
-use specify_core::resume::{self, answers_for, stored};
-use specify_core::rules::{Intent, apply_with_defaults};
-use specify_core::writer::{WriteError, WriteReport, write, write_parts};
+use specify_pmi::existing::{part_settings, read_existing};
+use specify_pmi::part::{LoadedPart, load, load_all};
+use specify_pmi::resume::{self, answers_for, stored};
+use specify_pmi::rules::{Intent, apply_with_defaults};
+use specify_pmi::writer::{WriteError, WriteReport, write, write_parts};
 
 const PLATE: usize = 0;
 const PIN: usize = 1;
@@ -31,7 +31,7 @@ fn answers(k: usize) -> Map<String, Value> {
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-assembly-tests")
+        .join("specify-pmi-assembly-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,14 +45,14 @@ fn assembly() -> PathBuf {
 #[test]
 fn an_accepted_bom_field_is_default_and_an_explicit_field_is_answered() {
     let plate = load(&assembly(), Some(PLATE)).unwrap();
-    let original = specify_core::api::analyse(&plate).unwrap();
-    let list = specify_core::edits::parse_value(json!({
+    let original = specify_pmi::api::analyse(&plate).unwrap();
+    let list = specify_pmi::edits::parse_value(json!({
         "accept_suggestions": ["bom.description"],
         "fill": {"bom.stock": "from stock"},
     }))
     .unwrap();
-    let applied = specify_core::writer::apply::apply(&plate, &list).unwrap();
-    let rows = specify_core::bom::read_bytes(applied.bytes.clone()).unwrap();
+    let applied = specify_pmi::writer::apply::apply(&plate, &list).unwrap();
+    let rows = specify_pmi::bom::read_bytes(applied.bytes.clone()).unwrap();
     assert_eq!(rows[PLATE].description.source, "default");
     assert_eq!(
         rows[PLATE].description.value,
@@ -183,14 +183,14 @@ fn each_part_has_its_own_pmi_and_answers() {
         // ADR P11: stored are the answers that leave no PMI behind.
         assert_eq!(
             answers_for(&back).unwrap(),
-            Some(specify_core::feature_table::storable(&answers(k))),
+            Some(specify_pmi::feature_table::storable(&answers(k))),
             "part {k}"
         );
     }
     // Two parts, each with its own datum A, under its own letter in the file.
     let mut letters: Vec<String> = Regex::new(&format!(
         r"DATUM\('','{}',#\d+,\.F\.,'(\w+)'\)",
-        regex::escape(specify_core::writer::PMI_PROVENANCE)
+        regex::escape(specify_pmi::writer::PMI_PROVENANCE)
     ))
     .unwrap()
     .captures_iter(&std::fs::read_to_string(&out).unwrap())
@@ -236,13 +236,13 @@ fn writing_one_part_again_alone_keeps_the_others() {
     assert_eq!(
         answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
         // ADR P11: stored are the answers that leave no PMI behind.
-        Some(specify_core::feature_table::storable(&answers(PLATE)))
+        Some(specify_pmi::feature_table::storable(&answers(PLATE)))
     );
     // The pin's answers are the new ones, its PMI replaced, not added to.
     assert_eq!(
         answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
         // ADR P11: stored are the answers that leave no PMI behind.
-        Some(specify_core::feature_table::storable(&given))
+        Some(specify_pmi::feature_table::storable(&given))
     );
     assert_eq!(datum_count(&x), datum_count(&out));
     assert_eq!(stored(&std::fs::read(&x).unwrap()).len(), 2);
@@ -277,7 +277,7 @@ fn written_again_its_pmi_is_replaced() {
         assert_eq!(
             answers_for(&load(&again, Some(k)).unwrap()).unwrap(),
             // ADR P11: stored are the answers that leave no PMI behind.
-            Some(specify_core::feature_table::storable(&answers(k)))
+            Some(specify_pmi::feature_table::storable(&answers(k)))
         );
     }
 }
@@ -291,13 +291,13 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
     let dir = temp("foreign");
     let (_, _, out) = written(&dir);
     let foreign = dir.join("foreign.step");
-    // The same PMI, but no longer known to be specify-core's.
+    // The same PMI, but no longer known to be specify-pmi's.
     std::fs::write(
         &foreign,
         std::fs::read_to_string(&out)
             .unwrap()
             .replace("'pmi-assist answers'", "'other'")
-            .replace(specify_core::writer::PMI_PROVENANCE, "foreign author"),
+            .replace(specify_pmi::writer::PMI_PROVENANCE, "foreign author"),
     )
     .unwrap();
     assert!(stored(&std::fs::read(&foreign).unwrap()).is_empty());
@@ -329,13 +329,13 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         answers_for(&reopened).unwrap(),
-        Some(specify_core::feature_table::storable(&given))
+        Some(specify_pmi::feature_table::storable(&given))
     );
-    let analysis = specify_core::api::analyse(&reopened).unwrap();
+    let analysis = specify_pmi::api::analyse(&reopened).unwrap();
     assert!(!analysis["existing"].as_array().unwrap().is_empty());
     given.insert("part.coating".into(), json!("Zinc plate revised"));
     let intent = apply_with_defaults(&analysis, &given, true).unwrap();
-    let (edited, _) = specify_core::writer::write_bytes(&reopened, &intent, Some(&given)).unwrap();
+    let (edited, _) = specify_pmi::writer::write_bytes(&reopened, &intent, Some(&given)).unwrap();
     let old = haecceity::p21::Document::parse(before.as_bytes().to_vec()).unwrap();
     let new = haecceity::p21::Document::parse(edited.clone()).unwrap();
     for id in old.ids() {
@@ -346,11 +346,11 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
         );
     }
     let file =
-        specify_core::part::File::of_bytes(std::path::Path::new("edited.step"), edited).unwrap();
+        specify_pmi::part::File::of_bytes(std::path::Path::new("edited.step"), edited).unwrap();
     assert_eq!(
         answers_for(&file.load(Some(PIN)).unwrap()).unwrap(),
         // ADR P11: stored are the answers that leave no PMI behind.
-        Some(specify_core::feature_table::storable(&given))
+        Some(specify_pmi::feature_table::storable(&given))
     );
 }
 
@@ -384,7 +384,7 @@ fn answers_stored_for_a_part_the_file_no_longer_has_are_refused() {
         Err(WriteError::Invalid(m)) => assert_eq!(
             m,
             "the answers stored for part(s) 5 are not for this assembly's parts: it has changed \
-             since specify-core wrote it"
+             since specify-pmi wrote it"
         ),
         other => panic!("not refused: {other:?}"),
     }
@@ -479,11 +479,11 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
     assert_eq!(answers_for(&parts[PLATE]).unwrap(), Some(answers(PLATE)));
     assert_eq!(answers_for(&parts[PIN]).unwrap(), None);
     let plate_save = dir.join("plate-edited.step");
-    let list = specify_core::edits::parse_value(json!({"change": {
+    let list = specify_pmi::edits::parse_value(json!({"change": {
         "part.material":{"to":"brass","expect":"steel"}
     }}))
     .unwrap();
-    let plate = specify_core::writer::apply::apply_to(&parts[PLATE], &list, &plate_save).unwrap();
+    let plate = specify_pmi::writer::apply::apply_to(&parts[PLATE], &list, &plate_save).unwrap();
     assert!(plate.report.not_written.is_empty());
     assert_eq!(pmi_of(&plate_save, PIN), pmi_of(&mixed, PIN));
     assert!(
@@ -508,8 +508,8 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
     let pin = load(&plate_save, Some(PIN)).unwrap();
     let x = dir.join("x.step");
     let list =
-        specify_core::edits::parse_value(json!({"fill": {"part.coating": "Black oxide"}})).unwrap();
-    let report = specify_core::writer::apply::apply_to(&pin, &list, &x).unwrap();
+        specify_pmi::edits::parse_value(json!({"fill": {"part.coating": "Black oxide"}})).unwrap();
+    let report = specify_pmi::writer::apply::apply_to(&pin, &list, &x).unwrap();
     assert!(report.report.not_written.is_empty());
     assert_eq!(pmi_of(&x, PLATE), pmi_of(&plate_save, PLATE));
     let (before, after) = (pmi_of(&mixed, PIN), pmi_of(&x, PIN));
@@ -533,7 +533,7 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
             .attributes
             .iter()
             .filter(|set| set.on.is_none()
-                && set.name == specify_core::writer::SEMANTIC_TEXT
+                && set.name == specify_pmi::writer::SEMANTIC_TEXT
                 && set.items
                     == [(
                         "surface treatment".into(),

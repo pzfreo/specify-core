@@ -1,4 +1,4 @@
-// One engine directory for Node fixtures and the app served by specify-core open.
+// One engine directory for Node fixtures and the app served by specify-pmi open.
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 export const wasmDirectory = resolve(process.env.SPECIFY_WASM_DIR ?? 'public/wasm/intent');
 
 export function requireEngine() {
-  const modulePath = join(wasmDirectory, 'specify_core_wasm.js');
-  const wasmPath = join(wasmDirectory, 'specify_core_wasm_bg.wasm');
+  const modulePath = join(wasmDirectory, 'specify_pmi_wasm.js');
+  const wasmPath = join(wasmDirectory, 'specify_pmi_wasm_bg.wasm');
   const missing = [modulePath, wasmPath].filter((path) => !existsSync(path));
   if (missing.length) throw new Error(`Specify WASM engine is missing: ${missing.join(', ')}. Please run npm run fetch:wasm, or set SPECIFY_WASM_DIR to an installed engine.`);
   return { modulePath, wasmPath };

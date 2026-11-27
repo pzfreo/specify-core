@@ -4,12 +4,12 @@ use std::collections::BTreeMap;
 
 use haecceity::p21::Document;
 use serde_json::{Value, json};
-use specify_core::part::{File, LoadedPart};
+use specify_pmi::part::{File, LoadedPart};
 
 pub fn numbered_requirements_are_in_output_or_reported(old: &File, out: &File, report: &Value) {
     let numbered = |part: &LoadedPart| {
         use haecceity::pmi::{self, DimTolerance, Quantity};
-        let readback = json!(specify_core::existing::read_existing(part).unwrap());
+        let readback = json!(specify_pmi::existing::read_existing(part).unwrap());
         let mut values: BTreeMap<_, _> = readback
             .as_array()
             .unwrap()
@@ -35,7 +35,7 @@ pub fn numbered_requirements_are_in_output_or_reported(old: &File, out: &File, r
         let read = pmi::read(&doc, &defs).unwrap();
         let k = part.binding.part;
         let mut uses = BTreeMap::new();
-        for c in specify_core::characteristics::read(part).unwrap() {
+        for c in specify_pmi::characteristics::read(part).unwrap() {
             let n = c.number;
             // General dimensions can be hidden from the questions' read-back but still
             // state a numbered nominal. Resolve their exact semantic entity using the

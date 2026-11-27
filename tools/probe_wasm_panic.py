@@ -17,7 +17,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="specify-panic-") as directory:
         copy = Path(directory) / "repo"
         shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(".git", "target", "pkg", "__pycache__"))
-        source = copy / "crates/specify-core-wasm/src/session.rs"
+        source = copy / "crates/specify-pmi-wasm/src/session.rs"
         text = source.read_text()
         needle = "    pub fn review(&self, answers: &Map<String, Value>) -> Result<Value, String> {"
         assert text.count(needle) == 1
@@ -27,7 +27,7 @@ def main():
         }
 '''))
         env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target" / "panic-probe"))
-        subprocess.run(["wasm-pack", "build", "crates/specify-core-wasm", "--target", "web",
+        subprocess.run(["wasm-pack", "build", "crates/specify-pmi-wasm", "--target", "web",
                         "--profile", "wasm-release", "--locked"], cwd=copy, env=env, check=True)
         subprocess.run(["node", "scripts/wasm-panic.mjs"], cwd=copy, env=env, check=True)
 

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{api, characteristics, existing, part, resume, revision, rules, writer};
+use specify_pmi::{api, characteristics, existing, part, resume, revision, rules, writer};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -64,7 +64,7 @@ fn release_016_debug_history_upgrades_every_number_to_schema_2() {
             .clone(),
     );
     for (face, nominal, fit) in [(0, 10., "h6"), (3, 4.2, "H7")] {
-        let (upper, lower) = specify_core::standards::fit_limits(fit, nominal).unwrap();
+        let (upper, lower) = specify_pmi::standards::fit_limits(fit, nominal).unwrap();
         requirement(
             &mut i,
             json!({"kind":"size","faces":[face],"nominal":nominal,"fit":fit,"upper":upper,"lower":lower}),
@@ -1166,7 +1166,7 @@ fn a_rules_change_alters_nothing_ctc04_keeps_its_depth_and_span() {
 /// carried the number history before 0.3.0).
 fn carried(old: &part::LoadedPart, new: &part::LoadedPart) -> part::LoadedPart {
     let file = |p: &part::LoadedPart| part::File::of_bytes(&p.path, p.bytes.to_vec()).unwrap();
-    let outcome = specify_core::carry::carry(&file(old), &file(new)).unwrap();
+    let outcome = specify_pmi::carry::carry(&file(old), &file(new)).unwrap();
     assert!(outcome.report.numbers_carried, "{:#?}", outcome.report);
     back(outcome.bytes.unwrap())
 }
@@ -1252,10 +1252,8 @@ fn a_carried_history_cannot_reuse_numbers_retired_in_the_destination_file() {
     let removed = back(
         writer::apply::apply(
             &added,
-            &specify_core::edits::parse_value(
-                json!({"items": {"remove": [format!("#{retired}")]}}),
-            )
-            .unwrap(),
+            &specify_pmi::edits::parse_value(json!({"items": {"remove": [format!("#{retired}")]}}))
+                .unwrap(),
         )
         .unwrap()
         .bytes,

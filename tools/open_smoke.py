@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test the app and engine built into a specify-core binary (ADR P12).
+"""Smoke-test the app and engine built into a specify-pmi binary (ADR P12).
 
     python3 tools/open_smoke.py BINARY STEP
 
@@ -54,8 +54,8 @@ def main() -> int:
             config = json.loads(get("config", "application/json"))
             wasm_url = config["wasmUrl"]
             glue = get(wasm_url, "text/javascript; charset=utf-8")
-            assert b"specify_core_wasm_bg.wasm" in glue, "the glue names its WASM"
-            engine = get(wasm_url.rsplit("/", 1)[0] + "/specify_core_wasm_bg.wasm", "application/wasm")
+            assert b"specify_pmi_wasm_bg.wasm" in glue, "the glue names its WASM"
+            engine = get(wasm_url.rsplit("/", 1)[0] + "/specify_pmi_wasm_bg.wasm", "application/wasm")
             assert engine[:4] == b"\0asm", engine[:4]
             manifest = json.loads(get("specify-ui-app.json", "application/json"))
             assert manifest["api"] == config["api"], (manifest, config)

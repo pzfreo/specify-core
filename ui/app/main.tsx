@@ -1,5 +1,5 @@
-// Specify on this computer: the app the page server serves (specify-core docs/open.md), started by
-// `specify-core open` or by an agent's `show` (docs/session.md). The review screens (SpecifyReview, through adapter.ts) show
+// Specify on this computer: the app the page server serves (specify-pmi docs/open.md), started by
+// `specify-pmi open` or by an agent's `show` (docs/session.md). The review screens (SpecifyReview, through adapter.ts) show
 // the file's feature table; the person's edits are held in the page and Save sends them to the
 // command as an edit list per part, which it applies to the file all or nothing. The session's answers (an
 // agent's) come down as they land. Nothing is stored in the browser and nothing is fetched from
@@ -35,8 +35,8 @@ import { readSceneSemanticLabels, reviewDrawnFromScene, type OneViewPending, typ
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
-const DOCS = 'https://github.com/pzfreo/specify-core#readme';
-const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
+const DOCS = 'https://github.com/pzfreo/specify-pmi#readme';
+const ISSUES = 'https://github.com/pzfreo/specify-pmi/issues';
 const EMPTY_SEMANTIC: ReadonlyMap<string, SceneSemanticLabel> = new Map();
 
 /** Builds the exact scene review state passed to `engine.pmiScene`, keeping un-asked general
@@ -910,7 +910,7 @@ function App() {
     return { part, ...(name ? { name } : {}), edit };
   }));
   const unsaved = dirty || items.length > 0;
-  // What Save would have sent, a part's list to a file, for `specify-core write`: the command has stopped.
+  // What Save would have sent, a part's list to a file, for `specify-pmi write`: the command has stopped.
   const heldLists = [...pending].map(([part, list]) => ({ part, edits: list.list() })).filter(({ edits }) => Object.keys(edits).length > 0);
   const downloadEdits = ({ part, edits }: { part: number; edits: EditList }) => {
     const url = URL.createObjectURL(new Blob([`${JSON.stringify(edits, null, 1)}\n`], { type: 'application/json' }));
@@ -1019,7 +1019,7 @@ function App() {
       )}
       {stopped && config ? (
         <p className="app-offline app-stopped" role="status">
-          Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
+          Specify has stopped. Run <code>specify-pmi open …</code> again (or ask your agent to show it).
           {(saved?.path ?? savedAs?.path ?? config.path) && (
             <>{' '}Your saved file is at <code>{saved?.path ?? savedAs?.path ?? config.path}</code>.</>
           )}
@@ -1030,7 +1030,7 @@ function App() {
                 Download {heldLists.length > 1 ? `the changes to ${parts.find((row) => row.part === held.part)?.name || `part ${held.part}`}` : 'them'}
               </button>
             ))}
-            {' '}Apply with <code>specify-core write FILE EDITS.json -o OUT{parts.length > 1 ? ' --part N' : ''}</code>.
+            {' '}Apply with <code>specify-pmi write FILE EDITS.json -o OUT{parts.length > 1 ? ' --part N' : ''}</code>.
           </span>}
         </p>
       ) : live === false && (

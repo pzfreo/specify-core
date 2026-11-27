@@ -7,14 +7,14 @@
 //! dimension as basic).
 
 use serde_json::{Map, Value, json};
-use specify_core::choices::interpret;
-use specify_core::locations::parse;
-use specify_core::rules::{Intent, LOCATING, apply_with_defaults, questions};
+use specify_pmi::choices::interpret;
+use specify_pmi::locations::parse;
+use specify_pmi::rules::{Intent, LOCATING, apply_with_defaults, questions};
 
 fn plate() -> Value {
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
-    specify_core::api::analyse(&specify_core::part::load(&path, None).unwrap()).unwrap()
+    specify_pmi::api::analyse(&specify_pmi::part::load(&path, None).unwrap()).unwrap()
 }
 
 fn answers(value: Value) -> Map<String, Value> {

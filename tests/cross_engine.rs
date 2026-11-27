@@ -25,13 +25,13 @@
 //! - (c) Each file Python wrote (`tests/fixtures/oracle/**/written.step.gz`) read and resumed
 //!   by the Rust engine, against Python's own read-back of it (`readback.json.gz`).
 //! - (d) `schema_two_fingerprints_are_the_same_in_both_engines`: on every part of those files,
-//!   the stored-answer schema 2 fingerprint specify-core gives (its own, and the canonical form
+//!   the stored-answer schema 2 fingerprint specify-pmi gives (its own, and the canonical form
 //!   computed in the capture from Python's faces) equals this engine's wherever the two
 //!   engines' faces are the same (Q14); where they are not, the difference is judged with (b)
 //!   and (c).
 //!
 //! Differences in how the two readers read a file's own PMI (NIST's, in (b); and in (c) the
-//! presentation of specify-core's own callouts) are the existing-PMI area's
+//! presentation of specify-pmi's own callouts) are the existing-PMI area's
 //! (`known_differences/existing.json`) and are filtered through it. In (b) only the NIST files
 //! have PMI of their own, so a synthetic file is not filtered: all OpenCascade reads of it is
 //! what the Rust writer wrote. The rest must each
@@ -47,11 +47,11 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::features::describe_faces;
-use specify_core::part::{LoadedPart, load};
-use specify_core::pyfmt::round_half_even;
-use specify_core::resume::{answers_for, fingerprint, fingerprint_v1, stored};
+use specify_pmi::existing::{part_settings, read_existing};
+use specify_pmi::features::describe_faces;
+use specify_pmi::part::{LoadedPart, load};
+use specify_pmi::pyfmt::round_half_even;
+use specify_pmi::resume::{answers_for, fingerprint, fingerprint_v1, stored};
 use write_fixtures::common::{
     self, Difference, Tolerances, cases, check_known, compare, explained, is_error,
 };
@@ -203,7 +203,7 @@ fn keyed_characteristics(items: &Value) -> Value {
 /// their entity ids.
 fn semantic_readback(loaded: &LoadedPart) -> Value {
     let mut out = readback_of(loaded);
-    let mut numbers = specify_core::characteristics::read(loaded).unwrap_or_default();
+    let mut numbers = specify_pmi::characteristics::read(loaded).unwrap_or_default();
     for c in &mut numbers {
         c.entity = 0;
     }
@@ -336,7 +336,7 @@ fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64)> {
         if r["kind"] != "size" || fit.is_empty() {
             continue;
         }
-        if let Ok((upper, lower)) = specify_core::standards::fit_limits(fit, nominal) {
+        if let Ok((upper, lower)) = specify_pmi::standards::fit_limits(fit, nominal) {
             out.push((sorted_faces(&r["faces"]), upper, lower));
         }
     }
@@ -572,7 +572,7 @@ fn python_resume_failure(step: &Path, k: usize, count: usize, evidence: Option<&
     // What this engine stored (and reads back).
     let ours = stored(&loaded.bytes).remove(&k).map(Value::Object);
     if python_stored.is_null() {
-        // A specify-core that reads schema 1 only passes a schema 2 payload over (Q14).
+        // A specify-pmi that reads schema 1 only passes a schema 2 payload over (Q14).
         let Some(ours) = ours.filter(|p| p["schema"] == json!(2)) else {
             return "Python's pattern finds no answers stored".into();
         };
@@ -580,11 +580,11 @@ fn python_resume_failure(step: &Path, k: usize, count: usize, evidence: Option<&
             return "Python passed over a schema 2 payload, though it writes schema 2".into();
         }
         if ours["faces"] != evidence["fingerprint_v2"] {
-            return "the stored payload is schema 2, which this specify-core does not read, \
+            return "the stored payload is schema 2, which this specify-pmi does not read, \
                     and Python's faces do not give its fingerprint"
                 .into();
         }
-        return "the stored payload is schema 2, which this specify-core does not read; \
+        return "the stored payload is schema 2, which this specify-pmi does not read; \
                 Python's faces give its fingerprint"
             .into();
     }
@@ -753,8 +753,8 @@ fn rust_reads_python(resumed: &mut BTreeMap<String, usize>) -> Vec<Difference> {
 /// or where OpenCascade crashed on it the capture's probe of it, and each file Python wrote),
 /// against this engine's `resume::fingerprint` of the same part. Python's are the form the
 /// capture computed from Python's own faces by docs/design.md's canonical form
-/// (`fingerprint_v2`) and, where specify-core writes schema 2 itself (`evidence.schema`),
-/// specify-core's own (`fingerprint`).
+/// (`fingerprint_v2`) and, where specify-pmi writes schema 2 itself (`evidence.schema`),
+/// specify-pmi's own (`fingerprint`).
 ///
 /// A fingerprint can only be equal where the two engines' faces are (kind and centroid rounded
 /// to 3, in order): an unequal pair where they are is a failure of the fingerprint
@@ -763,7 +763,7 @@ fn rust_reads_python(resumed: &mut BTreeMap<String, usize>) -> Vec<Difference> {
 struct SchemaTwo {
     /// Parts compared.
     checked: usize,
-    /// Parts whose evidence has specify-core's own schema 2 fingerprint.
+    /// Parts whose evidence has specify-pmi's own schema 2 fingerprint.
     own: usize,
     unexplained: Vec<String>,
     faces_differ: Vec<Difference>,
@@ -795,7 +795,7 @@ fn schema_two_fingerprints() -> SchemaTwo {
             }
             if own && e["fingerprint"] != json!(ours) {
                 unequal.push(format!(
-                    "specify-core's own schema 2 fingerprint {}",
+                    "specify-pmi's own schema 2 fingerprint {}",
                     e["fingerprint"]
                 ));
             }
@@ -853,13 +853,13 @@ fn schema_two_fingerprints() -> SchemaTwo {
 }
 
 /// (d): every schema 2 fingerprint Python gives, the capture's canonical form and
-/// specify-core's own, is this engine's wherever the two engines' faces are the same; where
+/// specify-pmi's own, is this engine's wherever the two engines' faces are the same; where
 /// they are not, the difference is judged by `the_engines_read_each_others_files`.
 #[test]
 fn schema_two_fingerprints_are_the_same_in_both_engines() {
     let found = schema_two_fingerprints();
     println!(
-        "schema 2 fingerprints compared: {} parts, {} with specify-core's own; {} where the \
+        "schema 2 fingerprints compared: {} parts, {} with specify-pmi's own; {} where the \
          faces differ",
         found.checked,
         found.own,
@@ -868,8 +868,8 @@ fn schema_two_fingerprints_are_the_same_in_both_engines() {
     assert!(found.checked > 0, "no resume evidence captured");
     assert!(
         found.own > 0,
-        "no evidence with specify-core's own schema 2 fingerprint; recapture with a \
-         specify-core that writes schema 2"
+        "no evidence with specify-pmi's own schema 2 fingerprint; recapture with a \
+         specify-pmi that writes schema 2"
     );
     assert!(
         found.unexplained.is_empty(),
@@ -915,7 +915,7 @@ fn ctc05_a_shared_location_is_written_when_one_of_its_holes_is_already_located()
     write_fixtures::write(&case, &out).unwrap();
     let loaded = load(&out, None).unwrap();
     // The general location is nominal only: the analysis lists it (the file's whole PMI).
-    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let analysis = specify_pmi::api::analyse(&loaded).unwrap();
     let ids = |e: &Value, key: &str| -> Vec<u64> {
         e[key]
             .as_array()

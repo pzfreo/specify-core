@@ -2,14 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import init, { acceptDefaults, IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
+import init, { acceptDefaults, IntentEngine, pmiScene } from '@draftwright/specify-pmi-wasm';
 import { characteristics, balloonsBySource, toCsv } from '../src/specify/characteristics.ts';
 import { inspectionAnswers } from '../src/specify/inspection.ts';
 import { inspectionFromStep } from '../src/specify/saved-inspection.ts';
 import { withCharacteristicNumbers } from '../src/engine/characteristic-numbers.ts';
 import { as9102 } from '../src/specify/as9102.ts';
 
-await init({ module_or_path: readFileSync(new URL('specify_core_wasm_bg.wasm', import.meta.resolve('@draftwright/specify-core-wasm'))) });
+await init({ module_or_path: readFileSync(new URL('specify_pmi_wasm_bg.wasm', import.meta.resolve('@draftwright/specify-pmi-wasm'))) });
 const fixture = (name) => gunzipSync(readFileSync(new URL(`./fixtures/${name}.step.gz`, import.meta.url)));
 const shaft = fixture('gramil_shaft_before');
 function open(t, bytes = shaft) {
@@ -22,7 +22,7 @@ function readSaved(t, bytes) {
   const scene = JSON.parse(pmiScene(bytes));
   return { analysis, scene, ...inspectionFromStep(analysis, scene) };
 }
-// A save (specify-core 0.3.0): the answers as an edit list's fills, applied all or nothing.
+// A save (specify-pmi 0.3.0): the answers as an edit list's fills, applied all or nothing.
 function write(engine, answers) {
   return applyEdits(engine, { fill: answers });
 }

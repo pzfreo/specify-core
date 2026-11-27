@@ -6,9 +6,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from specify_core import api
-from specify_core.rules import with_all_defaults
-from specify_core.writer import WriteReport
+from specify_pmi import api
+from specify_pmi.rules import with_all_defaults
+from specify_pmi.writer import WriteReport
 
 
 def approved_edits(analysis, answers, *, accept_defaults=False, bom=False, skip_suggestions=()):
@@ -46,7 +46,7 @@ def write_answers(step, answers, out, *, part=None, accept_defaults=False, bom=F
         args = ["write", str(step), str(given), "-o", str(out)]
         if part is not None:
             args += ["--part", str(part)]
-        done = subprocess.run([sys.executable, "-m", "specify_core", *args], capture_output=True,
+        done = subprocess.run([sys.executable, "-m", "specify_pmi", *args], capture_output=True,
                               text=True, encoding="utf-8")
     if done.returncode == 2:
         raise ValueError(done.stderr.strip())

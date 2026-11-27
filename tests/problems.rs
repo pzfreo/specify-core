@@ -5,8 +5,8 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::problems::problems;
-use specify_core::rules::{LOCATING, Question, apply_with_defaults, questions};
+use specify_pmi::problems::problems;
+use specify_pmi::rules::{LOCATING, Question, apply_with_defaults, questions};
 
 fn plate() -> Value {
     common::case("parts/plate")

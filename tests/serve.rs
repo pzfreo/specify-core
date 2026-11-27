@@ -1,5 +1,5 @@
-//! The child-process protocol a host such as a web app's server speaks: specify-core's
-//! `tests/test_serve.py`, against the built binary over pipes (`specify-core serve`), plus the
+//! The child-process protocol a host such as a web app's server speaks: specify-pmi's
+//! `tests/test_serve.py`, against the built binary over pipes (`specify-pmi serve`), plus the
 //! protocol's promises: every stdout line is a reply, malformed lines are answered and the
 //! child carries on, and the child exits 0 when stdin closes.
 
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use serde_json::{Value, json};
-use specify_core::serve::Server;
+use specify_pmi::serve::Server;
 
 fn part(stem: &str) -> PathBuf {
     common::fixtures()
@@ -24,17 +24,17 @@ fn multipart_serve_write_keeps_a_stored_decision_when_taking_defaults() {
     std::fs::create_dir_all(&dir).unwrap();
     let input = dir.join("decided.step");
     let output = dir.join("written.step");
-    let source = specify_core::part::load(&part("assembly"), Some(0)).unwrap();
+    let source = specify_pmi::part::load(&part("assembly"), Some(0)).unwrap();
     let saved = common::apply_edits(&source, json!({"none": ["part.general_tolerance"]}));
     std::fs::write(&input, saved.bytes).unwrap();
-    let analysis = specify_core::api::analyse_file(&input, Some(0)).unwrap();
+    let analysis = specify_pmi::api::analyse_file(&input, Some(0)).unwrap();
     let result = Server::default().reply(&json!({
         "id": 1, "op": "write", "step": input, "output": output,
         "accept_defaults": true,
         "parts": [{"analysis": analysis, "answers": {"part.material": "steel"}}],
     }));
     assert_eq!(result["ok"], true, "{result}");
-    let reopened = specify_core::api::analyse_file(&output, Some(0)).unwrap();
+    let reopened = specify_pmi::api::analyse_file(&output, Some(0)).unwrap();
     assert!(
         reopened["table"]["decided_none"]
             .as_array()
@@ -47,7 +47,7 @@ fn multipart_serve_write_keeps_a_stored_decision_when_taking_defaults() {
 
 #[test]
 fn full_thread_depth_is_exposed_and_edited_over_serve() {
-    let analysis = specify_core::api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
+    let analysis = specify_pmi::api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
     let mut child = Session::start();
     let asked = child.ask(&json!({"id":1, "op":"questions", "analysis":analysis, "answers":{}}));
     assert_eq!(asked["ok"], true, "{asked}");
@@ -75,7 +75,7 @@ fn full_thread_depth_is_exposed_and_edited_over_serve() {
     child.finish();
 }
 
-/// A `specify-core serve` child, asked one line at a time.
+/// A `specify-pmi serve` child, asked one line at a time.
 struct Session {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -84,7 +84,7 @@ struct Session {
 
 impl Session {
     fn start() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("serve")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -127,7 +127,7 @@ impl Session {
 /// test_serve.py::test_a_session_over_the_pipe
 #[test]
 fn a_session_over_the_pipe() {
-    let dir = std::env::temp_dir().join(format!("specify-core-serve-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("specify-pmi-serve-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut child = Session::start();
     assert_eq!(
@@ -274,8 +274,8 @@ fn missing_fields_and_unknown_ops_are_invalid() {
 /// call-out for a hole.
 #[test]
 fn what_was_typed_is_interpreted() {
-    let analysis = specify_core::api::analyse_file(&part("plate"), None).unwrap();
-    let qs = specify_core::api::questions(&analysis, &Default::default()).unwrap();
+    let analysis = specify_pmi::api::analyse_file(&part("plate"), None).unwrap();
+    let qs = specify_pmi::api::questions(&analysis, &Default::default()).unwrap();
     let q = qs
         .iter()
         .find(|q| q.id.starts_with("hole.function:") && q.default == Some(json!("tapped:M5")))
@@ -294,14 +294,14 @@ fn what_was_typed_is_interpreted() {
 #[test]
 fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
     let new = common::fixtures().join("revisions/plate_split.new.step.gz");
-    let after = specify_core::part::load(&new, None).unwrap();
+    let after = specify_pmi::part::load(&new, None).unwrap();
     // An answers file whose datum could not be applied to this geometry, as one carried by an
     // earlier `diff` was (diff no longer writes answers: ADR P11).
     let carried = json!({"part.material":"6061-T6", "_specify": {
-        "evidence": specify_core::resume::evidence(&after).unwrap(),
+        "evidence": specify_pmi::resume::evidence(&after).unwrap(),
         "unresolved": {"datum.A": "face 4 has no match in the new part"},
     }});
-    let analysis = specify_core::api::analyse(&after).unwrap();
+    let analysis = specify_pmi::api::analyse(&after).unwrap();
     let output =
         std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
     let _ = std::fs::remove_file(&output);
@@ -349,19 +349,19 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
 
 #[test]
 fn serve_write_refuses_saved_answers_on_changed_geometry() {
-    let old = specify_core::part::load(
+    let old = specify_pmi::part::load(
         &common::fixtures().join("revisions/plate_split.old.step.gz"),
         None,
     )
     .unwrap();
     let new_path = common::fixtures().join("revisions/plate_split.new.step.gz");
-    let new = specify_core::part::load(&new_path, None).unwrap();
+    let new = specify_pmi::part::load(&new_path, None).unwrap();
     // Answers saved with the old geometry's evidence.
     let saved = json!({"part.material":"6061-T6", "datum.A":[4], "_specify": {
-        "evidence": specify_core::resume::evidence(&old).unwrap(),
+        "evidence": specify_pmi::resume::evidence(&old).unwrap(),
         "unresolved": {},
     }});
-    let analysis = specify_core::api::analyse(&new).unwrap();
+    let analysis = specify_pmi::api::analyse(&new).unwrap();
     let output =
         std::env::temp_dir().join(format!("serve-stale-evidence-{}.step", std::process::id()));
     let _ = std::fs::remove_file(&output);

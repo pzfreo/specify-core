@@ -1,4 +1,4 @@
-//! `specify-core mcp`: one conversation per protocol era (2026-07-28 and 2025-11-25) over
+//! `specify-pmi mcp`: one conversation per protocol era (2026-07-28 and 2025-11-25) over
 //! stdio-shaped in-memory pipes, each tool's structured result checked against `serve`'s
 //! reply to the same request, and the refusals: paths outside `--allow`, overwriting, unknown
 //! and stale handles, unsupported versions, and the HTTP transport's token, Host and Origin.
@@ -13,8 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
-use specify_core::mcp::{self, Server};
-use specify_core::serve;
+use specify_pmi::mcp::{self, Server};
+use specify_pmi::serve;
 
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const META_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";
@@ -238,7 +238,7 @@ fn conversation(era: &'static str) {
         assert!(discovered["ttlMs"].as_u64().is_some());
         assert_eq!(
             discovered["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
-            json!("specify-core")
+            json!("specify-pmi")
         );
     } else {
         let init = client.result(
@@ -419,9 +419,9 @@ fn conversation(era: &'static str) {
     assert_eq!(checked["doc"], json!(doc));
     let mut combined = fill.clone();
     combined.insert("part.material".into(), material);
-    let loaded = specify_core::part::load(&plate, None).unwrap();
+    let loaded = specify_pmi::part::load(&plate, None).unwrap();
     let expected =
-        specify_core::writer::apply::check(&loaded, &json!({"fill": combined}).to_string())
+        specify_pmi::writer::apply::check(&loaded, &json!({"fill": combined}).to_string())
             .to_json();
     assert_eq!(expected["entries"], json!(fill.len() + 1));
     for (field, value) in expected.as_object().unwrap() {
@@ -431,7 +431,7 @@ fn conversation(era: &'static str) {
     assert!(!plate.with_file_name("plate.specified.step").exists());
     let saved = client.call("save", json!({"doc": doc, "edits": list}));
     let written = Path::new(saved["path"].as_str().unwrap());
-    let analysis = specify_core::api::analyse_file(written, None).unwrap();
+    let analysis = specify_pmi::api::analyse_file(written, None).unwrap();
     assert_eq!(analysis["part"]["material"], "6082-T6");
 
     // diff of two revisions == the revision report the API gives.
@@ -440,9 +440,9 @@ fn conversation(era: &'static str) {
         revision("plate_split.new.step.gz"),
     );
     let compared = client.call("diff", json!({"old": old, "new": new}));
-    let expected = specify_core::revision::diff(
-        &specify_core::part::load(&old, None).unwrap(),
-        &specify_core::part::load(&new, None).unwrap(),
+    let expected = specify_pmi::revision::diff(
+        &specify_pmi::part::load(&old, None).unwrap(),
+        &specify_pmi::part::load(&new, None).unwrap(),
     )
     .unwrap();
     assert_eq!(compared["kind"], json!("part"));
@@ -462,9 +462,9 @@ fn conversation(era: &'static str) {
     );
     let out = dir.join("enclosure.carried.step");
     let carried = client.call("carry", json!({"old": old, "new": new, "output": out}));
-    let expected = specify_core::carry::carry(
-        &specify_core::part::File::read(&old).unwrap(),
-        &specify_core::part::File::read(&new).unwrap(),
+    let expected = specify_pmi::carry::carry(
+        &specify_pmi::part::File::read(&old).unwrap(),
+        &specify_pmi::part::File::read(&new).unwrap(),
     )
     .unwrap();
     assert_eq!(carried["written"], json!(true));
@@ -955,7 +955,7 @@ fn an_equal_answer_clears_only_its_earlier_refusal() {
 
 #[test]
 fn save_advertises_the_returned_table_and_excludes_refusals() {
-    let tools = specify_core::mcp::tools();
+    let tools = specify_pmi::mcp::tools();
     let save = tools.iter().find(|tool| tool["name"] == "save").unwrap();
     assert_eq!(
         save["outputSchema"]["properties"]["table"]["type"],
@@ -1348,7 +1348,7 @@ fn http_caps_its_connections() {
 fn the_binary_speaks_only_protocol_on_stdout() {
     use std::process::{Command, Stdio as Piped};
     let dir = scratch("binary");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(["mcp", "--allow"])
         .arg(&dir)
         .stdin(Piped::piped())
@@ -1458,7 +1458,7 @@ impl Events {
 }
 
 /// A stub app for `show` to serve, in `dir`.
-fn stub_app(dir: &Path) -> specify_core::open::Assets {
+fn stub_app(dir: &Path) -> specify_pmi::open::Assets {
     let app = dir.join("app");
     std::fs::create_dir_all(&app).unwrap();
     std::fs::write(
@@ -1466,7 +1466,7 @@ fn stub_app(dir: &Path) -> specify_core::open::Assets {
         b"<!doctype html><title>stub</title>",
     )
     .unwrap();
-    specify_core::open::assets(Some(&app), None).unwrap()
+    specify_pmi::open::assets(Some(&app), None).unwrap()
 }
 
 /// The agent and the person's page edit one session: the page's change is what the agent
@@ -1593,7 +1593,7 @@ fn the_agent_and_the_page_share_one_session() {
     assert_eq!(name, "saved");
     assert_eq!(told["source"], json!("mcp"));
     assert_eq!(told["path"], saved["path"]);
-    let written = specify_core::api::analyse_file(&dir.join("plate.specified.step"), None).unwrap();
+    let written = specify_pmi::api::analyse_file(&dir.join("plate.specified.step"), None).unwrap();
     assert_eq!(written["part"]["material"], json!("6061-T6"));
     let decided = written["table"]["decided_none"].as_array().unwrap();
     assert!(
@@ -1640,9 +1640,9 @@ fn a_diff_session_opens_the_new_file_beside_the_comparison() {
     let opened = call(&mut server, "open", json!({"path": new, "old": old}));
     let out = &opened["structuredContent"];
     assert_eq!(opened["isError"], json!(false), "{opened}");
-    let expected = specify_core::revision::diff(
-        &specify_core::part::load(&old, None).unwrap(),
-        &specify_core::part::load(&new, None).unwrap(),
+    let expected = specify_pmi::revision::diff(
+        &specify_pmi::part::load(&old, None).unwrap(),
+        &specify_pmi::part::load(&new, None).unwrap(),
     )
     .unwrap();
     assert_eq!(out["verdict"], json!(expected.verdict));
@@ -1671,7 +1671,7 @@ fn a_diff_session_opens_the_new_file_beside_the_comparison() {
 /// The two-part fixture written to `dir/two.step` with answers for both parts.
 fn two_parts_written(dir: &Path) -> PathBuf {
     let source = part("a_file_with_two_parts_must_say_which");
-    let file = specify_core::part::File::read(&source).unwrap();
+    let file = specify_pmi::part::File::read(&source).unwrap();
     let mut jobs = Vec::new();
     // Each part has an answer that leaves no PMI behind, so it is stored (ADR P11).
     for (k, (material, none)) in [
@@ -1682,14 +1682,14 @@ fn two_parts_written(dir: &Path) -> PathBuf {
     .enumerate()
     {
         let loaded = file.load(Some(k)).unwrap();
-        let (analysis, _) = specify_core::api::analyse_reporting_in(&file, &loaded).unwrap();
+        let (analysis, _) = specify_pmi::api::analyse_reporting_in(&file, &loaded).unwrap();
         let answers: Map<String, Value> =
             serde_json::from_value(json!({"part.material": material, none: "None"})).unwrap();
-        let intent = specify_core::api::apply(&analysis, &answers, true).unwrap();
+        let intent = specify_pmi::api::apply(&analysis, &answers, true).unwrap();
         jobs.push((intent, Some(answers)));
     }
     let written = dir.join("two.step");
-    specify_core::api::write_parts(&source, &jobs, &written).unwrap();
+    specify_pmi::api::write_parts(&source, &jobs, &written).unwrap();
     written
 }
 
@@ -1727,7 +1727,7 @@ fn the_page_of_an_assembly_s_part_names_the_part() {
 }
 
 /// A file of two parts, each written with its own answers, starts its MCP session from both,
-/// as `specify-core open` does, whichever part the agent opens.
+/// as `specify-pmi open` does, whichever part the agent opens.
 #[test]
 fn an_mcp_session_resumes_every_part_s_stored_answers() {
     let dir = scratch("resume-parts");
@@ -1923,7 +1923,7 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     let written = dir.join("plate.new.specified.step");
     assert_eq!(saved["path"], json!(written));
     // ADR P11: the material is the new file's PMI.
-    let resumed = specify_core::api::analyse_file(&written, None).unwrap();
+    let resumed = specify_pmi::api::analyse_file(&written, None).unwrap();
     assert_eq!(resumed["part"]["material"], json!("6061-T6"));
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
@@ -1958,24 +1958,24 @@ fn nothing_is_saved_outside_the_allowed_directories() {
 
     // Second line of defence: the session itself refuses.
     for in_place in [false, true] {
-        let mut held = specify_core::session::Session::new(
-            specify_core::session::Opened::read(&evil).unwrap(),
+        let mut held = specify_pmi::session::Session::new(
+            specify_pmi::session::Opened::read(&evil).unwrap(),
             in_place,
         )
         .unwrap();
         held.set_allowed(vec![allowed.clone()]);
         let shared = std::sync::Arc::new(std::sync::Mutex::new(held));
         // The agent's save.
-        let refused = specify_core::session::save_edits(&shared, None, &Default::default(), "mcp");
+        let refused = specify_pmi::session::save_edits(&shared, None, &Default::default(), "mcp");
         assert!(
-            matches!(refused, Err(specify_core::session::SaveError::Outside(_))),
+            matches!(refused, Err(specify_pmi::session::SaveError::Outside(_))),
             "{refused:?}"
         );
         // The page's save.
-        let app = specify_core::open::App::new(
+        let app = specify_pmi::open::App::new(
             shared,
             stub_app(&allowed),
-            &specify_core::open::Options::default(),
+            &specify_pmi::open::Options::default(),
         )
         .unwrap();
         let url = app.url();
@@ -2083,7 +2083,7 @@ fn save_applies_an_edit_list_all_or_nothing_and_check_says_so_first() {
     let saved = &saved["structuredContent"];
     assert_eq!(saved["path"], json!(written), "{saved}");
     assert_eq!(saved["report"]["retired"], json!([5]), "{saved}");
-    let after = specify_core::api::analyse_file(&written, None).unwrap();
+    let after = specify_pmi::api::analyse_file(&written, None).unwrap();
     assert!(
         !after["characteristics"]
             .as_array()
@@ -2128,7 +2128,7 @@ fn mcp_saves_and_discards_its_working_answers() {
     let saved = call(&mut server, "save", json!({"doc": pin, "edits": list}));
     assert_eq!(saved["isError"], false, "{saved}");
     let row = |part, id| {
-        let analysis = specify_core::api::analyse_file(&written, Some(part)).unwrap();
+        let analysis = specify_pmi::api::analyse_file(&written, Some(part)).unwrap();
         analysis["table"]["rows"]
             .as_array()
             .unwrap()
@@ -2223,7 +2223,7 @@ fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
     assert_eq!(status, 200, "{saved}");
     let written = Path::new(saved["path"].as_str().unwrap());
     let row = |part, id| {
-        let analysis = specify_core::api::analyse_file(written, Some(part)).unwrap();
+        let analysis = specify_pmi::api::analyse_file(written, Some(part)).unwrap();
         analysis["table"]["rows"]
             .as_array()
             .unwrap()
@@ -2553,13 +2553,13 @@ fn mcp_checks_and_saves_one_or_more_parts_atomically() {
     let input = dir.join("assembly.step");
     let original = std::fs::read(part("assembly")).unwrap();
     let seed = |bytes, index, material, tolerance| {
-        let file = specify_core::part::File::of_bytes(&input, bytes).unwrap();
+        let file = specify_pmi::part::File::of_bytes(&input, bytes).unwrap();
         let loaded = file.load(Some(index)).unwrap();
-        let list = specify_core::edits::parse_value(json!({"fill": {
+        let list = specify_pmi::edits::parse_value(json!({"fill": {
             "part.material": material, "part.general_tolerance": tolerance,
         }}))
         .unwrap();
-        specify_core::writer::apply::apply(&loaded, &list)
+        specify_pmi::writer::apply::apply(&loaded, &list)
             .unwrap()
             .bytes
     };
@@ -2613,7 +2613,7 @@ fn mcp_checks_and_saves_one_or_more_parts_atomically() {
     );
     let doc = opened["structuredContent"]["doc"].clone();
     let table = |index, id| {
-        let data = specify_core::api::analyse_file(&input, Some(index)).unwrap();
+        let data = specify_pmi::api::analyse_file(&input, Some(index)).unwrap();
         data["table"]["rows"]
             .as_array()
             .unwrap()
@@ -2776,7 +2776,7 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let analysis_uri = &opened["resources"][0];
     assert_eq!(
         opened["table"],
-        specify_core::api::analyse_file(&path, None).unwrap()["table"]
+        specify_pmi::api::analyse_file(&path, None).unwrap()["table"]
     );
     let value = |table: &Value| {
         table["rows"]
@@ -2797,7 +2797,7 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let current: Value =
         serde_json::from_str(current["contents"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(value(&current["table"]), "steel", "{current}");
-    let on_disk = specify_core::api::analyse_file(&path, None).unwrap();
+    let on_disk = specify_pmi::api::analyse_file(&path, None).unwrap();
     assert_eq!(current["table"], on_disk["table"]);
     assert_eq!(first["table"], on_disk["table"]);
     let questions = client.call("questions", json!({"doc": doc, "state": "open"}));
@@ -2822,7 +2822,7 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let current = client.result("resources/read", json!({"uri": analysis_uri}));
     let current: Value =
         serde_json::from_str(current["contents"][0]["text"].as_str().unwrap()).unwrap();
-    let on_disk = specify_core::api::analyse_file(&path, None).unwrap();
+    let on_disk = specify_pmi::api::analyse_file(&path, None).unwrap();
     assert_eq!(value(&second["table"]), "brass");
     assert_eq!(second["table"], on_disk["table"]);
     assert_eq!(current["table"], on_disk["table"]);
@@ -2837,7 +2837,7 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let reopened = client.call("open", json!({"path": path}));
     let read = client.result("resources/read", json!({"uri": reopened["resources"][0]}));
     let read: Value = serde_json::from_str(read["contents"][0]["text"].as_str().unwrap()).unwrap();
-    let external = specify_core::api::analyse_file(&path, None).unwrap();
+    let external = specify_pmi::api::analyse_file(&path, None).unwrap();
     assert_eq!(value(&read["table"]), "aluminium");
     assert_eq!(reopened["table"], external["table"]);
     assert_eq!(read["table"], external["table"]);
@@ -2864,7 +2864,7 @@ fn reopening_an_original_with_a_saved_copy_refuses_an_unchanged_save() {
     assert_eq!(saved["isError"], false, "{saved}");
     let saved_path = dir.join("plate.specified.step");
     assert_eq!(
-        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        specify_pmi::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
         "steel"
     );
     let reopened = call(&mut server, "open", json!({"path": path}));
@@ -2885,12 +2885,12 @@ fn reopening_an_original_with_a_saved_copy_refuses_an_unchanged_save() {
     );
     assert_eq!(saved["isError"], false, "{saved}");
     assert_eq!(
-        specify_core::api::analyse_file(&dir.join("plate.specified-2.step"), None).unwrap()["part"]
+        specify_pmi::api::analyse_file(&dir.join("plate.specified-2.step"), None).unwrap()["part"]
             ["material"],
         "brass"
     );
     assert_eq!(
-        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        specify_pmi::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
         "steel"
     );
 }

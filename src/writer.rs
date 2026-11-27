@@ -30,7 +30,7 @@
 //! (ISO 1302's basic symbol, which an unqualified `Ra 3.2` means); the part's other notes
 //! (coating, heat treatment, edges) are the PMI practice's 'semantic text' on the part (§7.4),
 //! each named by its kind in Python's text route ('surface treatment', 'heat treatment', 'edge
-//! condition'), which specify-core reads. Free-text part notes use `general note` plus a
+//! condition'), which specify-pmi reads. Free-text part notes use `general note` plus a
 //! one-based integer `note index` in each set (see `docs/part-notes.md`).
 //!
 //! **Knurls** are written as AP242's `turned_knurl`, the parameters it needs beyond the intent's
@@ -1354,7 +1354,7 @@ fn write_verified(
         if !stale.is_empty() {
             return invalid(format!(
                 "the answers stored for part(s) {} are not for this assembly's parts: it has \
-                 changed since specify-core wrote it",
+                 changed since specify-pmi wrote it",
                 stale.join(", ")
             ));
         }
@@ -2342,7 +2342,7 @@ fn general_giving_way(
 /// One-based order of a free-text part note within its `semantic text` attribute set.
 pub const NOTE_INDEX: &str = "note index";
 
-/// A finish as specify-core states it (`Ra 3.2`, micrometres: `extras` and the rules' choices)
+/// A finish as specify-pmi states it (`Ra 3.2`, micrometres: `extras` and the rules' choices)
 /// as a surface texture parameter; `None` for anything else.
 fn texture(value: &str) -> Option<SurfaceTextureParameter> {
     let number = value.strip_prefix("Ra ")?;
@@ -4274,7 +4274,7 @@ fn part_pmi_observed(
     // as a surface texture on the part (ISO 10303-1110), the rest as the PMI practice's
     // 'semantic text' on the part (§7.4), one attribute set per note. Its text item is named by
     // the kind Python's text route gives the note ('surface treatment', 'heat treatment',
-    // 'edge condition'), so specify-core's `part_settings`, which scans for an item of that
+    // 'edge condition'), so specify-pmi's `part_settings`, which scans for an item of that
     // name, reads it too.
     for key in crate::rules::NOTES {
         if key == "notes" {
@@ -4294,7 +4294,7 @@ fn part_pmi_observed(
                         return invalid(
                             "the part already states general notes; adding a different list \
                              would give it conflicting note indices (it was not written by \
-                             specify-core, so it is added to, not replaced)",
+                             specify-pmi, so it is added to, not replaced)",
                         );
                     }
                 }
@@ -4392,7 +4392,7 @@ fn part_pmi_observed(
 
 /// A thread of the intent as haecceity's `Thread`, with what is not thread semantics (pitch,
 /// tapping drill, depths, through) as a user defined attribute set on its feature. haecceity's
-/// own mapping of specify-core's threads (its `pmi_write.rs` test): one thread ('number of
+/// own mapping of specify-pmi's threads (its `pmi_write.rs` test): one thread ('number of
 /// threads' 1), form "M", the designation as the qualifier, the major diameter the nominal
 /// (upstream need U8: what 'number of threads' counts and where the pitch goes are open). The
 /// attribute names are Python's UDA names; 'through' is the string "true" as Python writes it

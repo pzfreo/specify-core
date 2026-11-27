@@ -9,11 +9,11 @@ use std::process::Command;
 
 use haecceity::p21::Document;
 use serde_json::{Value, json};
-use specify_core::characteristics::{self, Characteristic};
-use specify_core::edits::{self, Failure};
-use specify_core::part::{LoadedPart, load, load_bytes};
-use specify_core::writer::apply::{Applied, apply};
-use specify_core::{api, resume};
+use specify_pmi::characteristics::{self, Characteristic};
+use specify_pmi::edits::{self, Failure};
+use specify_pmi::part::{LoadedPart, load, load_bytes};
+use specify_pmi::writer::apply::{Applied, apply};
+use specify_pmi::{api, resume};
 
 fn fixture(name: &str) -> LoadedPart {
     load(&common::fixtures().join(name), None).unwrap()
@@ -135,7 +135,7 @@ fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
 fn own_notes_view(records: &BTreeMap<u64, String>) -> Vec<u64> {
     if !records
         .values()
-        .any(|t| t.contains(&format!("'{}'", specify_core::writer::PMI_PROVENANCE)))
+        .any(|t| t.contains(&format!("'{}'", specify_pmi::writer::PMI_PROVENANCE)))
     {
         return Vec::new();
     }
@@ -580,13 +580,13 @@ fn none_for_a_choice_without_a_none_option_is_refused() {
                 .contains("is not an answer to part.process"),
             "{failures:?}"
         );
-        let checked = specify_core::writer::apply::check(&spindle, &list.to_string());
+        let checked = specify_pmi::writer::apply::check(&spindle, &list.to_string());
         assert_eq!(checked.failures, failures);
     }
 }
 
 fn cli(args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();
@@ -731,7 +731,7 @@ fn write_applies_an_edit_list_all_or_nothing() {
 
 #[test]
 fn the_session_saves_an_edit_list_in_place_on_its_own_copy() {
-    use specify_core::session::{self, Opened, Session};
+    use specify_pmi::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let dir = std::env::temp_dir().join(format!("specify-session-edits-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -822,7 +822,7 @@ fn pmi_of(bytes: &[u8]) -> haecceity::pmi::PartPmi {
 /// The location dimensions on face `face`, as (from faces, to faces, basic).
 fn locations_on(p: &haecceity::pmi::PartPmi, face: usize) -> Vec<(Vec<usize>, Vec<usize>, bool)> {
     use haecceity::pmi::{DimTolerance, DimensionKind};
-    use specify_core::existing::faces_of;
+    use specify_pmi::existing::faces_of;
     p.dimensions
         .iter()
         .filter_map(|d| match &d.kind {
@@ -962,7 +962,7 @@ fn accepting_specifys_own_suggestion_applies_or_is_refused_by_the_check_alike() 
         failures[0].reason.contains("part.general_tolerance"),
         "{failures:?}"
     );
-    let checked = specify_core::writer::apply::check(&part, &alone.to_string());
+    let checked = specify_pmi::writer::apply::check(&part, &alone.to_string());
     assert_eq!(checked.failures, failures);
     let declined = applied(&part, json!({"none": ["part.general_tolerance"]}));
     let declined = reload(&declined.bytes);
@@ -987,7 +987,7 @@ fn accepting_specifys_own_suggestion_applies_or_is_refused_by_the_check_alike() 
     let list = json!({"accept_suggestions": ["hole.position:holes:6"]});
     let failures = refused(&cadgen, list.clone());
     assert!(failures[0].reason.contains("datum"), "{failures:?}");
-    let checked = specify_core::writer::apply::check(&cadgen, &list.to_string());
+    let checked = specify_pmi::writer::apply::check(&cadgen, &list.to_string());
     assert_eq!(checked.failures, failures);
     let datums: Vec<String> = rows(&table(&cadgen))
         .into_iter()
@@ -1081,7 +1081,7 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
 
 #[test]
 fn a_second_edits_save_keeps_the_first_saves_edits() {
-    use specify_core::session::{self, Opened, Session};
+    use specify_pmi::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let dir = std::env::temp_dir().join(format!("specify-edits-then-edits-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1132,13 +1132,13 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
             .filter(|r| {
                 r["state"] == "gap"
                     && r["suggestion"].is_string()
-                    && !specify_core::feature_table::is_none_value(&r["suggestion"])
+                    && !specify_pmi::feature_table::is_none_value(&r["suggestion"])
             })
             .map(|r| r["id"].as_str().unwrap().to_string())
             .collect();
         for id in gaps {
             let list = json!({"accept_suggestions": [&id]});
-            let checked = specify_core::writer::apply::check(&part, &list.to_string());
+            let checked = specify_pmi::writer::apply::check(&part, &list.to_string());
             match apply(&part, &edits::parse_value(list).unwrap()) {
                 Err(failures) => assert_eq!(checked.failures, failures, "{name}: {id}"),
                 Ok(saved) => {
@@ -1192,7 +1192,7 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
 
 #[test]
 fn a_page_save_does_not_silently_drop_working_answers() {
-    use specify_core::session::{self, Opened, Session};
+    use specify_pmi::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let dir = std::env::temp_dir().join(format!("specify-unsaved-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1238,7 +1238,7 @@ fn assembly() -> Vec<u8> {
 
 /// Part `k` of the assembly `bytes`, as `--part K` and `open_part` load it.
 fn part_of(bytes: &[u8], k: usize) -> LoadedPart {
-    specify_core::part::File::of_bytes(std::path::Path::new("assembly.step"), bytes.to_vec())
+    specify_pmi::part::File::of_bytes(std::path::Path::new("assembly.step"), bytes.to_vec())
         .unwrap()
         .load(Some(k))
         .unwrap()
@@ -1466,7 +1466,7 @@ fn a_part_placed_twice_is_edited_once_and_both_placements_show_it() {
     assert_eq!(read.parts[PIN].tolerances.len(), 1);
     assert_eq!(read.parts[PLATE], haecceity::pmi::PartPmi::default());
     let listed = api::parts_of(
-        &specify_core::part::File::of_bytes(std::path::Path::new("x.step"), saved.bytes.clone())
+        &specify_pmi::part::File::of_bytes(std::path::Path::new("x.step"), saved.bytes.clone())
             .unwrap(),
     );
     assert_eq!(listed.len(), 2);
@@ -1481,7 +1481,7 @@ fn a_part_placed_twice_is_edited_once_and_both_placements_show_it() {
 
 #[test]
 fn a_refusal_on_one_part_of_an_assembly_writes_nothing_anywhere() {
-    use specify_core::session::{self, Opened, Session};
+    use specify_pmi::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let plate = applied(&part_of(&assembly(), PLATE), plate_list()).bytes;
     // One good entry and one unknown: all or nothing.
@@ -1550,7 +1550,7 @@ fn characteristic_numbers_are_per_part_in_an_assembly() {
 
 #[test]
 fn write_and_the_session_edit_one_part_of_an_assembly() {
-    use specify_core::session::{self, Opened, Session};
+    use specify_pmi::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let dir = std::env::temp_dir().join(format!("specify-asm-write-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -2013,7 +2013,7 @@ fn a_fill_of_an_added_requirement_adds_it() {
         json!({"fill": {"part.material": "steel",
                         "extra.1": {"kind": "size", "faces": [9], "value": "7.8/8.2"}}}),
     );
-    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&saved.bytes))
+    let limits: Vec<_> = specify_pmi::existing::read_existing(&reload(&saved.bytes))
         .unwrap()
         .into_iter()
         .filter_map(|e| e.limits)
@@ -2055,7 +2055,7 @@ fn an_added_requirement_the_file_states_is_a_no_op_or_refused() {
         &written,
         json!({"items": {"remove": [format!("#{number}")]}, "fill": {"extra.1": size("7.9/8.1")}}),
     );
-    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&replaced.bytes))
+    let limits: Vec<_> = specify_pmi::existing::read_existing(&reload(&replaced.bytes))
         .unwrap()
         .into_iter()
         .filter_map(|e| e.limits)
@@ -2097,7 +2097,7 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
     assert_eq!(failures[0].reason, reason);
 
     let same = json!({"fill": {"part.coating": " None (as machined) "}});
-    let check = specify_core::writer::apply::check(&after, &same.to_string());
+    let check = specify_pmi::writer::apply::check(&after, &same.to_string());
     assert!(check.applicable, "{}", check.message());
     assert_eq!(check.unchanged, [r#"fill["part.coating"]"#]);
     let unchanged = applied(&after, same);
@@ -2157,7 +2157,7 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
     let size = row(&table(&reopened), id);
     assert_eq!(size["state"], "decided_none");
     assert_eq!(size["value"], "general");
-    let check = specify_core::writer::apply::check(&reopened, &approval.to_string());
+    let check = specify_pmi::writer::apply::check(&reopened, &approval.to_string());
     assert!(check.applicable, "{}", check.message());
     assert_eq!(check.unchanged, [format!("fill[{}]", json!(id))]);
     let unchanged = applied(&reopened, approval);
@@ -2186,9 +2186,9 @@ fn an_answers_file_from_another_revision_is_refused_as_stale() {
     // An answers file saved on OLD with its face evidence (as 0.2 exported one; the export is
     // removed, ADR P11, but such files are still read).
     let mut saved = given.as_object().unwrap().clone();
-    specify_core::answer_file::attach(&old, &mut saved, &Default::default(), []).unwrap();
+    specify_pmi::answer_file::attach(&old, &mut saved, &Default::default(), []).unwrap();
     let text = Value::Object(saved).to_string();
-    let checked = specify_core::writer::apply::check(&new, &text);
+    let checked = specify_pmi::writer::apply::check(&new, &text);
     let stale = |f: &Failure| f.entry == "_specify.evidence" && f.reason.contains("stale answers");
     assert!(checked.failures.iter().any(stale), "{checked:?}");
     let list = edits::read(&text).unwrap();

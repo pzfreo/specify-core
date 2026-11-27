@@ -1,4 +1,4 @@
-//! `specify-core mcp`: a Model Context Protocol server over the same steps as `serve`
+//! `specify-pmi mcp`: a Model Context Protocol server over the same steps as `serve`
 //! ([`crate::api`]), for an LLM client such as Claude Code or Claude Desktop (docs/mcp.md).
 //!
 //! Protocol revision 2026-07-28 (stateless: every request carries its version and client
@@ -562,7 +562,7 @@ impl Server {
         method: &str,
         params: &Map<String, Value>,
     ) -> Result<Value, RpcError> {
-        let server_info = json!({"name": "specify-core", "version": env!("CARGO_PKG_VERSION")});
+        let server_info = json!({"name": "specify-pmi", "version": env!("CARGO_PKG_VERSION")});
         let capabilities = json!({"tools": {}, "resources": {}});
         let mut result = match (era, method) {
             (Era::Legacy, "initialize") => json!({

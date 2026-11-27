@@ -1,5 +1,5 @@
 // A drawing by default, GD&T on request (docs/WORKFLOW.md): which part of the intent a question
-// belongs to, for showing it. The default path's answers and the mode changes are specify-core's
+// belongs to, for showing it. The default path's answers and the mode changes are specify-pmi's
 // (its tolerancing module), shared with the MCP server. Pure, no DOM.
 import type { PmiAnswers, PmiQuestion } from '../types/pmi';
 
@@ -42,7 +42,7 @@ export function intentPart(q: PmiQuestion, answers: PmiAnswers): IntentPart {
 }
 
 /** A question's default as the editor shows it: ± locating where Specify's own is position
- * tolerances (as specify-core's tolerancing::editor_default). */
+ * tolerances (as specify-pmi's tolerancing::editor_default). */
 export function editorDefault(q: PmiQuestion): unknown {
   return q.id === 'part.locating' ? '± dimensions' : q.default;
 }

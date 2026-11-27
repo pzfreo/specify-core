@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale } from '../app/save.ts';
-// The local app's answers store over the command's session (specify-core docs/open.md, session API 2):
+// The local app's answers store over the command's session (specify-pmi docs/open.md, session API 2):
 // the review panel's edits stay in the page until Save sends them as an edit list (`POST save {rev,
 // edits}`); events from others (an agent's answers) land in the session.
 

@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 
 use haecceity::p21::{self, Attribute as A, Document, Edit};
 use serde_json::{Map, Value, json};
-use specify_core::part::{self, LoadedPart};
-use specify_core::process::{self, FDM, MACHINED, METAL, POWDER, RESIN, SHEET_METAL};
-use specify_core::rules::{self, Question};
-use specify_core::{api, existing, resume, writer};
+use specify_pmi::part::{self, LoadedPart};
+use specify_pmi::process::{self, FDM, MACHINED, METAL, POWDER, RESIN, SHEET_METAL};
+use specify_pmi::rules::{self, Question};
+use specify_pmi::{api, existing, resume, writer};
 
 fn fixture(stem: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -63,7 +63,7 @@ fn entity_name(bytes: &[u8], id: u64) -> String {
 }
 
 /// The file's process as read back from the part's PMI.
-fn read_back(bytes: &[u8], part: Option<usize>) -> Option<specify_core::bom::Field> {
+fn read_back(bytes: &[u8], part: Option<usize>) -> Option<specify_pmi::bom::Field> {
     let file = part::File::of_bytes(Path::new("process.step"), bytes.to_vec()).unwrap();
     let loaded = file.load(part).unwrap();
     let doc = Document::parse(bytes.to_vec()).unwrap();
@@ -436,7 +436,7 @@ fn fdm_defaults_tolerance_note_holes_locations_and_no_finish_questions() {
     // is not asked again.
     assert_eq!(
         resume::answers_for(&back).unwrap(),
-        Some(specify_core::feature_table::storable(&chosen))
+        Some(specify_pmi::feature_table::storable(&chosen))
     );
     let again = api::analyse(&back).unwrap();
     assert_eq!(again["part"]["process"], json!(FDM));
@@ -480,7 +480,7 @@ fn an_explicit_answer_wins_over_every_process_default() {
     assert!(intent.requirements.iter().any(|r| r["kind"] == "thread"));
     assert!(intent.requirements.iter().any(|r| r["kind"] == "position"));
     // The person's own ± figure, typed as they would, is the general tolerance note.
-    let typed = specify_core::choices::interpret(
+    let typed = specify_pmi::choices::interpret(
         "part.general_tolerance",
         "+-0.2 mm",
         &question(&qs, "part.general_tolerance").options,
@@ -545,7 +545,7 @@ fn a_part_answer_the_process_leaves_unasked_is_not_written() {
         .unwrap();
     assert_eq!(
         resume::answers_for(&back).unwrap(),
-        Some(specify_core::feature_table::storable(&given))
+        Some(specify_pmi::feature_table::storable(&given))
     );
     let mut stored = given.clone();
     stored.insert("part.process".into(), json!(MACHINED));
@@ -797,9 +797,9 @@ fn a_process_answer_is_checked_and_round_trips_through_the_answer_file() {
     let analysis = api::analyse(&loaded).unwrap();
     let wrong = answers(json!({"part.material": "steel", "part.process": "printed"}));
     assert!(api::questions(&analysis, &wrong).is_err());
-    assert!(specify_core::input::answers(&analysis, &wrong).is_err());
+    assert!(specify_pmi::input::answers(&analysis, &wrong).is_err());
     let given = answers(json!({"part.material": "steel", "part.process": "cast"}));
-    specify_core::input::answers(&analysis, &given).unwrap();
+    specify_pmi::input::answers(&analysis, &given).unwrap();
     let qs = api::questions(&analysis, &given).unwrap();
     assert!(!ids(&qs).contains(&"part.surface_finish"));
     assert!(ids(&qs).contains(&"part.edges"));

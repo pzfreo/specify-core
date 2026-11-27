@@ -89,15 +89,15 @@ step "ci test: full suite"            "cargo nextest run --workspace --release -
 step "ci test: doctests"              "cargo test --doc --workspace --release --locked --no-fail-fast"
 
 # --- ci.yml: wasm-build and wasm-checks -----------------------------------------------------------
-step "ci wasm: wasm-pack"             "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked"
+step "ci wasm: wasm-pack"             "wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked"
 [ "$dry" = 1 ] || git fetch -q origin main || echo "warning: could not fetch origin/main; the API snapshot compares with the local copy"
 base=$(git merge-base HEAD origin/main) || { echo "VERIFY: FAIL (no origin/main to compare the WASM API with)"; exit 1; }
 step "ci wasm: Python version lockstep" "python3 tools/release_version.py --check-lockstep"
 step "ci wasm: tools unittests"       "python3 -m unittest discover -s tools -p 'test_*.py'"
 step "ci wasm: API snapshot"          "python3 tools/check_wasm_api.py --base-ref $base"
 step "ci wasm: size"                  "python3 tools/wasm_size.py"
-step "ci wasm: npm package packs"     "rm -rf '$work/npm-pkg' && cp -R crates/specify-core-wasm/pkg '$work/npm-pkg' && cp NOTICE '$work/npm-pkg/NOTICE' && python3 tools/npm_package.py '$work/npm-pkg' --check-pack"
-step "ci wasm: parity reference"      "cargo build --locked --release -p specify-core-wasm --example parity_reference"
+step "ci wasm: npm package packs"     "rm -rf '$work/npm-pkg' && cp -R crates/specify-pmi-wasm/pkg '$work/npm-pkg' && cp NOTICE '$work/npm-pkg/NOTICE' && python3 tools/npm_package.py '$work/npm-pkg' --check-pack"
+step "ci wasm: parity reference"      "cargo build --locked --release -p specify-pmi-wasm --example parity_reference"
 scripts=$(sed -n 's/^ *\(- \)\{0,1\}run: node \(scripts\/[a-z-]*\.mjs\)$/\2/p' .github/workflows/ci.yml)
 [ -n "$scripts" ] || { echo "VERIFY: FAIL (no node scripts found in ci.yml: update tools/verify.sh)"; exit 1; }
 for script in $scripts; do
@@ -115,22 +115,22 @@ step "ci ui: test:browser"            "cd ui && npm run test:browser"
 step "ci ui: test:package"            "cd ui && npm run test:package"
 
 # --- ci.yml: app-build and app (the command built with this checkout's app and engine) --------------
-cli=$root/target/release/specify-core
+cli=$root/target/release/specify-pmi
 step "ci app: build:app"              "cd ui && npm run build:app"
-step "ci app: build specify-core"     "SPECIFY_REQUIRE_BUNDLE=1 cargo build --release --locked --bin specify-core"
+step "ci app: build specify-pmi"     "SPECIFY_REQUIRE_BUNDLE=1 cargo build --release --locked --bin specify-pmi"
 step "ci app: open smoke"             "gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > '$work/part.step' && python3 tools/open_smoke.py '$cli' '$work/part.step'"
 step "cli: try it on a revision"      "rm -rf '$work/smoke' && printed=\$('$cli' diff tests/fixtures/revisions/spindle_pmi.old.step.gz tests/fixtures/revisions/spindle_pmi.new.step.gz -o '$work/smoke') && echo \"\$printed\" | grep -q '\"verdict\": *\"ok\"' && grep -q '^- #13 ' '$work/smoke/report.md' && grep -q '^- #16 added' '$work/smoke/report.md' && test ! -e '$work/smoke/answers.json'"
-step "ci app: app-browser"            "cd ui && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-browser.mjs"
-step "ci app: app-agent"              "cd ui && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-agent.mjs"
+step "ci app: app-browser"            "cd ui && SPECIFY_PMI='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-browser.mjs"
+step "ci app: app-agent"              "cd ui && SPECIFY_PMI='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-agent.mjs"
 
 # --- bundle.yml: bundle/, which python.yml and crates.yml build from ------------------------------
-step "bundle: versions are lockstep"  "version=\$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == \"specify-core\") | .version') && [ \"\$(jq -r .version ui/dist-app/specify-ui-app.json)\" = \"\$version\" ] && [ \"\$(jq -r .version crates/specify-core-wasm/pkg/package.json)\" = \"\$version\" ]"
-step "bundle: lay out bundle/"        "rm -rf bundle && mkdir -p bundle/wasm && cp -R ui/dist-app bundle/app && cp crates/specify-core-wasm/pkg/specify_core_wasm.js crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm crates/specify-core-wasm/pkg/package.json bundle/wasm/"
+step "bundle: versions are lockstep"  "version=\$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == \"specify-pmi\") | .version') && [ \"\$(jq -r .version ui/dist-app/specify-ui-app.json)\" = \"\$version\" ] && [ \"\$(jq -r .version crates/specify-pmi-wasm/pkg/package.json)\" = \"\$version\" ]"
+step "bundle: lay out bundle/"        "rm -rf bundle && mkdir -p bundle/wasm && cp -R ui/dist-app bundle/app && cp crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm crates/specify-pmi-wasm/pkg/package.json bundle/wasm/"
 
 # --- python.yml: wheel and test (this machine's platform) ----------------------------------------
 venv=$work/venv
-step "python: wheel"                  "SPECIFY_REQUIRE_BUNDLE=1 uvx maturin build --release --locked -m crates/specify-core-py/Cargo.toml -o '$work/dist'"
-step "python: venv, wheel, pytest"    "uv venv -q --python 3.12 '$venv' && uv pip install -q --python '$venv' pytest jsonschema && uv pip install -q --python '$venv' --no-index --no-cache --find-links '$work/dist' specify-core"
+step "python: wheel"                  "SPECIFY_REQUIRE_BUNDLE=1 uvx maturin build --release --locked -m crates/specify-pmi-py/Cargo.toml -o '$work/dist'"
+step "python: venv, wheel, pytest"    "uv venv -q --python 3.12 '$venv' && uv pip install -q --python '$venv' pytest jsonschema && uv pip install -q --python '$venv' --no-index --no-cache --find-links '$work/dist' specify-pmi"
 step "python: wheel carries licence"  "'$venv/bin/python' - '$work/dist' <<'EOF'
 import glob, sys, zipfile
 (wheel,) = glob.glob(sys.argv[1] + '/*.whl')
@@ -139,15 +139,15 @@ for name in ('LICENSE', 'NOTICE'):
     (found,) = [n for n in names if n.endswith('.dist-info/licenses/' + name)]
     assert len(zipfile.ZipFile(wheel).read(found)) > 100, found
 EOF"
-step "python: wheel's open smoke"     "'$venv/bin/python' tools/open_smoke.py '$venv/bin/specify-core' '$work/part.step'"
+step "python: wheel's open smoke"     "'$venv/bin/python' tools/open_smoke.py '$venv/bin/specify-pmi' '$work/part.step'"
 step "python: pytest"                 "'$venv/bin/python' -m pytest tests/python -q"
 
-step "python: sdist"                  "rm -rf '$work/sdist' && uvx maturin sdist -m crates/specify-core-py/Cargo.toml --out '$work/sdist'"
-step "python: sdist carries bundle"   "names=\$(tar -tzf '$work'/sdist/*.tar.gz) && for file in bundle/app/index.html bundle/app/specify-ui-app.json bundle/wasm/specify_core_wasm.js bundle/wasm/specify_core_wasm_bg.wasm bundle/wasm/package.json; do grep -q \"/\$file\\\$\" <<<\"\$names\" || { echo \"the sdist lacks \$file\"; exit 1; }; done"
+step "python: sdist"                  "rm -rf '$work/sdist' && uvx maturin sdist -m crates/specify-pmi-py/Cargo.toml --out '$work/sdist'"
+step "python: sdist carries bundle"   "names=\$(tar -tzf '$work'/sdist/*.tar.gz) && for file in bundle/app/index.html bundle/app/specify-ui-app.json bundle/wasm/specify_pmi_wasm.js bundle/wasm/specify_pmi_wasm_bg.wasm bundle/wasm/package.json; do grep -q \"/\$file\\\$\" <<<\"\$names\" || { echo \"the sdist lacks \$file\"; exit 1; }; done"
 
 # --- crates.yml: package --------------------------------------------------------------------------
 step "crates: package"                "bash tools/package_crate.sh"
-step "crates: publish --dry-run"      "cargo publish --dry-run --locked --allow-dirty -p specify-core"
+step "crates: publish --dry-run"      "cargo publish --dry-run --locked --allow-dirty -p specify-pmi"
 
 if [ "$dry" = 1 ]; then
   exit 0

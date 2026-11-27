@@ -2,7 +2,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, part, pmi_scene, revision, writer};
+use specify_pmi::{api, part, pmi_scene, revision, writer};
 use std::path::Path;
 
 fn load(name: &str) -> part::LoadedPart {
@@ -35,7 +35,7 @@ fn with_defaults(part: &part::LoadedPart) -> part::LoadedPart {
     let analysis = api::analyse(part).unwrap();
     write(
         part,
-        &specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap(),
+        &specify_pmi::rules::with_all_defaults(&analysis, &Map::new()).unwrap(),
     )
 }
 
@@ -87,7 +87,7 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
     // P9 / D1: the general tolerance writes only its note; the holes' general locations are
     // written with their suggestions approved ("accept suggestions").
     let accepted = |p: &part::LoadedPart| {
-        specify_core::rules::with_all_defaults(&api::analyse(p).unwrap(), &answers).unwrap()
+        specify_pmi::rules::with_all_defaults(&api::analyse(p).unwrap(), &answers).unwrap()
     };
     let (old, new) = (
         write(&before, &accepted(&before)),
@@ -120,7 +120,7 @@ fn added_and_removed_requirements_keep_inspection_history() {
     let bare = load("parts/plate.step");
     let first = json!({"fill": {"extra.1":{"kind":"flatness", "faces":[4], "value":"0.05"}}});
     let old = part::load_bytes("before.step", common::apply_edits(&bare, first).bytes).unwrap();
-    let number = specify_core::characteristics::read(&old).unwrap()[0].number;
+    let number = specify_pmi::characteristics::read(&old).unwrap()[0].number;
     let applied = common::apply_edits(
         &old,
         json!({
@@ -156,7 +156,7 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         json!({"part.notes":["Keep dry"], "part.locating":"position tolerances", "hole.function:holes:9":"clearance:M6"}),
     );
     let supplied =
-        specify_core::rules::with_all_defaults(&api::analyse(&bare).unwrap(), &supplied).unwrap();
+        specify_pmi::rules::with_all_defaults(&api::analyse(&bare).unwrap(), &supplied).unwrap();
     let old = write(&bare, &supplied);
     let text = String::from_utf8(old.bytes.to_vec()).unwrap();
     assert!(text.contains(".MAXIMUM_MATERIAL_REQUIREMENT."));
@@ -190,8 +190,8 @@ fn a_note_change_and_material_modifier_change_are_visible() {
     );
     assert!(!report.pmi.items.iter().any(|c| c.class == "renumbered"));
     assert_eq!(
-        specify_core::characteristics::read(&old).unwrap(),
-        specify_core::characteristics::read(&new).unwrap()
+        specify_pmi::characteristics::read(&old).unwrap(),
+        specify_pmi::characteristics::read(&new).unwrap()
     );
     let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
     for control in controls {
@@ -232,7 +232,7 @@ fn changing_one_shared_note_leaves_every_other_requirement_unchanged() {
     let bare = load("parts/plate.step");
     let supplied = answers(json!({"part.notes":["Keep dry", "Do not stack"]}));
     let supplied =
-        specify_core::rules::with_all_defaults(&api::analyse(&bare).unwrap(), &supplied).unwrap();
+        specify_pmi::rules::with_all_defaults(&api::analyse(&bare).unwrap(), &supplied).unwrap();
     let old = write(&bare, &supplied);
     let changed = String::from_utf8(old.bytes.to_vec())
         .unwrap()
@@ -254,8 +254,8 @@ fn changing_one_shared_note_leaves_every_other_requirement_unchanged() {
     );
     assert!(!markdown.contains("General notes → General notes"));
     assert_eq!(
-        specify_core::characteristics::read(&old).unwrap(),
-        specify_core::characteristics::read(&new).unwrap()
+        specify_pmi::characteristics::read(&old).unwrap(),
+        specify_pmi::characteristics::read(&new).unwrap()
     );
 }
 
@@ -447,7 +447,7 @@ fn moving_a_hole_recomputes_default_basic_locations() {
         json!({"part.general_tolerance":"ISO 2768-m", "part.locating":"position tolerances", "hole.function:holes:8":"clearance"}),
     );
     let all = |p: &part::LoadedPart| {
-        specify_core::rules::with_all_defaults(&api::analyse(p).unwrap(), &given).unwrap()
+        specify_pmi::rules::with_all_defaults(&api::analyse(p).unwrap(), &given).unwrap()
     };
     // Each revision written with the same answers and its defaults.
     let old = write(&before, &all(&before));
@@ -494,7 +494,7 @@ fn main_history_survives_direct_modifier_and_value_edits() {
     supplied.insert("part.notes".into(), json!(["Keep dry", "Migration test"]));
     let migrated = write(&old, &supplied);
     let numbers = |p: &part::LoadedPart| {
-        specify_core::characteristics::read(p)
+        specify_pmi::characteristics::read(p)
             .unwrap()
             .into_iter()
             .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
@@ -522,7 +522,7 @@ fn main_history_survives_direct_modifier_and_value_edits() {
     let history = read.parts[0]
         .attributes
         .iter()
-        .find(|a| a.name == specify_core::characteristics::PROPERTY)
+        .find(|a| a.name == specify_pmi::characteristics::PROPERTY)
         .unwrap();
     let haecceity::pmi::AttributeValue::Text(text) = &history.items[0].1 else {
         panic!("history text")
@@ -561,8 +561,8 @@ fn main_history_survives_direct_modifier_and_value_edits() {
                 );
             }
             assert_eq!(
-                specify_core::characteristics::read(old).unwrap(),
-                specify_core::characteristics::read(&new).unwrap()
+                specify_pmi::characteristics::read(old).unwrap(),
+                specify_pmi::characteristics::read(&new).unwrap()
             );
         }
     }
@@ -570,10 +570,10 @@ fn main_history_survives_direct_modifier_and_value_edits() {
 
 #[test]
 fn lm10uu_independent_lands_keep_numbers_through_compositions_resaves_and_a_value_edit() {
-    use specify_core::characteristics;
+    use specify_pmi::characteristics;
     use std::collections::{BTreeMap, BTreeSet};
     let bare = load("freecad/bearing-lm10uu.step.gz");
-    let supplied = specify_core::rules::with_all_defaults(
+    let supplied = specify_pmi::rules::with_all_defaults(
         &api::analyse(&bare).unwrap(),
         &answers(json!({"part.material":"6061-T6"})),
     )
@@ -1216,7 +1216,7 @@ fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
         .collect();
     let stripped = part::load_bytes("stripped.step", kept.join("\n").into_bytes()).unwrap();
     assert!(
-        specify_core::resume::answers_for(&stripped)
+        specify_pmi::resume::answers_for(&stripped)
             .unwrap()
             .is_none()
     );
@@ -1243,7 +1243,7 @@ fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
         .bytes,
     )
     .unwrap();
-    let items = specify_core::characteristics::read(&old).unwrap();
+    let items = specify_pmi::characteristics::read(&old).unwrap();
     let flat = items
         .iter()
         .find(|c| c.kind == "geometric_tolerance" && c.faces == [4])
@@ -1271,7 +1271,7 @@ fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
     );
     let new = part::load_bytes("after.step", applied.bytes).unwrap();
     let numbers = |p: &part::LoadedPart| -> Vec<u64> {
-        specify_core::characteristics::read(p)
+        specify_pmi::characteristics::read(p)
             .unwrap()
             .iter()
             .map(|c| c.number)

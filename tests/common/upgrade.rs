@@ -1,7 +1,7 @@
 //! Measured answer-ID changes in quiddity v0.2.1-alpha.1 (#100).
 use haecceity::geom::Surface;
 use serde_json::{Value, json};
-use specify_core::part::LoadedPart;
+use specify_pmi::part::LoadedPart;
 
 pub const FTC10: &[(&str, &str)] = &[
     ("holes:175", "holes:174.175"),

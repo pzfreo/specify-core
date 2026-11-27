@@ -752,7 +752,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "specify-core"
+name = "specify-pmi"
 version = "0.3.0-rc.2"
 dependencies = [
  "base64",
@@ -768,28 +768,28 @@ dependencies = [
  "serde_json",
  "sha2",
  "spade",
- "specify-core",
+ "specify-pmi",
  "step-io",
 ]
 
 [[package]]
-name = "specify-core-py"
+name = "specify-pmi-py"
 version = "0.3.0-rc.2"
 dependencies = [
  "pyo3",
  "serde_json",
- "specify-core",
+ "specify-pmi",
 ]
 
 [[package]]
-name = "specify-core-wasm"
+name = "specify-pmi-wasm"
 version = "0.3.0-rc.2"
 dependencies = [
  "console_error_panic_hook",
  "haecceity",
  "serde_json",
  "sha2",
- "specify-core",
+ "specify-pmi",
  "wasm-bindgen",
 ]
 

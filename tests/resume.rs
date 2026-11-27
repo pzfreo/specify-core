@@ -9,17 +9,15 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use specify_core::part::load;
-use specify_core::pyjson;
-use specify_core::resume::{
-    self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored,
-};
-use specify_core::rules::{Intent, apply_with_defaults};
-use specify_core::writer::write;
+use specify_pmi::part::load;
+use specify_pmi::pyjson;
+use specify_pmi::resume::{self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored};
+use specify_pmi::rules::{Intent, apply_with_defaults};
+use specify_pmi::writer::write;
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-resume-tests")
+        .join("specify-pmi-resume-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,26 +43,25 @@ fn apply(analysis: &Value, given: Value) -> Intent {
 #[test]
 fn long_saved_answers_resume_from_ordered_text_chunks() {
     let loaded = load(&fixture("plate"), None).unwrap();
-    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let analysis = specify_pmi::api::analyse(&loaded).unwrap();
     let given = json!({"part.material":"steel", "part.notes":["Keep dry. ".repeat(1000)]});
     let intent = apply(&analysis, given.clone());
     let (bytes, _) =
-        specify_core::writer::write_bytes(&loaded, &intent, Some(given.as_object().unwrap()))
+        specify_pmi::writer::write_bytes(&loaded, &intent, Some(given.as_object().unwrap()))
             .unwrap();
-    let back = specify_core::part::load_bytes("chunked.step", bytes.clone()).unwrap();
+    let back = specify_pmi::part::load_bytes("chunked.step", bytes.clone()).unwrap();
     // ADR P11: the long note is the file's PMI, not a stored answer.
     assert_eq!(
         answers_for(&back).unwrap(),
-        Some(specify_core::feature_table::storable(
+        Some(specify_pmi::feature_table::storable(
             given.as_object().unwrap()
         ))
     );
     assert!(String::from_utf8_lossy(&bytes).contains("haecceity text chunk/1"));
-    let resumed = specify_core::api::analyse(&back).unwrap();
+    let resumed = specify_pmi::api::analyse(&back).unwrap();
     let intent = apply(&resumed, given.clone());
     let (again, _) =
-        specify_core::writer::write_bytes(&back, &intent, Some(given.as_object().unwrap()))
-            .unwrap();
+        specify_pmi::writer::write_bytes(&back, &intent, Some(given.as_object().unwrap())).unwrap();
     assert_eq!(
         again, bytes,
         "unchanged chunked answers must resave without drift"
@@ -112,7 +109,7 @@ fn counts(path: &Path) -> (usize, usize, usize) {
 fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     let dir = temp("resume");
     let pin = load(&fixture("pin"), None).unwrap();
-    let base = specify_core::api::analyse(&pin).unwrap();
+    let base = specify_pmi::api::analyse(&pin).unwrap();
     let knurl = feature(&base, "turned_steps", 10.0);
     let given = json!({
         "part.material": "brass",
@@ -128,9 +125,9 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     )
     .unwrap();
     let loaded = load(&first, None).unwrap();
-    let storable = specify_core::feature_table::storable(given.as_object().unwrap());
+    let storable = specify_pmi::feature_table::storable(given.as_object().unwrap());
     assert_eq!(answers_for(&loaded).unwrap(), Some(storable.clone()));
-    let again = specify_core::api::analyse(&loaded).unwrap();
+    let again = specify_pmi::api::analyse(&loaded).unwrap();
     assert!(again["resume"].get("conflicts").is_none());
     assert_eq!(again["resume"]["answers"], json!(storable));
 
@@ -175,7 +172,7 @@ fn a_python_written_files_schema_one_payload_is_replaced_not_duplicated() {
     .unwrap();
     let loaded = load(&patched, None).unwrap();
     let given = json!({"part.coating": "None (as machined)"});
-    let base = specify_core::api::analyse(&loaded).unwrap();
+    let base = specify_pmi::api::analyse(&loaded).unwrap();
     let out = dir.join("out.step");
     write(
         &loaded,
@@ -200,7 +197,7 @@ fn a_python_written_files_schema_one_payload_is_replaced_not_duplicated() {
     assert!(rewritten.get("faces").is_none());
     assert_eq!(
         answers_for(&back).unwrap(),
-        Some(specify_core::feature_table::storable(
+        Some(specify_pmi::feature_table::storable(
             given.as_object().unwrap()
         ))
     );
@@ -259,7 +256,7 @@ fn answers_for_other_faces_are_not_resumed() {
         assert!(stored(&changed).contains_key(&0));
         let back = load(&out, None).unwrap();
         assert!(answers_for(&back).unwrap().is_none());
-        let (a, warnings) = specify_core::api::analyse_reporting(&back).unwrap();
+        let (a, warnings) = specify_pmi::api::analyse_reporting(&back).unwrap();
         assert!(a.get("resume").is_none());
         assert_eq!(
             a["resume_warning"].as_str(),
@@ -363,7 +360,7 @@ fn a_python_fingerprint_differs_only_in_signs_of_zero() {
     let ours = fingerprint_v1(&loaded).unwrap();
     assert_ne!(ours, sha(PYTHON_PLATE));
     let python: Value = serde_json::from_str(PYTHON_PLATE).unwrap();
-    let rust: Vec<Value> = specify_core::features::describe_faces(&loaded)
+    let rust: Vec<Value> = specify_pmi::features::describe_faces(&loaded)
         .unwrap()
         .iter()
         .map(|f| {
@@ -372,7 +369,7 @@ fn a_python_fingerprint_differs_only_in_signs_of_zero() {
                 f.centroid
                     .unwrap()
                     .iter()
-                    .map(|c| specify_core::pyfmt::round_half_even(*c, 3))
+                    .map(|c| specify_pmi::pyfmt::round_half_even(*c, 3))
                     .collect::<Vec<_>>()
             ])
         })
@@ -472,7 +469,7 @@ fn the_writer_stores_schema_three_with_quiddity_fingerprints() {
     // ADR P11: the material writes PMI, so only storable answers are stored.
     assert_eq!(
         answers_for(&loaded).unwrap(),
-        Some(specify_core::feature_table::storable(
+        Some(specify_pmi::feature_table::storable(
             given.as_object().unwrap()
         ))
     );
@@ -510,7 +507,7 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         let path = dir.join(format!("s{schema}-{resumes}.step"));
         std::fs::write(&path, with_payload_bytes(&raw, &payload)).unwrap();
         let back = load(&path, None).unwrap();
-        let (analysis, warnings) = specify_core::api::analyse_reporting(&back).unwrap();
+        let (analysis, warnings) = specify_pmi::api::analyse_reporting(&back).unwrap();
         let resume = &analysis["resume"];
         assert_eq!(
             resume.is_object() && resume["unverified"].is_null(),
@@ -613,7 +610,7 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
         let loaded = load(&path, None).unwrap();
         let saved = stored(&loaded.bytes).remove(&0).unwrap();
         assert_eq!(saved["answers"], meta["answers"]);
-        let (analysis, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+        let (analysis, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
         if name == "golden_oriented_slots" {
             for old in meta["features"]
                 .as_array()
@@ -683,7 +680,7 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                     }
                 }
             } else if !unresolved.iter().any(|u| u["id"] == *old)
-                && specify_core::feature_table::storable(&Map::from_iter([(
+                && specify_pmi::feature_table::storable(&Map::from_iter([(
                     old.clone(),
                     value.clone(),
                 )]))
@@ -711,18 +708,17 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
             meta["answers"].as_object().unwrap().len()
         );
         // An unresolved old feature has no accepted answer in the current interview.
-        let qs = specify_core::api::questions(&analysis, applied).unwrap();
-        let open = specify_core::rules::open_questions(&qs, applied);
+        let qs = specify_pmi::api::questions(&analysis, applied).unwrap();
+        let open = specify_pmi::rules::open_questions(&qs, applied);
         for u in &unresolved {
             if open.iter().any(|q| q.id == u["id"].as_str().unwrap()) {
                 assert!(!applied.contains_key(u["id"].as_str().unwrap()));
             }
         }
         // Saving again uses current recognition, and the exact old answers remain readable.
-        let intent = specify_core::api::apply(&analysis, applied, true).unwrap();
-        let (bytes, _) =
-            specify_core::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
-        let rewritten = specify_core::part::load_bytes(name, bytes).unwrap();
+        let intent = specify_pmi::api::apply(&analysis, applied, true).unwrap();
+        let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
+        let rewritten = specify_pmi::part::load_bytes(name, bytes).unwrap();
         assert_eq!(answers_for(&rewritten).unwrap().as_ref(), Some(applied));
         eprintln!(
             "{name}: {} reattached, {} unresolved with old ID, {} migrated",
@@ -743,7 +739,7 @@ fn schema_three_recovers_within_centroid_tolerance_and_across_version_bump() {
     });
     let (out, _) = written_plate(&dir, &given);
     let raw = std::fs::read(&out).unwrap();
-    let expected = specify_core::feature_table::storable(given.as_object().unwrap());
+    let expected = specify_pmi::feature_table::storable(given.as_object().unwrap());
     let base_payload = Value::Object(stored(&raw).remove(&0).unwrap());
     assert_eq!(base_payload["schema"], json!(3));
 
@@ -762,11 +758,11 @@ fn schema_three_recovers_within_centroid_tolerance_and_across_version_bump() {
         std::fs::write(&path, with_payload_bytes(&raw, &payload)).unwrap();
         let loaded = load(&path, None).unwrap();
         assert_eq!(answers_for(&loaded).unwrap().as_ref(), Some(&expected));
-        let (a, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+        let (a, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
         assert_eq!(a["resume"]["answers"], json!(expected));
         assert!(a.get("resume_warning").is_none());
         assert!(warnings.is_empty(), "{warnings:?}");
-        let review = specify_core::api::review(&a, &expected).unwrap();
+        let review = specify_pmi::api::review(&a, &expected).unwrap();
         assert!(
             !review["problems"]
                 .as_array()
@@ -791,14 +787,14 @@ fn schema_three_rebinds_unchanged_part_via_quiddity_correspond() {
         None,
     )
     .unwrap();
-    let base = specify_core::api::analyse(&asymmetric).unwrap();
-    let (raw, _) = specify_core::writer::write_bytes(
+    let base = specify_pmi::api::analyse(&asymmetric).unwrap();
+    let (raw, _) = specify_pmi::writer::write_bytes(
         &asymmetric,
         &apply(&base, given.clone()),
         given.as_object(),
     )
     .unwrap();
-    let expected = specify_core::feature_table::storable(given.as_object().unwrap());
+    let expected = specify_pmi::feature_table::storable(given.as_object().unwrap());
     let mut payload = Value::Object(stored(&raw).remove(&0).unwrap());
     // Translate the saved Quiddity fingerprints by +100 mm along X: far outside the 0.01 mm
     // tolerant check, so only Quiddity's `correspond` (rigid alignment) can recover it.
@@ -820,7 +816,7 @@ fn schema_three_rebinds_unchanged_part_via_quiddity_correspond() {
     std::fs::write(&path, with_payload_bytes(&raw, &payload)).unwrap();
     let loaded = load(&path, None).unwrap();
     assert_eq!(answers_for(&loaded).unwrap().as_ref(), Some(&expected));
-    let (a, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+    let (a, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
     assert_eq!(a["resume"]["answers"], json!(expected));
     assert!(a.get("resume_warning").is_none());
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -869,14 +865,14 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
     .unwrap();
     let old_payload = resume::payload(
         &old_thick,
-        &specify_core::feature_table::storable(given.as_object().unwrap()),
+        &specify_pmi::feature_table::storable(given.as_object().unwrap()),
     )
     .unwrap();
     let new_written = {
-        let a = specify_core::api::analyse(&new_thick).unwrap();
+        let a = specify_pmi::api::analyse(&new_thick).unwrap();
         let intent = apply(&a, given.clone());
         let (bytes, _) =
-            specify_core::writer::write_bytes(&new_thick, &intent, given.as_object()).unwrap();
+            specify_pmi::writer::write_bytes(&new_thick, &intent, given.as_object()).unwrap();
         with_payload_bytes(&bytes, &old_payload)
     };
 
@@ -891,7 +887,7 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
         std::fs::write(&path, &bytes).unwrap();
         let loaded = load(&path, None).unwrap();
         assert!(answers_for(&loaded).unwrap().is_none(), "{name}");
-        let (a, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+        let (a, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
         assert!(a.get("resume").is_none(), "{name}");
         assert_eq!(
             a["resume_warning"].as_str(),
@@ -902,7 +898,7 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
             warnings.iter().any(|w| w == resume::NOT_REUSED_MESSAGE),
             "{name}: {warnings:?}"
         );
-        let review = specify_core::api::review(&a, &Map::new()).unwrap();
+        let review = specify_pmi::api::review(&a, &Map::new()).unwrap();
         assert!(
             review["problems"]
                 .as_array()
@@ -916,7 +912,7 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
         );
 
         // CLI reports it on stderr (never silent).
-        let cli = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let cli = std::process::Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("analyse")
             .arg(&path)
             .arg("-o")
@@ -931,15 +927,15 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
         );
 
         // MCP open reports it in warnings, and MCP review reports it in problems.
-        let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
-        let call = |server: &mut specify_core::mcp::Server, id: u64, tool: &str, args: Value| {
+        let mut server = specify_pmi::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+        let call = |server: &mut specify_pmi::mcp::Server, id: u64, tool: &str, args: Value| {
             let req = json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "method": "tools/call",
                 "params": {
                     "_meta": {
-                        "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                        "io.modelcontextprotocol/protocolVersion": specify_pmi::mcp::MODERN,
                         "io.modelcontextprotocol/clientCapabilities": {}
                     },
                     "name": tool,
@@ -981,7 +977,7 @@ fn old_schemas_still_read_and_next_save_rewrites_as_schema_three() {
     let (out, _) = written_plate(&dir, &given);
     let raw = std::fs::read(&out).unwrap();
     let loaded = load(&out, None).unwrap();
-    let expected = specify_core::feature_table::storable(given.as_object().unwrap());
+    let expected = specify_pmi::feature_table::storable(given.as_object().unwrap());
 
     for (schema, hash) in [
         (1i64, fingerprint_v1(&loaded).unwrap()),
@@ -999,7 +995,7 @@ fn old_schemas_still_read_and_next_save_rewrites_as_schema_three() {
         let legacy = load(&legacy_path, None).unwrap();
         assert_eq!(stored(&legacy.bytes)[&0]["schema"], json!(schema));
         assert_eq!(answers_for(&legacy).unwrap().as_ref(), Some(&expected));
-        let (a, warnings) = specify_core::api::analyse_reporting(&legacy).unwrap();
+        let (a, warnings) = specify_pmi::api::analyse_reporting(&legacy).unwrap();
         assert_eq!(a["resume"]["answers"], json!(expected));
         assert!(warnings.is_empty(), "schema {schema}: {warnings:?}");
 
@@ -1093,7 +1089,7 @@ fn flip_face_grooves_end_for_end(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Embed a stored answers payload directly onto `loaded` as a Specify user-defined attribute.
-fn embed_payload_bytes(loaded: &specify_core::part::LoadedPart, payload: &Value) -> Vec<u8> {
+fn embed_payload_bytes(loaded: &specify_pmi::part::LoadedPart, payload: &Value) -> Vec<u8> {
     use haecceity::p21::Document;
     let doc = Document::parse(loaded.bytes.to_vec()).unwrap();
     let model = haecceity::pmi::PartPmi {
@@ -1116,9 +1112,8 @@ fn swapping_spindle_faces_4_and_8_rebinds_general_plane_length_none() {
     let spindle = load(&common::fixtures().join("spindle.step"), None).unwrap();
     // Dismiss the 12 mm plane length (faces 8-10), leaving the 34 mm plane length (faces 4-10) open.
     let applied = common::apply_edits(&spindle, json!({"none": ["length:planes:8-10"]}));
-    let before =
-        specify_core::part::load_bytes("spindle-none.step", applied.bytes.clone()).unwrap();
-    let a_before = specify_core::api::analyse(&before).unwrap();
+    let before = specify_pmi::part::load_bytes("spindle-none.step", applied.bytes.clone()).unwrap();
+    let a_before = specify_pmi::api::analyse(&before).unwrap();
     assert_eq!(
         a_before["resume"]["answers"]["length:planes:8-10"],
         json!("none")
@@ -1127,8 +1122,8 @@ fn swapping_spindle_faces_4_and_8_rebinds_general_plane_length_none() {
     // Swap faces 4 and 8 in CLOSED_SHELL: the 12 mm plane moves from face 8 to face 4,
     // and the 34 mm plane moves from face 4 to face 8.
     let swapped_bytes = swap_closed_shell_faces(&applied.bytes, 4, 8);
-    let swapped = specify_core::part::load_bytes("spindle-swapped.step", swapped_bytes).unwrap();
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&swapped).unwrap();
+    let swapped = specify_pmi::part::load_bytes("spindle-swapped.step", swapped_bytes).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&swapped).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert!(analysis.get("resume_warning").is_none());
 
@@ -1171,7 +1166,7 @@ fn swapping_spindle_faces_4_and_8_rebinds_general_plane_length_none() {
         row_34["suggestion"].as_str().unwrap().starts_with("34 "),
         "{row_34}"
     );
-    let review = specify_core::api::review(&analysis, resumed_answers).unwrap();
+    let review = specify_pmi::api::review(&analysis, resumed_answers).unwrap();
     let open = review["open"].as_array().unwrap();
     assert!(open.contains(&json!("length:planes:8-10")), "{open:?}");
     assert!(!open.contains(&json!("length:planes:4-10")), "{open:?}");
@@ -1199,8 +1194,8 @@ fn hole_removed_rematch_leaves_deleted_bore_finish_open_and_refuses_write() {
     .unwrap()
     .clone();
 
-    let new_analysis = specify_core::api::analyse(&new).unwrap();
-    let new_features: Vec<specify_core::features::Feature> =
+    let new_analysis = specify_pmi::api::analyse(&new).unwrap();
+    let new_features: Vec<specify_pmi::features::Feature> =
         serde_json::from_value(new_analysis["features"].clone()).unwrap();
     let rematched = resume::rematch_answers(&new, &new_features, &saved, None, None).unwrap();
 
@@ -1225,13 +1220,13 @@ fn hole_removed_rematch_leaves_deleted_bore_finish_open_and_refuses_write() {
         rematched.answers["_specify"]
     );
     // Preview produces no finish requirement on face 7, and apply refuses the unresolved extra block.
-    let preview = specify_core::api::preview(&new_analysis, &rematched.answers).unwrap();
+    let preview = specify_pmi::api::preview(&new_analysis, &rematched.answers).unwrap();
     assert!(
         preview.requirements.is_empty(),
         "must not plan a finish onto new face 7: {:?}",
         preview.requirements
     );
-    let err = specify_core::api::apply(&new_analysis, &rematched.answers, true).unwrap_err();
+    let err = specify_pmi::api::apply(&new_analysis, &rematched.answers, true).unwrap_err();
     assert!(
         err.to_string().contains("extra.bore_finish"),
         "expected unresolved block error, got: {err}"
@@ -1258,21 +1253,21 @@ fn swapping_coplanar_face_grooves_lands_fails_tolerant_write_check() {
     // with different areas (82.47 vs 111.33 mm²) and neighbours.
     let swapped_bytes = swap_closed_shell_faces(&fg.bytes, 0, 4);
     let swapped =
-        specify_core::part::load_bytes("face_grooves_swapped.step", swapped_bytes).unwrap();
+        specify_pmi::part::load_bytes("face_grooves_swapped.step", swapped_bytes).unwrap();
 
     assert!(
         !resume::evidence_matches(&swapped, &evidence).unwrap(),
         "swapping coplanar concentric annular lands must not pass evidence_matches"
     );
-    let analysis = specify_core::api::analyse(&swapped).unwrap();
+    let analysis = specify_pmi::api::analyse(&swapped).unwrap();
     let plain = json!({
         "extra.land_flat": {"kind": "flatness", "faces": [0], "value": "0.02"},
     })
     .as_object()
     .unwrap()
     .clone();
-    let intent = specify_core::api::preview(&analysis, &plain).unwrap();
-    let err = specify_core::writer::write_bytes(&swapped, &intent, Some(&saved)).unwrap_err();
+    let intent = specify_pmi::api::preview(&analysis, &plain).unwrap();
+    let err = specify_pmi::writer::write_bytes(&swapped, &intent, Some(&saved)).unwrap_err();
     assert!(
         err.to_string().contains("stale answers"),
         "writer must refuse stale evidence on swapped coplanar lands: {err}"
@@ -1303,15 +1298,15 @@ fn turning_face_grooves_end_for_end_does_not_move_flatness_to_opposite_end() {
     // not reused rather than moving face 0's flatness onto opposite-end face 10.
     let flipped_bytes = flip_face_grooves_end_for_end(&fg.bytes);
     let flipped_bare =
-        specify_core::part::load_bytes("face_grooves_flipped.step", flipped_bytes).unwrap();
-    let flipped_with_payload = specify_core::part::load_bytes(
+        specify_pmi::part::load_bytes("face_grooves_flipped.step", flipped_bytes).unwrap();
+    let flipped_with_payload = specify_pmi::part::load_bytes(
         "face_grooves_flipped_saved.step",
         embed_payload_bytes(&flipped_bare, &payload),
     )
     .unwrap();
 
     assert!(answers_for(&flipped_with_payload).unwrap().is_none());
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&flipped_with_payload).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&flipped_with_payload).unwrap();
     assert!(analysis.get("resume").is_none(), "{analysis}");
     assert_eq!(
         analysis["resume_warning"].as_str(),
@@ -1323,7 +1318,7 @@ fn turning_face_grooves_end_for_end_does_not_move_flatness_to_opposite_end() {
     );
 
     // External rematch_answers also leaves face-0 answers open rather than moving them to face 10.
-    let features: Vec<specify_core::features::Feature> =
+    let features: Vec<specify_pmi::features::Feature> =
         serde_json::from_value(analysis["features"].clone()).unwrap();
     let rematched =
         resume::rematch_answers(&flipped_bare, &features, &answers, Some(&evidence), None).unwrap();
@@ -1337,7 +1332,7 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
     let dir = temp("direct-edit-bore-move");
     let given = json!({
         "part.material": "steel",
-        "part.locating": specify_core::rules::LOCATING[1],
+        "part.locating": specify_pmi::rules::LOCATING[1],
     });
     let (out, _) = written_plate(&dir, &given);
     let raw = std::fs::read(&out).unwrap();
@@ -1345,7 +1340,7 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
     let mut payload = Value::Object(stored(&raw).remove(&0).unwrap());
     assert_eq!(
         payload["answers"]["part.locating"],
-        json!(specify_core::rules::LOCATING[1])
+        json!(specify_pmi::rules::LOCATING[1])
     );
     let bore = payload["geometry"]["faces"]
         .as_array_mut()
@@ -1356,7 +1351,7 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
     let bx = bore["centroid"][0].as_f64().unwrap();
     bore["centroid"][0] = json!(bx + 0.1);
     let moved_bytes = with_payload_bytes(&raw, &payload);
-    let moved = specify_core::part::load_bytes("bore-moved.step", moved_bytes).unwrap();
+    let moved = specify_pmi::part::load_bytes("bore-moved.step", moved_bytes).unwrap();
 
     // Direct material edit must not silently drop part.locating or return empty warnings.
     let applied = common::apply_edits(
@@ -1380,10 +1375,10 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
         .expect("saved payload kept");
     assert_eq!(
         stored_after["answers"]["part.locating"],
-        json!(specify_core::rules::LOCATING[1])
+        json!(specify_pmi::rules::LOCATING[1])
     );
-    let reopened = specify_core::part::load_bytes("edited.step", applied.bytes).unwrap();
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&reopened).unwrap();
+    let reopened = specify_pmi::part::load_bytes("edited.step", applied.bytes).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&reopened).unwrap();
     assert_eq!(analysis["part"]["material"], json!("6061-T6"));
     assert_eq!(
         analysis["resume_warning"].as_str(),
@@ -1398,7 +1393,7 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
 /// `face_grooves.step` with face `face` given the authored name `name`.
 fn name_face(
     bytes: &[u8],
-    loaded: &specify_core::part::LoadedPart,
+    loaded: &specify_pmi::part::LoadedPart,
     face: usize,
     name: &str,
 ) -> Vec<u8> {
@@ -1429,22 +1424,22 @@ fn mixed_names_and_geometry_that_collide_hold_the_answer_back_not_drop_it() {
     )
     .unwrap();
     let named_bytes = name_face(&fg.bytes, &fg, 2, "f:fg.land;M:fg.body");
-    let named = specify_core::part::load_bytes("fg-named.step", named_bytes).unwrap();
+    let named = specify_pmi::part::load_bytes("fg-named.step", named_bytes).unwrap();
     let applied = common::apply_edits(&named, json!({"none": ["length:planes:2-8"]}));
-    let saved = specify_core::part::load_bytes("fg-saved.step", applied.bytes.clone()).unwrap();
+    let saved = specify_pmi::part::load_bytes("fg-saved.step", applied.bytes.clone()).unwrap();
     let payload = stored(&applied.bytes).remove(&0).unwrap();
     assert!(payload.contains_key("face_names") && payload.contains_key("geometry"));
     assert_eq!(
-        specify_core::api::analyse(&saved).unwrap()["resume"]["answers"]["length:planes:2-8"],
+        specify_pmi::api::analyse(&saved).unwrap()["resume"]["answers"]["length:planes:2-8"],
         json!("none")
     );
 
-    let flipped = specify_core::part::load_bytes(
+    let flipped = specify_pmi::part::load_bytes(
         "fg-flipped.step",
         flip_face_grooves_end_for_end(&applied.bytes),
     )
     .unwrap();
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&flipped).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&flipped).unwrap();
     let answers = analysis["resume"]["answers"].as_object().unwrap();
     assert!(
         !answers.contains_key("length:planes:2-2") && !answers.contains_key("length:planes:2-8"),
@@ -1488,19 +1483,19 @@ fn translating_a_symmetric_plate_keeps_its_saved_answers() {
         None,
     )
     .unwrap();
-    let locating = json!(specify_core::rules::LOCATING[1]);
+    let locating = json!(specify_pmi::rules::LOCATING[1]);
     let answers = json!({"part.material": "steel", "part.locating": locating, "datum.A": [0]})
         .as_object()
         .unwrap()
         .clone();
     let saved = embed_payload_bytes(&plate, &resume::payload(&plate, &answers).unwrap());
     let moved =
-        specify_core::part::load_bytes("plate-moved.step", translate_x(&saved, 100.0)).unwrap();
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&moved).unwrap();
+        specify_pmi::part::load_bytes("plate-moved.step", translate_x(&saved, 100.0)).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&moved).unwrap();
     assert!(analysis.get("resume_warning").is_none(), "{warnings:?}");
     assert_eq!(analysis["resume"]["answers"]["part.locating"], locating);
     // Order is unchanged, so the face answers rebind too rather than being held back.
-    let features: Vec<specify_core::features::Feature> =
+    let features: Vec<specify_pmi::features::Feature> =
         serde_json::from_value(analysis["features"].clone()).unwrap();
     let rebound = resume::rematch_answers(
         &moved,
@@ -1529,7 +1524,7 @@ fn part_answers_stand_when_face_answers_are_held_back_and_a_later_edit_keeps_bot
         None,
     )
     .unwrap();
-    let locating = json!(specify_core::rules::LOCATING[1]);
+    let locating = json!(specify_pmi::rules::LOCATING[1]);
     let answers = json!({
         "part.locating": locating,
         "extra.end_flat": {"kind": "flatness", "faces": [0], "value": "0.02"},
@@ -1540,16 +1535,16 @@ fn part_answers_stand_when_face_answers_are_held_back_and_a_later_edit_keeps_bot
     .clone();
     let payload = resume::payload(&fg, &answers).unwrap();
     let flipped_bare =
-        specify_core::part::load_bytes("fg-flip.step", flip_face_grooves_end_for_end(&fg.bytes))
+        specify_pmi::part::load_bytes("fg-flip.step", flip_face_grooves_end_for_end(&fg.bytes))
             .unwrap();
-    let flipped = specify_core::part::load_bytes(
+    let flipped = specify_pmi::part::load_bytes(
         "fg-flip-saved.step",
         embed_payload_bytes(&flipped_bare, &payload),
     )
     .unwrap();
 
     // The part-wide choice stands; the face answers are held back and reported.
-    let (analysis, warnings) = specify_core::api::analyse_reporting(&flipped).unwrap();
+    let (analysis, warnings) = specify_pmi::api::analyse_reporting(&flipped).unwrap();
     assert_eq!(analysis["resume"]["answers"]["part.locating"], locating);
     let ids = |a: &Value| -> Vec<String> {
         let mut ids: Vec<String> = a["resume"]["unresolved"]
@@ -1575,8 +1570,8 @@ fn part_answers_stand_when_face_answers_are_held_back_and_a_later_edit_keeps_bot
     assert!(after["answers"].get("part.coating").is_some());
     assert_eq!(after["unreused"]["datum.A"], json!([0]));
     assert!(after["unreused"].get("extra.end_flat").is_some());
-    let reopened = specify_core::part::load_bytes("fg-edited.step", applied.bytes).unwrap();
-    let (again, warnings) = specify_core::api::analyse_reporting(&reopened).unwrap();
+    let reopened = specify_pmi::part::load_bytes("fg-edited.step", applied.bytes).unwrap();
+    let (again, warnings) = specify_pmi::api::analyse_reporting(&reopened).unwrap();
     assert_eq!(again["resume"]["answers"]["part.locating"], locating);
     assert_eq!(ids(&again), ["datum.A", "extra.end_flat"]);
     assert!(

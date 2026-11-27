@@ -1,5 +1,5 @@
 //! The part model (`src/part.rs`, port of `load.py`): parts, bindings, face numbering and the
-//! U1 stand-in, checked against specify-core's own outputs.
+//! U1 stand-in, checked against specify-pmi's own outputs.
 //!
 //! Ports `tests/test_load.py`'s behavioural tests and `tests/test_assembly.py`'s parts listing.
 //! Expected values come from Python: written below as literals (with the command that produced
@@ -15,7 +15,7 @@ use haecceity::Part;
 use haecceity::geom::Surface;
 use haecceity::step::Placement;
 use serde_json::{Value, json};
-use specify_core::part::{self, Binding, LOADER_VERSION, LoadedPart};
+use specify_pmi::part::{self, Binding, LOADER_VERSION, LoadedPart};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -185,7 +185,7 @@ type Expected = (&'static str, usize, Vec<Placement>);
 /// Python's faces of one part of a file.
 type PythonFaces = (&'static str, usize, &'static [(Kind, [f64; 3])]);
 
-/// `specify-core parts tests/fixtures/parts/<file>` with specify-core's venv, and each part's
+/// `specify-pmi parts tests/fixtures/parts/<file>` with specify-pmi's venv, and each part's
 /// `load_all(path)[k].binding.to_dict()`.
 #[test]
 fn parts_and_bindings_are_pythons() {
@@ -703,8 +703,8 @@ fn python_parts(paths: &[PathBuf]) -> Option<serde_json::Map<String, Value>> {
     }
     const SCRIPT: &str = r#"
 import json, sys
-from specify_core.load import load_all, parts
-from specify_core.features import describe_faces
+from specify_pmi.load import load_all, parts
+from specify_pmi.features import describe_faces
 out = {}
 for path in sys.argv[1:]:
     try:
@@ -720,7 +720,7 @@ json.dump(out, sys.stdout)
         .arg(SCRIPT)
         .args(paths)
         .output()
-        .expect("run specify-core's venv");
+        .expect("run specify-pmi's venv");
     assert!(
         output.status.success(),
         "{}",
@@ -769,7 +769,7 @@ fn corpus_and_nist_faces_are_pythons_at_every_index() {
         }
     }
     let Some(python) = python_parts(&paths) else {
-        eprintln!("skipped: specify-core's venv or the files are not present");
+        eprintln!("skipped: specify-pmi's venv or the files are not present");
         return;
     };
     let mut report = Vec::new();

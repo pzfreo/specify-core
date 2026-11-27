@@ -15,7 +15,7 @@ export function plannerId(id: string): string {
   return nominal >= 0 ? rest.slice(0, nominal) : rest;
 }
 
-/** The IDs in specify-core 0.2.0's pmiScene identify semantic requirements independently of
+/** The IDs in specify-pmi 0.2.0's pmiScene identify semantic requirements independently of
  * values. Their number metadata comes from the same allocation used by the STEP writer. */
 function sceneId(item: PmiIntentItem): string {
   const planner = item['planner'] as { required?: { id?: string } } | undefined;

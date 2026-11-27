@@ -1,6 +1,6 @@
 //! Answers stored in a written STEP and resumed from it (port of `resume.py`).
 //!
-//! Writing a part, specify-core also stores in the file the answers that leave no PMI behind
+//! Writing a part, specify-pmi also stores in the file the answers that leave no PMI behind
 //! (decided none, and choices): ADR P11, the file's PMI is the only copy of the rest. Older
 //! files store every answer; those that repeat the file's PMI are ignored on reading. Older
 //! payloads carry `pmi_scope`, which only picks among several stored frames. Schema 3 payloads
@@ -63,7 +63,7 @@ pub const NOT_REUSED_MESSAGE: &str =
     "Saved answers in this file were not reused: the part has changed since they were saved";
 
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
-/// before specify-core was renamed so that older files still resume.
+/// before specify-pmi was renamed so that older files still resume.
 pub const NAME: &str = "pmi-assist answers";
 
 /// The payload member holding carry blocks on questions not asked when written (#126):

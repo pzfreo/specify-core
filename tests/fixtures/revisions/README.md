@@ -13,7 +13,7 @@ Pairs of revisions of one small part (`<case>.old.step.gz`, `<case>.new.step.gz`
 | `plate_thickened` | the plate 10 → 12 thick; its pattern holes are symmetric repeats |
 | `whole_part_moved` | the whole part turned and moved, nothing else |
 
-The `complex_*` pairs are made by `complex.py` (build123d; specify-core-rust #56): a 100 × 80 × 10
+The `complex_*` pairs are made by `complex.py` (build123d; specify-pmi #56): a 100 × 80 × 10
 plate with 4 × Ø6 holes on a Ø60 circle, a pocket, two chamfers and a boss underneath (each
 `.old`), changed in ways that read badly before, each `.new`:
 
@@ -118,7 +118,7 @@ the supplied workflow plates, gzipped with mtime 0; `plate_split.py` reproduces
 the build123d construction. They check that an orphaned datum cannot become an
 accepted default and that saved evidence detects stale face numbering.
 
-`block_face_pushed` (specify-core-rust #180, made with build123d 0.13 / OpenCascade 8.0, Apache-2.0
+`block_face_pushed` (specify-pmi #180, made with build123d 0.13 / OpenCascade 8.0, Apache-2.0
 with this repository) is a 60 × 40 block standing on z = 0, 20 high, its top face then pushed 5 mm
 (25 high). Sharp corners and no hole, fillet or other feature, so no feature explains the change:
 

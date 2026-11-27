@@ -47,7 +47,7 @@ interface PartRow {
 }
 interface AssemblyDiffed { report: { verdict: string; summary: string }; markdown: string; parts: PartRow[] }
 
-// The picture's colours (specify-core's revision::picture). The line in hand is lit in
+// The picture's colours (specify-pmi's revision::picture). The line in hand is lit in
 // three-cad-viewer's own highlight blue (LIT).
 const LIT = '#89b9e3';
 const COLOURS = {
@@ -367,8 +367,8 @@ export interface StepDiffProps {
   header?: ReactNode;
   /** An error from the host, shown where this component's own is, ahead of it. */
   hostError?: string;
-  /** For a host that serves the engine itself: the URL of its `specify_core_wasm.js` module, resolved against the page.
-   *  By default the engine is the dependency @draftwright/specify-core-wasm.
+  /** For a host that serves the engine itself: the URL of its `specify_pmi_wasm.js` module, resolved against the page.
+   *  By default the engine is the dependency @draftwright/specify-pmi-wasm.
    *  A cross-origin URL needs the host's CSP `script-src` (and `connect-src` for the .wasm) to allow it.
    *  Read only when the component mounts; a later change has no effect. */
   wasmUrl?: string;

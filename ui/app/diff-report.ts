@@ -1,4 +1,4 @@
-// What a revision report (`GET diff`, `specify-core diff`'s report.json, docs/diff.md) leaves to
+// What a revision report (`GET diff`, `specify-pmi diff`'s report.json, docs/diff.md) leaves to
 // the person: the new file's requirements on a feature that moved or changed size (`check`).
 // Diff reads the two files' PMI only (ADR P11): it carries no answers and asks no questions, so a
 // check names no question. (`unresolved` and `questions` are read too, from older reports.)

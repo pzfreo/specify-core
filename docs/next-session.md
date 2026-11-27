@@ -39,7 +39,7 @@ Overturnable judgement calls:
   questions must still equal Python's. A CLI stdout holding such threads keeps its value
   comparison but skips the byte-for-byte text check.
 
-# G2: assemblies on haecceity's part API (slice 2, specify-core-rust #2; 2026-10-15)
+# G2: assemblies on haecceity's part API (slice 2, specify-pmi #2; 2026-10-15)
 
 **Pin.** quiddity and haecceity are pinned by `rev = "0d601d207495dea60b1b6a7109bd3abd109bf745"`
 (quiddity-rust main after haecceity's assemblies slice 1), not a tag. **The next tagged
@@ -153,7 +153,7 @@ evidence is reworded to drop its 14052 example rather than left citing a case th
 ## 0.1.0-alpha.4 release (2026-10-16)
 
 Prepared from `main` at 4bacb18: PR #12 adds verified caller attributes and PR #13 adds
-`specify-core-wasm`, shared review and the WASM release workflow. Both already had Unreleased
+`specify-pmi-wasm`, shared review and the WASM release workflow. Both already had Unreleased
 entries, now dated for alpha.4. Both workspace crates and the WASM crate's exact core version
 requirement are 0.1.0-alpha.4; external dependency pins and versions are unchanged.
 

@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import init, { IntentEngine, diff, acceptDefaults } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, diff, acceptDefaults } from '../crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js';
 import { storable } from './storable.mjs';
 
 const root = new URL('../', import.meta.url);
-await init({ module_or_path: readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root)) });
+await init({ module_or_path: readFileSync(new URL('crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm', root)) });
 const bytes = revision => gunzipSync(readFileSync(new URL(`tests/fixtures/revisions/named_plate.${revision}.step.gz`, root)));
 const name = (feature, n) => `f:named_plate.${feature}.${n};M:named_plate.body`;
 const hole = name('body_make_cylinder1', 1);

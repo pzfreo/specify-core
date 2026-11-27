@@ -2,7 +2,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, part, serve::Server, tolerancing};
+use specify_pmi::{api, part, serve::Server, tolerancing};
 
 fn answers(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
@@ -33,7 +33,7 @@ fn check_suggestions(analysis: &Value, given: &Map<String, Value>) {
         .find(|q| q["id"] == "datum.C")
         .unwrap();
     assert!(
-        specify_core::feature_table::is_none_value(&c["default"]),
+        specify_pmi::feature_table::is_none_value(&c["default"]),
         "{c}"
     );
     assert!(
@@ -156,11 +156,11 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
     // The writer refuses the stale id too, whatever intent it is given (D11).
     let mut with_stale = given.clone();
     with_stale.insert("hole.function:holes:14".into(), stale);
-    let refused = specify_core::writer::write_bytes(&loaded, &intent, Some(&with_stale))
+    let refused = specify_pmi::writer::write_bytes(&loaded, &intent, Some(&with_stale))
         .unwrap_err()
         .to_string();
     assert!(refused.contains(stale_error), "{refused}");
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
     let reopened = part::load_bytes("grm03.step", bytes).unwrap();
     let reread = api::analyse(&reopened).unwrap();
     // ADR P11 rule 2: every answer here writes PMI (two threads and a knurl), so none is
@@ -171,13 +171,13 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
     // Analyse intentionally hides stored PMI when it resumes answers. Read semantic PMI
     // directly as well, so these absence assertions cannot pass just because it resumed.
     assert!(
-        specify_core::existing::part_settings(&reopened)
+        specify_pmi::existing::part_settings(&reopened)
             .unwrap()
             .get("general_tolerance")
             .is_none()
     );
     assert!(
-        specify_core::existing::read_existing(&reopened)
+        specify_pmi::existing::read_existing(&reopened)
             .unwrap()
             .iter()
             .all(|p| { p.kind != "datum" && p.kind != "geometric_tolerance" })
@@ -245,10 +245,10 @@ fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
             .iter()
             .any(|r| r["question"] == position.id && r["kind"] == "position")
     );
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
     let reopened = part::load_bytes("grm03-position.step", bytes).unwrap();
     assert!(
-        specify_core::existing::read_existing(&reopened)
+        specify_pmi::existing::read_existing(&reopened)
             .unwrap()
             .iter()
             .any(|p| p.kind == "geometric_tolerance" && p.r#type.starts_with("Position"))
@@ -258,9 +258,9 @@ fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
 fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>, no_pmi: Value) {
     let loaded = part::load(path, None).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
-    let accepted = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
+    let accepted = specify_pmi::rules::with_all_defaults(&analysis, &given).unwrap();
     assert_eq!(
-        specify_core::rules::with_all_defaults(&analysis, &accepted).unwrap(),
+        specify_pmi::rules::with_all_defaults(&analysis, &accepted).unwrap(),
         accepted
     );
     for (id, value) in &given {
@@ -294,9 +294,9 @@ fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>, no
             .any(|r| r["kind"] == "position")
     );
     let (actual_bytes, _) =
-        specify_core::writer::write_bytes(&loaded, &preview, Some(&accepted)).unwrap();
+        specify_pmi::writer::write_bytes(&loaded, &preview, Some(&accepted)).unwrap();
     let (expected_bytes, _) =
-        specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
+        specify_pmi::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
     assert_eq!(actual_bytes, expected_bytes);
     let reopened = part::load_bytes("accepted.step", actual_bytes).unwrap();
     let resumed = api::analyse(&reopened).unwrap()["resume"]["answers"].clone();
@@ -310,14 +310,14 @@ fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>, no
     assert_eq!(
         resumed,
         // ADR P11: stored are the answers that leave no PMI behind.
-        json!(specify_core::feature_table::storable(&accepted))
+        json!(specify_pmi::feature_table::storable(&accepted))
     );
     assert_eq!(
-        specify_core::existing::part_settings(&reopened).unwrap()["general_tolerance"],
+        specify_pmi::existing::part_settings(&reopened).unwrap()["general_tolerance"],
         "ISO 2768-m"
     );
     assert!(
-        specify_core::existing::read_existing(&reopened)
+        specify_pmi::existing::read_existing(&reopened)
             .unwrap()
             .iter()
             .any(|p| p.kind == "geometric_tolerance" && p.r#type == "Position")

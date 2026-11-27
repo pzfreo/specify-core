@@ -3,7 +3,7 @@ mod common;
 
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
-use specify_core::{
+use specify_pmi::{
     api, choices, existing, general, part, pmi_scene, revision, rules, standards, writer,
 };
 use std::path::Path;
@@ -389,7 +389,7 @@ fn nist_ctc01_imported_limits_survive_analysis_resume_and_rewrite() {
     let reopened = api::analyse(&written).unwrap();
     let resumed = reopened["resume"]["answers"].as_object().unwrap().clone();
     // ADR P11: stored are the answers that leave no PMI behind.
-    assert_eq!(resumed, specify_core::feature_table::storable(&answers));
+    assert_eq!(resumed, specify_pmi::feature_table::storable(&answers));
     assert_eq!(
         reopened["existing"]
             .as_array()
@@ -407,7 +407,7 @@ fn conflicting_size_diagnostics_keep_limit_labels_and_fits() {
     let a = api::analyse(&plate()).unwrap();
     let answers = json!({"hole.function:holes:9":"fit:H7",
         "extra.limit":{"kind":"size","faces":[9],"value":"7.8/8.2"}});
-    let problems = specify_core::problems::problems(&a, answers.as_object().unwrap()).unwrap();
+    let problems = specify_pmi::problems::problems(&a, answers.as_object().unwrap()).unwrap();
     assert!(
         problems.iter().any(|p| p["message"]
             .as_str()

@@ -1,7 +1,7 @@
 # Assembly BOM (For #79)
 
 The STEP file is the authority for the drawing pack, assembly parts list and CSV.
-`specify-core bom assembly.step` returns a JSON array, one row per distinct geometric
+`specify-pmi bom assembly.step` returns a JSON array, one row per distinct geometric
 part definition in the loader's flat assembly parts list. Instances of the same part
 share a row. Nested assemblies are flattened, using the loader's placed leaf count.
 Part indexes select the current file's parts for `analyse --part`; they are not identities.
@@ -70,10 +70,10 @@ are JSON null. Unnumbered files are not numbered merely by reading.
 }]
 ```
 
-- Rust: `specify_core::bom::{read(&File), read_path(&Path), read_bytes(Vec<u8>)}`,
+- Rust: `specify_pmi::bom::{read(&File), read_path(&Path), read_bytes(Vec<u8>)}`,
   returning `Vec<Item>`. `Item` and `Field` support serde.
-- CLI: `specify-core bom assembly.step` (also accepts gzip through the normal loader).
-- Python: `specify_core.bom(path)` or `specify_core.api.bom(path)`.
+- CLI: `specify-pmi bom assembly.step` (also accepts gzip through the normal loader).
+- Python: `specify_pmi.bom(path)` or `specify_pmi.api.bom(path)`.
 - WASM: `JSON.parse(IntentEngine.bom(stepBytes))`. The STEP size limit also applies.
 - Assembly analysis adds `bom`, that part's row, even before writing is requested.
   This Rust-engine extension lets the editor show optional questions from current file data;
@@ -113,8 +113,8 @@ Missing values and suggestions (`source: "default"`) are `gap` rows. A recorded
 `default.<field>` marks a suggestion, and native data can still supersede it. Use
 `fill` or `accept_suggestions` on these rows. For example,
 save `{"fill":{"bom.revision":"B"},"accept_suggestions":["bom.description"]}`
-as `edits.json`, then run `specify-core write asm.step edits.json --part 0 -o out.step`.
-Use `specify-core parts asm.step` to find the index. Apply another list to the output to
+as `edits.json`, then run `specify-pmi write asm.step edits.json --part 0 -o out.step`.
+Use `specify-pmi parts asm.step` to find the index. Apply another list to the output to
 edit another part. Opening a part with WASM `IntentEngine.openPart` or selecting a part
 in Python `api.write` accepts the same list. A file without assembly structure refuses
 BOM fields with `bom_no_assembly`.

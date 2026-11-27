@@ -12,11 +12,11 @@ use std::process::Command;
 
 use haecceity::p21::Document;
 use serde_json::{Value, json};
-use specify_core::carry::{self, Outcome};
-use specify_core::characteristics::{self, Characteristic};
-use specify_core::edits;
-use specify_core::part::{File, LoadedPart, load_bytes};
-use specify_core::{api, resume, writer};
+use specify_pmi::carry::{self, Outcome};
+use specify_pmi::characteristics::{self, Characteristic};
+use specify_pmi::edits;
+use specify_pmi::part::{File, LoadedPart, load_bytes};
+use specify_pmi::{api, resume, writer};
 
 fn file(name: &str) -> File {
     File::read(&common::fixtures().join(name)).unwrap()
@@ -450,14 +450,14 @@ fn a_kind_specify_does_not_understand_is_reported_not_carried() {
     let old = file("revisions/enclosure_pmi.old.step.gz")
         .load(None)
         .unwrap();
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&old.binding).unwrap());
+    let mut intent = specify_pmi::rules::Intent::new(serde_json::to_value(&old.binding).unwrap());
     intent.requirements = vec![
         json!({"kind":"profile","faces":[0],"tolerance":0.05})
             .as_object()
             .unwrap()
             .clone(),
     ];
-    let (bytes, _) = specify_core::writer::write_bytes(&old, &intent, None).unwrap();
+    let (bytes, _) = specify_pmi::writer::write_bytes(&old, &intent, None).unwrap();
     let old = of_bytes(bytes);
     let outcome = carried(&old, &file("parts/electronics-enclosure-base.step.gz"));
     let report = &outcome.report;
@@ -702,7 +702,7 @@ fn a_carry_the_writer_refuses_writes_nothing_and_leaves_new_as_it_was() {
     std::fs::write(&old_path, old.bytes().as_ref()).unwrap();
     std::fs::write(&new_path, new.bytes().as_ref()).unwrap();
     let before = std::fs::read(&new_path).unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("carry")
         .arg(&old_path)
         .arg(&new_path)
@@ -1022,7 +1022,7 @@ fn the_command_line_writes_out_and_prints_the_report() {
     let old = dir.join("old.step");
     std::fs::write(&old, h7_holes().bytes().as_ref()).unwrap();
     let out = dir.join("out.step");
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("carry")
         .arg(&old)
         .arg(common::fixtures().join("revisions/hole_removed.new.step.gz"))
@@ -1054,7 +1054,7 @@ fn the_command_line_writes_out_and_prints_the_report() {
         "{stderr}"
     );
     assert!(printed["markdown"].as_str().unwrap().contains("## Carried"));
-    let loaded = specify_core::part::load(&out, None).unwrap();
+    let loaded = specify_pmi::part::load(&out, None).unwrap();
     assert_eq!(numbers(&loaded).len(), 3);
     numbered_requirements_are_in_output_or_reported(
         &File::read(&old).unwrap(),

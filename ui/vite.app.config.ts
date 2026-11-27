@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { SESSION_API } from './app/session-api';
 
-// The local app `specify-core open` serves (app/): a static directory, dist-app/, with relative URLs
+// The local app `specify-pmi open` serves (app/): a static directory, dist-app/, with relative URLs
 // only and nothing from another origin. The engine is not in it: the command serves its own at
 // config.wasmUrl, so the dependency's copy is aliased to a stub.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
@@ -22,7 +22,7 @@ const licences = (): Plugin => ({
   },
 });
 
-/** specify-core builds in only an app of its own version, and checks its session API (build.rs, src/open.rs). */
+/** specify-pmi builds in only an app of its own version, and checks its session API (build.rs, src/open.rs). */
 const manifest = (): Plugin => ({
   name: 'specify-app-manifest',
   apply: 'build',
@@ -56,7 +56,7 @@ export default defineConfig({
   publicDir: false,
   plugins: [react(), licences(), manifest(), noPolyhaven()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
-  resolve: { alias: { '@draftwright/specify-core-wasm': fileURLToPath(new URL('./app/no-bundled-engine.ts', import.meta.url)) } },
+  resolve: { alias: { '@draftwright/specify-pmi-wasm': fileURLToPath(new URL('./app/no-bundled-engine.ts', import.meta.url)) } },
   worker: { format: 'es' },
   build: {
     target: 'es2023', outDir: '../dist-app', emptyOutDir: true,

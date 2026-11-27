@@ -18,8 +18,8 @@ use common::{
 };
 use haecceity::geom::Surface;
 use serde_json::{Map, Value, json};
-use specify_core::mates::{contacts, contacts_with_refusals, mates};
-use specify_core::part::{LoadedPart, load_all};
+use specify_pmi::mates::{contacts, contacts_with_refusals, mates};
+use specify_pmi::part::{LoadedPart, load_all};
 
 const BASE: usize = 0;
 const COVER: usize = 1;

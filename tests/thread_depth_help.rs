@@ -2,7 +2,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, choices, rules, serve::Server};
+use specify_pmi::{api, choices, rules, serve::Server};
 
 fn string_post() -> Value {
     common::case("corpus/gramel/string_post")
@@ -133,7 +133,7 @@ fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
 #[test]
 fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_bytes() {
     use haecceity::{p21::Document, pmi, step::read_part_definitions};
-    use specify_core::{part, writer};
+    use specify_pmi::{part, writer};
     let loaded = part::load_bytes(
         "shaft.step",
         std::fs::read(common::fixtures().join("parts/GRM-02_shaft.step")).unwrap(),
@@ -169,16 +169,14 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
     let current = part::load_bytes("shaft.step", bytes.clone()).unwrap();
     assert_eq!(
         common::numbering::legacy_existing(
-            specify_core::existing::read_existing(&baseline).unwrap()
+            specify_pmi::existing::read_existing(&baseline).unwrap()
         ),
-        common::numbering::legacy_existing(
-            specify_core::existing::read_existing(&current).unwrap()
-        ),
+        common::numbering::legacy_existing(specify_pmi::existing::read_existing(&current).unwrap()),
         "quiddity-rust#137 must preserve every legacy semantic PMI field"
     );
     assert_eq!(
-        specify_core::existing::part_settings(&baseline).unwrap(),
-        specify_core::existing::part_settings(&current).unwrap()
+        specify_pmi::existing::part_settings(&baseline).unwrap(),
+        specify_pmi::existing::part_settings(&current).unwrap()
     );
     let numbered = part::load(
         &common::fixtures().join("thread-depth-numbered.step.gz"),
@@ -191,8 +189,8 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
     // view and material and #193's RP 4.1 FILE_DESCRIPTION reference and `note`/`label`
     // curve-set names are written. Keep the historical alpha.7 input and every semantic
     // readback check unchanged.
-    let without_entities = |p: &specify_core::part::LoadedPart| {
-        let mut numbers = specify_core::characteristics::read(p).unwrap();
+    let without_entities = |p: &specify_pmi::part::LoadedPart| {
+        let mut numbers = specify_pmi::characteristics::read(p).unwrap();
         for c in &mut numbers {
             c.entity = 0;
         }
@@ -200,23 +198,23 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
     };
     assert_eq!(without_entities(&current), without_entities(&numbered));
     assert_eq!(
-        specify_core::existing::read_existing(&current).unwrap(),
-        specify_core::existing::read_existing(&numbered).unwrap()
+        specify_pmi::existing::read_existing(&current).unwrap(),
+        specify_pmi::existing::read_existing(&numbered).unwrap()
     );
     assert_eq!(
-        specify_core::existing::part_settings(&current).unwrap(),
-        specify_core::existing::part_settings(&numbered).unwrap()
+        specify_pmi::existing::part_settings(&current).unwrap(),
+        specify_pmi::existing::part_settings(&numbered).unwrap()
     );
     assert!(
-        specify_core::existing::read_existing(&current)
+        specify_pmi::existing::read_existing(&current)
             .unwrap()
             .iter()
             .any(|e| e.kind == "note" && e.r#type == "internal thread" && e.faces == [15])
     );
     // ADR P11: the tap writes PMI, so it is not stored; the file states it.
     assert_eq!(
-        specify_core::resume::answers_for(&current).unwrap(),
-        Some(specify_core::feature_table::storable(&given))
+        specify_pmi::resume::answers_for(&current).unwrap(),
+        Some(specify_pmi::feature_table::storable(&given))
     );
     let text = String::from_utf8(bytes.clone()).unwrap();
     for needle in [
@@ -286,7 +284,7 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
         ),
     ] {
         let Some(path) = path else { continue };
-        let loaded = specify_core::part::load(&path, None).unwrap();
+        let loaded = specify_pmi::part::load(&path, None).unwrap();
         let a = api::analyse(&loaded).unwrap();
         let qs = rules::questions(&a, &Map::new()).unwrap();
         let q = qs
@@ -323,7 +321,7 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
             full
         );
         let (bytes, _) =
-            specify_core::writer::write_bytes(&loaded, &intent, Some(&accepted)).unwrap();
+            specify_pmi::writer::write_bytes(&loaded, &intent, Some(&accepted)).unwrap();
         let defs = read_part_definitions(&bytes).unwrap();
         let doc = Document::parse(bytes.clone()).unwrap();
         let read = pmi::read(&doc, &defs).unwrap();
@@ -341,11 +339,11 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
             panic!("a length")
         };
         assert_eq!(length.value.to_string().parse::<f64>().unwrap(), full);
-        let reopened = specify_core::part::load_bytes("edited.step", bytes).unwrap();
+        let reopened = specify_pmi::part::load_bytes("edited.step", bytes).unwrap();
         // ADR P11: the depth writes PMI (the attribute above), so it is not stored; the file
         // states it. Rule 2: the approval the planner wrote nothing for (the ⌀ of a turned
         // step on a datum's own faces) is stored, listed as such.
-        let stored = specify_core::resume::answers_for(&reopened)
+        let stored = specify_pmi::resume::answers_for(&reopened)
             .unwrap()
             .unwrap();
         let mut accepted = accepted.clone();
@@ -353,7 +351,7 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
             assert_eq!(meta["no_pmi"], json!(["diameter.fit:turned_steps:6"]));
             accepted.insert("_specify".into(), meta.clone());
         }
-        assert_eq!(stored, specify_core::feature_table::storable(&accepted));
+        assert_eq!(stored, specify_pmi::feature_table::storable(&accepted));
         let a = api::analyse(&reopened).unwrap();
         assert!(a["resume"]["answers"].get(&q.id).is_none());
         // ADR P11: the file states the edited depth, so its row is stated, not asked again.

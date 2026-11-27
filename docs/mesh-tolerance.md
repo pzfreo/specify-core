@@ -7,7 +7,7 @@ no tolerance is requested.
 
 Request a finite `max_deviation_mm` of at least 0.001, in millimetres:
 
-- CLI: `specify-core mesh part.step -o part.mesh.json --max-deviation-mm 0.05`.
+- CLI: `specify-pmi mesh part.step -o part.mesh.json --max-deviation-mm 0.05`.
 - Serve: `{"op":"analyse", "step":"part.step", "max_deviation_mm":0.05}`.
 - Python: `api.mesh(step, max_deviation_mm=0.05)` (path or loaded part).
 - WASM: `engine.snapshot(0.05)`; the argument is `max_deviation_mm`.

@@ -1,6 +1,6 @@
 // `npm pack` for publishing. In this repository the engine dependency is the in-repo WASM build
-// (file:../crates/specify-core-wasm/pkg); the published package depends on
-// @draftwright/specify-core-wasm at its own version (lockstep: one release publishes both). This
+// (file:../crates/specify-pmi-wasm/pkg); the published package depends on
+// @draftwright/specify-pmi-wasm at its own version (lockstep: one release publishes both). This
 // writes that exact version into package.json for the pack only, restores package.json, and checks
 // the tarball's package.json. Run after `npm run build` (the pack runs no scripts).
 //   node scripts/pack.mjs <destination dir>   prints the tarball's path
@@ -9,8 +9,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ENGINE = '@draftwright/specify-core-wasm';
-const LOCAL = 'file:../crates/specify-core-wasm/pkg';
+const ENGINE = '@draftwright/specify-pmi-wasm';
+const LOCAL = 'file:../crates/specify-pmi-wasm/pkg';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 export function pack(destination, root = process.cwd()) {
@@ -19,7 +19,7 @@ export function pack(destination, root = process.cwd()) {
   const pkg = JSON.parse(original);
   const spec = pkg.dependencies?.[ENGINE];
   if (spec !== LOCAL) throw new Error(`package.json depends on ${ENGINE} ${spec}, expected ${LOCAL}`);
-  const built = JSON.parse(readFileSync(resolve(root, '../crates/specify-core-wasm/pkg/package.json'), 'utf8')).version;
+  const built = JSON.parse(readFileSync(resolve(root, '../crates/specify-pmi-wasm/pkg/package.json'), 'utf8')).version;
   if (built !== pkg.version) throw new Error(`The in-repo WASM build is ${built}, the package ${pkg.version}: versions are lockstep.`);
   mkdirSync(destination, { recursive: true });
   let packed;

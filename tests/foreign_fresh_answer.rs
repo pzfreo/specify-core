@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::existing::read_existing;
-use specify_core::part::{LoadedPart, load_bytes};
+use specify_pmi::api;
+use specify_pmi::existing::read_existing;
+use specify_pmi::part::{LoadedPart, load_bytes};
 
 const HOLE: &str = "hole.position:holes:12";
 
@@ -101,7 +101,7 @@ fn assert_no_conflict(analysis: &Value) {
 
 fn dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-foreign-fresh-answer")
+        .join("specify-pmi-foreign-fresh-answer")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -109,7 +109,7 @@ fn dir(name: &str) -> PathBuf {
 }
 
 fn cli(args: &[&Path]) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();
@@ -139,7 +139,7 @@ fn cli_write(bytes: &[u8], fill: Option<&Map<String, Value>>, name: &str) -> (Lo
         let report = cli(&args);
         return (load(std::fs::read(output).unwrap()), report);
     }
-    let ran = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let ran = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(args)
         .output()
         .unwrap();
@@ -179,12 +179,12 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     let dir = dir("mcp");
     let input = dir.join("plate.step");
     std::fs::write(&input, re_authored().bytes.as_slice()).unwrap();
-    let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+    let mut server = specify_pmi::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
     let mut call = |name: &str, arguments: Value| -> Value {
         let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
             "name": name, "arguments": arguments,
             "_meta": {
-                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/protocolVersion": specify_pmi::mcp::MODERN,
                 "io.modelcontextprotocol/clientCapabilities": {}
             }
         }});

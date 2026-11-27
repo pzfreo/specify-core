@@ -1,6 +1,6 @@
 name: Release command line
 
-# The specify-core command line for Linux, macOS and Windows, attached to each release. Each
+# The specify-pmi command line for Linux, macOS and Windows, attached to each release. Each
 # binary carries the app and engine bundle.yml builds first (ADR P12). A change to this workflow,
 # bundle.yml or build.rs builds and tries all three on its pull request, without attaching anything.
 on:
@@ -59,20 +59,20 @@ jobs:
       - name: Build Linux for glibc 2.28
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         # The glibc suffix selects the link baseline, not the artifact directory/name.
-        run: cargo zigbuild --locked --release --bin specify-core --target x86_64-unknown-linux-gnu.2.28
+        run: cargo zigbuild --locked --release --bin specify-pmi --target x86_64-unknown-linux-gnu.2.28
       - if: matrix.target != 'x86_64-unknown-linux-gnu'
-        run: cargo build --locked --release --bin specify-core --target ${{ matrix.target }}
+        run: cargo build --locked --release --bin specify-pmi --target ${{ matrix.target }}
       - name: Check Linux glibc requirements
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
-          highest=$(objdump -T target/${{ matrix.target }}/release/specify-core | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -n 1)
+          highest=$(objdump -T target/${{ matrix.target }}/release/specify-pmi | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -n 1)
           echo "Highest required glibc symbol version: $highest"
           test -n "$highest"
           test "$(printf '%s\n' "$highest" GLIBC_2.28 | sort -V | tail -n 1)" = GLIBC_2.28
       - name: Try it on a revision
         # The spindle pair: the two files' PMI compared, by characteristic number, no answers.
         run: |
-          bin="target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}"
+          bin="target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}"
           fixtures=tests/fixtures/revisions
           printed=$("$bin" diff $fixtures/spindle_pmi.old.step.gz $fixtures/spindle_pmi.new.step.gz -o smoke)
           echo "$printed"
@@ -85,13 +85,13 @@ jobs:
         run: |
           gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > part.step
           py=python3; [ "${{ runner.os }}" != Windows ] || py=python
-          "$py" tools/open_smoke.py "target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}" part.step
+          "$py" tools/open_smoke.py "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" part.step
       - name: Try Linux on Amazon Linux 2023 and AlmaLinux 8
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           for image in amazonlinux:2023 almalinux:8; do
             docker run --rm -i --volume "$PWD:/work:ro" --workdir /work "$image" bash -euo pipefail -s <<'SMOKE'
-          bin=target/x86_64-unknown-linux-gnu/release/specify-core
+          bin=target/x86_64-unknown-linux-gnu/release/specify-pmi
           "$bin" --help
           fixtures=tests/fixtures/revisions
           printed=$("$bin" diff "$fixtures/spindle_pmi.old.step.gz" "$fixtures/spindle_pmi.new.step.gz" -o /tmp/smoke)
@@ -101,14 +101,27 @@ jobs:
           test ! -e /tmp/smoke/answers.json
           SMOKE
           done
+      - name: The specify-core alias notices its name
+        run: |
+          bin="target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}"
+          mkdir -p alias-check
+          alias="alias-check/specify-core${{ matrix.exe }}"
+          cp "$bin" "$alias"
+          "$alias" --help 2>&1 >/dev/null | grep -q 'removed in 0.4'
+          # Nothing extra on stdout: the same help as specify-pmi.
+          diff <("$alias" --help 2>/dev/null) <("$bin" --help)
       - name: Package and checksum
         run: |
-          name="specify-core-${RELEASE_TAG:-pr}-${{ matrix.target }}"
+          name="specify-pmi-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
-          cp "target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}" LICENSE README.md "$name/"
+          cp "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" LICENSE README.md "$name/"
+          # The old name, for all of 0.3.x: the same binary, which notices its name. A symlink in
+          # the tarball (no second copy to download); a copy in the zip.
           if [ "${{ runner.os }}" = Windows ]; then
+            cp "$name/specify-pmi.exe" "$name/specify-core.exe"
             asset="$name.zip"; 7z a -bd "dist/$asset" "$name" > /dev/null
           else
+            ln -s specify-pmi "$name/specify-core"
             asset="$name.tar.gz"; tar -czf "dist/$asset" "$name"
           fi
           cd dist
@@ -126,7 +139,7 @@ jobs:
       tag: ${{ github.event.release.tag_name }}
 
   # Only this job can write to the repository or sign, and only for a release. It attests the
-  # archives' build provenance (`gh attestation verify <archive> --repo pzfreo/specify-core`):
+  # archives' build provenance (`gh attestation verify <archive> --repo pzfreo/specify-pmi`):
   # with the app and engine inside the binary (ADR P12), that covers them too.
   attach:
     needs: [build, release-check]

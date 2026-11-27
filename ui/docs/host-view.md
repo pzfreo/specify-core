@@ -74,12 +74,12 @@ choosing view directions, so the host needs no ray-casting API beyond reporting 
   MapShapes order (`'mapshapes'`) only for solid-only parts. The check on load guards both.
 - For a solid-only part, Specify's face order is OpenCascade's `TopExp::MapShapes` order on the part's
   own solid. haecceity (Specify's reader) follows that order and is
-  tested face by face against OpenCascade (specify-core `docs/design.md`). OCCT's map is one-based, so the
+  tested face by face against OpenCascade (specify-pmi `docs/design.md`). OCCT's map is one-based, so the
   host's `MapShapes` index *n* is Specify's face *n − 1*; the adapter subtracts 1.
 - text-to-cad numbers each part's faces with `MapShapes` on the part's own shape, assembly placement removed,
   per part, reading the STEP straight into OCCT. That is the same order, so it matches by number.
 - The orders can still differ on unusual files: on one corpus file OCCT's STEP transfer reorders a shell's
-  faces while Specify keeps the file's order (specify-core `docs/questions.md` Q13). The check on load below
+  faces while Specify keeps the file's order (specify-pmi `docs/questions.md` Q13). The check on load below
   catches that. A face without an area or centroid (an unmeasured face) is left out of the sample.
 - By **STEP entity** (the general route): for each face, Specify gives the `#N` of the `ADVANCED_FACE` it was read from
   (`snapshot().provenance.face_entities`, already in the WASM engine). The adapter declares which it uses:

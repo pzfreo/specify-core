@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
-// The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
+// The local app as an agent uses it (specify-pmi docs/session.md): `specify-pmi mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
 // answer the agent gives while the page is open triggers "Updated by your agent" and enters the
 // pending bar. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
@@ -17,13 +17,13 @@ import { mcp } from './mcp-client.mjs';
 // serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
 //
-//   SPECIFY_CORE      the specify-core binary with `mcp`'s `show` (specify-core open-session).
+//   SPECIFY_PMI      the specify-pmi binary with `mcp`'s `show` (specify-pmi open-session).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent).
-//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
+//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_PMI (ADR P12) instead
 //                     of setting SPECIFY_APP_DIR=dist-app and SPECIFY_WASM_DIR.
 //   SHOTS             a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
-const cli = process.env.SPECIFY_CORE ?? 'specify-core';
+const cli = process.env.SPECIFY_PMI ?? process.env.SPECIFY_CORE ?? 'specify-pmi';
 const app = resolve('dist-app');
 const wasm = resolve(process.env.SPECIFY_WASM_DIR ?? 'public/wasm/intent');
 const shots = process.env.SHOTS;
@@ -200,7 +200,7 @@ try {
     agent.stop();
     await check(page.locator('.app-offline')).toContainText('reconnecting', { timeout: 10_000 });
     const stopped = page.locator('.app-stopped');
-    await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
+    await check(stopped).toHaveText(`Specify has stopped. Run specify-pmi open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toHaveCount(0);
     await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');
@@ -235,13 +235,16 @@ try {
       await check(picker).toHaveValue(String(part));
     };
     const pageSave = async () => {
-      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
+      // A two-part assembly save takes ~10 s of server CPU on a fast machine, more on CI runners:
+      // allow 120 s until the save path stops re-analysing each part (then lower this again).
+      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST',
+        { timeout: 120_000 });
       let saved;
       try {
         await page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 30_000 });
         saved = await response;
       } catch (error) {
-        // Say why no save was sent: the button's state, what the bar holds, and the page's own messages.
+        // Say why no save answered: the button's state, what the bar holds, and the page's own messages.
         const state = await page.evaluate(() => ({
           save: [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Save')
             .map(b => ({ disabled: b.disabled, title: b.title, aria: b.getAttribute('aria-disabled') })),
@@ -249,7 +252,7 @@ try {
           status: [...document.querySelectorAll('[role=status], [role=alert], .app-agent, .error')].map(e => e.innerText),
           ops: window.__engineOps.slice(-12),
         })).catch(e => `state unavailable: ${e}`);
-        throw new Error(`no save sent: ${error.message}\n${JSON.stringify(state, null, 1)}\nproblems: ${JSON.stringify(problems)}`);
+        throw new Error(`no save answered: ${error.message}\n${JSON.stringify(state, null, 1)}\nproblems: ${JSON.stringify(problems)}`);
       }
       assert.equal(saved.status(), 200, await saved.text());
       return saved;

@@ -1,4 +1,4 @@
-# What specify-core-rust needs from quiddity-rust
+# What specify-pmi needs from quiddity-rust
 
 quiddity-rust (quiddity and haecceity) is owned by other runs and is not modified from here.
 Each need below says what is missing, where specify-core uses it, the stand-in this crate uses
@@ -238,7 +238,7 @@ Python's read-back of every file it wrote (`tests/existing.rs`) and a live write
 with a face finish.
 
 **Met when** `pmi::read` reports these notes with their faces (for instance a `Note` on the
-aspect's feature), or specify-core-rust no longer needs to read Python-written files.
+aspect's feature), or specify-pmi no longer needs to read Python-written files.
 
 **Status (2026-10-09): met upstream, stand-in still in use** (quiddity-rust 86b11ba, pinned at
 10884b8): `pmi::read` puts each such note on the faces of the aspect written after it

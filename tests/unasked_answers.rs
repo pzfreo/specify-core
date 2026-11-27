@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::serve::Server;
+use specify_pmi::api;
+use specify_pmi::serve::Server;
 
 fn plate() -> PathBuf {
     common::fixtures().join("parts").join("plate.step")
@@ -17,7 +17,7 @@ fn plate() -> PathBuf {
 
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
-        .join("specify-core-unasked-tests")
+        .join("specify-pmi-unasked-tests")
         .join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,7 +45,7 @@ fn not_written(id: &str, why: &str) -> String {
     format!("{id} is not asked {why}, so its answer was not written")
 }
 
-fn write(answers: &Map<String, Value>, name: &str) -> specify_core::writer::WriteReport {
+fn write(answers: &Map<String, Value>, name: &str) -> specify_pmi::writer::WriteReport {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, answers, true).unwrap();
     let out = temp(name).join("out.step");
@@ -110,12 +110,12 @@ fn a_full_thread_depth_of_a_through_hole_is_listed() {
 fn a_preview_write_lists_it_and_keeps_the_answer() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let mut answers =
-        specify_core::rules::with_all_defaults(&analysis, &revised("± dimensions")).unwrap();
+        specify_pmi::rules::with_all_defaults(&analysis, &revised("± dimensions")).unwrap();
     let mut intent = api::preview(&analysis, &answers).unwrap();
     assert!(!intent.requirements.iter().any(|r| r["kind"] == "unasked"));
     intent
         .requirements
-        .extend(specify_core::rules::unasked_rows(&analysis, &answers).unwrap());
+        .extend(specify_pmi::rules::unasked_rows(&analysis, &answers).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
     let (written, report) = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
     assert!(
@@ -126,7 +126,7 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
         "{:?}",
         report.not_written
     );
-    let loaded = specify_core::part::load_bytes("out.step", written).unwrap();
+    let loaded = specify_pmi::part::load_bytes("out.step", written).unwrap();
     let resumed = api::analyse(&loaded).unwrap();
     // D11: reported above, so not stored; reopening has nothing of it to report again.
     assert!(
@@ -214,7 +214,7 @@ fn the_command_line_refuses_an_unknown_id() {
         ],
     ];
     for args in runs {
-        let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .args(&args)
             .output()
             .unwrap();
@@ -293,11 +293,11 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
         report.not_written
     );
     let analysis = api::analyse_file(&plate(), None).unwrap();
-    let complete = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
+    let complete = specify_pmi::rules::with_all_defaults(&analysis, &answers).unwrap();
     let mut intent = api::preview(&analysis, &complete).unwrap();
     intent
         .requirements
-        .extend(specify_core::rules::unasked_rows(&analysis, &complete).unwrap());
+        .extend(specify_pmi::rules::unasked_rows(&analysis, &complete).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
     let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
@@ -392,7 +392,7 @@ fn a_carry_block_survives_the_step_and_refuses_when_asked_again() {
             .any(|l| l.starts_with("datum.A.flatness was carried"))
     );
     // The stored answers hold no `_specify`, which older builds refuse; the block is beside them.
-    let stored = specify_core::resume::stored(&std::fs::read(&out).unwrap());
+    let stored = specify_pmi::resume::stored(&std::fs::read(&out).unwrap());
     let payload = Value::Object(stored[&0].clone());
     assert!(payload["answers"].get("_specify").is_none(), "{payload}");
     assert_eq!(
@@ -436,15 +436,15 @@ fn replace_stored_payload(bytes: &[u8], payload: &Value) -> Vec<u8> {
             continue;
         };
         if (name == "DESCRIPTIVE_REPRESENTATION_ITEM" || name == "COMPOUND_REPRESENTATION_ITEM")
-            && matches!(attributes.first(), Some(haecceity::p21::Attribute::String(s)) if s == specify_core::resume::NAME)
+            && matches!(attributes.first(), Some(haecceity::p21::Attribute::String(s)) if s == specify_pmi::resume::NAME)
         {
             edit.replace(
                 id,
                 haecceity::p21::simple(
                     "DESCRIPTIVE_REPRESENTATION_ITEM",
                     vec![
-                        haecceity::p21::Attribute::String(specify_core::resume::NAME.into()),
-                        haecceity::p21::Attribute::String(specify_core::resume::encode(payload)),
+                        haecceity::p21::Attribute::String(specify_pmi::resume::NAME.into()),
+                        haecceity::p21::Attribute::String(specify_pmi::resume::encode(payload)),
                     ],
                 ),
             );
@@ -465,17 +465,17 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
     // As main wrote it: the stored answers carry the unknown ID verbatim. Inject it into this
     // write's stored payload (same faces, so the same evidence).
     let raw = std::fs::read(&written).unwrap();
-    let mut payload = Value::Object(specify_core::resume::stored(&raw)[&0].clone());
+    let mut payload = Value::Object(specify_pmi::resume::stored(&raw)[&0].clone());
     payload["answers"]["bogus.question"] = json!("x");
     let bytes = replace_stored_payload(&raw, &payload);
     let out = dir.join("main.step");
     std::fs::write(&out, &bytes).unwrap();
     assert_eq!(
-        specify_core::resume::stored(&bytes)[&0]["answers"]["bogus.question"],
+        specify_pmi::resume::stored(&bytes)[&0]["answers"]["bogus.question"],
         "x"
     );
 
-    let reopened = specify_core::part::load(&out, None).unwrap();
+    let reopened = specify_pmi::part::load(&out, None).unwrap();
     let (analysis, warnings) = api::analyse_reporting(&reopened).unwrap();
     let resumed = analysis["resume"]["answers"].as_object().unwrap();
     assert!(!resumed.contains_key("bogus.question"), "{resumed:?}");
@@ -497,7 +497,7 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
     );
     api::questions(&analysis, resumed).unwrap();
     // diff OLD NEW without --answers reads the stored answers.
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("diff")
         .arg(&out)
         .arg(&out)
@@ -528,14 +528,14 @@ fn a_stored_answer_to_an_unasked_question_is_reported_once_and_not_stored_again_
     let written = write(&answers, "stored-unasked-source").output;
     // As an older build stored it: inject the unasked answer into this write's payload.
     let raw = std::fs::read(&written).unwrap();
-    let mut payload = Value::Object(specify_core::resume::stored(&raw)[&0].clone());
+    let mut payload = Value::Object(specify_pmi::resume::stored(&raw)[&0].clone());
     assert_eq!(payload["answers"]["part.locating"], "± dimensions");
     payload["answers"]["datum.A.flatness"] = json!("none");
     let bytes = replace_stored_payload(&raw, &payload);
     let older = dir.join("older.step");
     std::fs::write(&older, &bytes).unwrap();
 
-    let loaded = specify_core::part::load(&older, None).unwrap();
+    let loaded = specify_pmi::part::load(&older, None).unwrap();
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resume = &analysis["resume"];
     assert!(
@@ -573,10 +573,10 @@ fn a_stored_answer_to_an_unasked_question_is_reported_once_and_not_stored_again_
         "{:?}",
         report.not_written
     );
-    let stored = specify_core::resume::stored(&std::fs::read(&saved).unwrap());
+    let stored = specify_pmi::resume::stored(&std::fs::read(&saved).unwrap());
     assert!(stored[&0]["answers"].get("datum.A.flatness").is_none());
     let (again, warnings) =
-        api::analyse_reporting(&specify_core::part::load(&saved, None).unwrap()).unwrap();
+        api::analyse_reporting(&specify_pmi::part::load(&saved, None).unwrap()).unwrap();
     assert!(
         again["resume"].get("dropped_answers").is_none(),
         "{}",
@@ -641,7 +641,7 @@ fn an_answer_naming_nothing_the_part_has_refuses_the_whole_list_126() {
         let dir = temp("names-nothing");
         let (given, out) = (dir.join("edits.json"), dir.join("out.step"));
         std::fs::write(&given, json!({"fill": answers}).to_string()).unwrap();
-        let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
             .arg("write")
             .arg(plate())
             .arg(&given)

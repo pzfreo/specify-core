@@ -1,4 +1,4 @@
-specify-core-rust (a Rust port of specify-core)
+specify-pmi (a Rust port of specify-pmi)
 Copyright (C) 2026 Betwixt Limited (trading as Draftwright)
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use
@@ -16,7 +16,7 @@ Third-party material:
   nicoguaro and Francisco, compressed for regression tests, under CC-BY-3.0.
   Attribution, source links and the licence are in that directory.
 
-- src/specify_core/fonts/futural.jhf is the Hershey "Futura Light" single-stroke
+- src/specify_pmi/fonts/futural.jhf is the Hershey "Futura Light" single-stroke
   font in James Hurt's format, from https://github.com/kamalmostafa/hershey-fonts.
   The Hershey Fonts were originally created by Dr. A. V. Hershey while working
   at the U. S. National Bureau of Standards. The format of the Font data in this

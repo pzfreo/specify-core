@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from specify_core import api
-from specify_core.choices import SpecError, interpret
-from specify_core.existing import ExistingPmi, read_existing
-from specify_core.load import Binding, LoadedPart, load
-from specify_core.problems import problems
-from specify_core.rules import IncompleteError, Intent, Question, with_all_defaults
-from specify_core.writer import EditsRefused, WriteReport
+from specify_pmi import api
+from specify_pmi.choices import SpecError, interpret
+from specify_pmi.existing import ExistingPmi, read_existing
+from specify_pmi.load import Binding, LoadedPart, load
+from specify_pmi.problems import problems
+from specify_pmi.rules import IncompleteError, Intent, Question, with_all_defaults
+from specify_pmi.writer import EditsRefused, WriteReport
 
 from p11 import leaves_nothing, stated, storable
 from written import write_answers
@@ -30,7 +30,7 @@ def _script(name):
 
 
 def test_the_package_needs_no_python_dependency():
-    import specify_core._native as native
+    import specify_pmi._native as native
 
     assert native.ANALYSIS_SCHEMA == 1
     assert not any(m in sys.modules for m in ("quiddity", "build123d", "OCP"))
@@ -52,7 +52,7 @@ def test_an_assembly_is_listed_and_a_part_must_be_chosen(assembly):
     assert load(assembly, part=1).binding.part == 1
 
 
-def test_questions_apply_and_preview_return_specify_cores_types(plate):
+def test_questions_apply_and_preview_return_specify_pmi_types(plate):
     analysis = api.analyse(plate)
     qs = api.questions(analysis, {})
     assert qs and all(isinstance(q, Question) for q in qs)
@@ -167,7 +167,7 @@ def test_problems_state_each_sealed_interior_void():
 
 def test_the_console_script_lists_the_parts(plate):
     done = subprocess.run(
-        [_script("specify-core"), "parts", str(plate)], capture_output=True, text=True
+        [_script("specify-pmi"), "parts", str(plate)], capture_output=True, text=True
     )
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout)[0]["faces"] == 14
@@ -175,7 +175,7 @@ def test_the_console_script_lists_the_parts(plate):
 
 def test_serve_answers_over_the_pipe():
     done = subprocess.run(
-        [_script("specify-core"), "serve"],
+        [_script("specify-pmi"), "serve"],
         input='{"id": 1, "op": "hello"}\n[]\n',
         capture_output=True,
         text=True,
@@ -188,13 +188,13 @@ def test_serve_answers_over_the_pipe():
 
 
 def test_serve_reply_answers_in_process():
-    from specify_core.serve import reply
+    from specify_pmi.serve import reply
 
     assert reply({"id": 2, "op": "hello"})["result"] == {"protocol": 1}
 
 
 def test_cli_main_returns_the_exit_code(capsys):
-    from specify_core.cli import main
+    from specify_pmi.cli import main
 
     assert main(["parts", "/no/such/file.step"]) == 1
     assert "error:" in capsys.readouterr().err
@@ -204,10 +204,10 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     import importlib.resources
     import json
     import re
-    import specify_core
-    from specify_core import api
+    import specify_pmi
+    from specify_pmi import api
 
-    scene = specify_core.pmi_scene(plate, {
+    scene = specify_pmi.pmi_scene(plate, {
         "part.general_tolerance": "ISO 2768-m",
         "hole.function:holes:9": "fit:H7",
         "part.surface_finish": "Ra 3.2",
@@ -242,7 +242,7 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
         assert dimensions and all(row["identifier"] == identifier for row in dimensions)
         assert len({row["id"] for row in dimensions}) == len(dimensions)
         readbacks.append(recovered)
-    root = importlib.resources.files("specify_core").joinpath("schema")
+    root = importlib.resources.files("specify_pmi").joinpath("schema")
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
         assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
@@ -258,14 +258,14 @@ def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
     import gzip
     import importlib.resources
     from jsonschema import Draft202012Validator
-    from specify_core import api
+    from specify_pmi import api
 
     path = Path(__file__).parent.parent / "fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz"
     scene = api.pmi_scene(gzip.decompress(path.read_bytes()), part=0)
     analysis = api.analyse(path, part=0)
     face = next(face["id"] for face in analysis["faces"] if face["kind"] == "plane")
     merged = api.pmi_scene(path, {"extra.1": {"kind": "flatness", "faces": [face], "value": "0.05"}}, part=0)
-    root = importlib.resources.files("specify_core").joinpath("schema")
+    root = importlib.resources.files("specify_pmi").joinpath("schema")
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
         Draft202012Validator(schema).validate(scene[name])
@@ -292,7 +292,7 @@ def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
     {"datum.A": [999999]},
 ])
 def test_pmi_scene_rejects_malformed_answers(plate, answers):
-    from specify_core import api
+    from specify_pmi import api
 
     with pytest.raises(ValueError, match="Invalid answers"):
         api.pmi_scene(plate, answers)
@@ -301,7 +301,7 @@ def test_pmi_scene_rejects_malformed_answers(plate, answers):
 
 
 def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
-    from specify_core import api
+    from specify_pmi import api
 
     old = tmp_path / "old.step"
     new = tmp_path / "new.step"
@@ -321,8 +321,8 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
 
 
 def test_bom_read_api_and_cli_agree_on_file_sources(assembly):
-    from specify_core import bom
-    from specify_core import _native
+    from specify_pmi import bom
+    from specify_pmi import _native
     import json
 
     rows = bom(assembly)
@@ -333,7 +333,7 @@ def test_bom_read_api_and_cli_agree_on_file_sources(assembly):
 
 
 def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
-    from specify_core import bom
+    from specify_pmi import bom
     analysis = api.analyse(assembly, part=0)
     questions = [q for q in api.questions(analysis, {}) if q.id.startswith("bom.")]
     assert questions and all(q.optional and q.default is None for q in questions)
@@ -461,3 +461,15 @@ def test_dropped_carry_cannot_default(tmp_path):
         api.apply(analysis, carried, accept_defaults=True)
     carried["datum.A"] = [4, 8]
     write_answers(new, carried, tmp_path / "resolved.step", accept_defaults=True)
+
+
+def test_specify_core_alias_script_prints_a_notice_on_stderr_only():
+    import shutil
+
+    new, old = shutil.which("specify-pmi"), shutil.which("specify-core")
+    if not (new and old):
+        pytest.skip("the console scripts are not installed")
+    a = subprocess.run([new, "--help"], capture_output=True, text=True)
+    b = subprocess.run([old, "--help"], capture_output=True, text=True)
+    assert b.returncode == 0 and b.stdout == a.stdout
+    assert b.stderr == "specify-core is now specify-pmi; this alias will be removed in 0.4\n"

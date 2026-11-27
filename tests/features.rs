@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 use common::{Case, Difference, Tolerances, cases, check_known, compare, corpus_dir, is_error};
 use serde_json::{Value, json};
-use specify_core::features::{self, Feature};
-use specify_core::part::{self, LoadedPart};
+use specify_pmi::features::{self, Feature};
+use specify_pmi::part::{self, LoadedPart};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -252,7 +252,7 @@ fn refusals_are_not_question_targets() {
         );
         let analysis =
             json!({"faces": features::describe_faces(&loaded).unwrap(), "features": features});
-        let questions = specify_core::rules::questions(&analysis, &Default::default()).unwrap();
+        let questions = specify_pmi::rules::questions(&analysis, &Default::default()).unwrap();
         assert!(
             questions
                 .iter()

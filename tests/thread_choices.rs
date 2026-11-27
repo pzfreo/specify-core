@@ -14,11 +14,11 @@ use haecceity::p21::Document;
 use haecceity::pmi;
 use haecceity::step::read_part_definitions;
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::choices;
-use specify_core::part::load;
-use specify_core::rules::{Question, apply_with_defaults, questions};
-use specify_core::standards;
+use specify_pmi::api;
+use specify_pmi::choices;
+use specify_pmi::part::load;
+use specify_pmi::rules::{Question, apply_with_defaults, questions};
+use specify_pmi::standards;
 
 fn spindle() -> PathBuf {
     common::fixtures().join("spindle.step")
@@ -67,7 +67,7 @@ fn written_threads(analysis: &Value, qid: &str, answer: &str, name: &str) -> Vec
     given.insert(qid.into(), json!(answer));
     let intent = apply_with_defaults(analysis, &given, true).expect("an intent");
     let dir = std::env::temp_dir()
-        .join("specify-core-thread-choices")
+        .join("specify-pmi-thread-choices")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join(format!("{name}.step"));

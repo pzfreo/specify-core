@@ -1,9 +1,9 @@
-//! `specify-core open` (src/open.rs, src/session.rs, docs/open.md): the local Specify app,
+//! `specify-pmi open` (src/open.rs, src/session.rs, docs/open.md): the local Specify app,
 //! against the built binary on a real loopback port with a stub app and engine, and
 //! `--no-browser` so no browser opens. The app, engine, file and config are served under the
 //! token at exactly `Host: 127.0.0.1:<port>`; the session's answers are read and streamed;
 //! saves come only from the app's own origin, apply the page's edit list to the file all or
-//! nothing (as `specify-core write STEP EDITS.json`), and never overwrite (unless
+//! nothing (as `specify-pmi write STEP EDITS.json`), and never overwrite (unless
 //! `--in-place`, which keeps a `.bak`); `closed` stops the server.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
-use specify_core::open::{self, App, Assets, Options};
-use specify_core::session::{Opened as OpenedFile, Session};
+use specify_pmi::open::{self, App, Assets, Options};
+use specify_pmi::session::{Opened as OpenedFile, Session};
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/thread-depth-alpha7.step.gz")
@@ -52,7 +52,7 @@ struct Scratch {
 impl Scratch {
     fn new(test: &str) -> Scratch {
         let root =
-            std::env::temp_dir().join(format!("specify-core-open-{test}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("specify-pmi-open-{test}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for dir in ["app/assets", "pkg", "work"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
@@ -66,8 +66,8 @@ impl Scratch {
         for ext in ["ico", "jpg", "jpeg", "webp", "woff", "ttf", "map", "woff2"] {
             write(&format!("app/assets/a.{ext}"), ext.as_bytes());
         }
-        write("pkg/specify_core_wasm.js", b"export default 1;");
-        write("pkg/specify_core_wasm_bg.wasm", b"\0asm\x01\0\0\0");
+        write("pkg/specify_pmi_wasm.js", b"export default 1;");
+        write("pkg/specify_pmi_wasm_bg.wasm", b"\0asm\x01\0\0\0");
         write("secret.txt", b"secret");
         std::fs::write(root.join("work/part.step"), step_text()).unwrap();
         Scratch { root, given }
@@ -102,9 +102,9 @@ impl Drop for Scratch {
     }
 }
 
-/// `specify-core open <inputs> --no-browser` with the scratch app and engine.
+/// `specify-pmi open <inputs> --no-browser` with the scratch app and engine.
 fn command(inputs: &[&Path], scratch: &Scratch, extra: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
     c.arg("open");
     if let [old, new] = inputs {
         c.arg("--diff").arg(old).arg(new);
@@ -122,7 +122,7 @@ fn command(inputs: &[&Path], scratch: &Scratch, extra: &[&str]) -> Command {
     c
 }
 
-/// A running `specify-core open ... --no-browser`, killed if a test fails before it exits.
+/// A running `specify-pmi open ... --no-browser`, killed if a test fails before it exits.
 struct Opened {
     child: Child,
     stdout: BufReader<ChildStdout>,
@@ -476,7 +476,7 @@ type Refused<'a> = (&'a str, String, Vec<(&'a str, &'a str)>, u16);
 /// A refused save: what it is, its headers, its body and the status it gets.
 type RefusedSave<'a> = (&'a str, Vec<(&'a str, &'a str)>, Vec<u8>, u16);
 
-/// A session of the scratch input, as `specify-core open` makes it.
+/// A session of the scratch input, as `specify-pmi open` makes it.
 fn session_of(path: &Path) -> Arc<Mutex<Session>> {
     let session = Session::open(OpenedFile::read(path).unwrap(), false).unwrap();
     Arc::new(Mutex::new(session))
@@ -582,7 +582,7 @@ impl Served {
 
 /// `analyse`'s JSON of `path` (part 0).
 fn analysis_of(path: &Path) -> Value {
-    specify_core::api::analyse_file(path, None).unwrap()
+    specify_pmi::api::analyse_file(path, None).unwrap()
 }
 
 /// How many times `needle` occurs in the STEP text of `path` (gzipped or not).
@@ -641,12 +641,12 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
             b"export {};",
         ),
         (
-            "wasm/specify_core_wasm.js",
+            "wasm/specify_pmi_wasm.js",
             "text/javascript; charset=utf-8",
             b"export default 1;",
         ),
         (
-            "wasm/specify_core_wasm_bg.wasm",
+            "wasm/specify_pmi_wasm_bg.wasm",
             "application/wasm",
             b"\0asm\x01\0\0\0",
         ),
@@ -699,7 +699,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     assert_eq!(config["oldName"], Value::Null);
     assert_eq!(config["oldPath"], Value::Null);
     assert_eq!(config["readOnly"], false);
-    assert_eq!(config["wasmUrl"], "wasm/specify_core_wasm.js");
+    assert_eq!(config["wasmUrl"], "wasm/specify_pmi_wasm.js");
     assert_eq!(config["specifyCore"], env!("CARGO_PKG_VERSION"));
     assert_eq!(
         config["saveTarget"],
@@ -1342,7 +1342,7 @@ fn rev_saved_follows_a_save_from_the_agent() {
     let page = Page { port, prefix };
     assert_eq!(page.get("file?rev=saved").status, 404);
     let saved =
-        specify_core::session::save_edits(&session, None, &Default::default(), "mcp").unwrap();
+        specify_pmi::session::save_edits(&session, None, &Default::default(), "mcp").unwrap();
     let written = scratch.path("work/part.specified.step");
     assert_eq!(saved.path, written.display().to_string());
     let got = page.get("file?rev=saved");
@@ -1417,7 +1417,7 @@ fn answers_are_read_and_streamed_with_each_save() {
     assert!(fifth.json()["error"].is_string());
 }
 
-/// A save writes what `specify-core write STEP EDITS.json` writes for the same edit list.
+/// A save writes what `specify-pmi write STEP EDITS.json` writes for the same edit list.
 #[test]
 fn a_save_writes_what_write_writes_for_the_same_list() {
     let scratch = Scratch::new("as-write");
@@ -1443,7 +1443,7 @@ fn a_save_writes_what_write_writes_for_the_same_list() {
     let edits = scratch.path("edits.json");
     let out = scratch.path("written.step");
     std::fs::write(&edits, list.to_string()).unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("write")
         .arg(scratch.input())
         .arg(&edits)
@@ -1716,7 +1716,7 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
     );
 }
 
-/// `open --diff OLD NEW`: the comparison `specify-core diff` makes, OLD and NEW served, and
+/// `open --diff OLD NEW`: the comparison `specify-pmi diff` makes, OLD and NEW served, and
 /// the session NEW's own, as `open NEW` starts it: nothing is carried (ADR P11).
 #[test]
 fn a_diff_serves_both_files_and_starts_from_the_new_file() {
@@ -1727,9 +1727,9 @@ fn a_diff_serves_both_files_and_starts_from_the_new_file() {
     std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
     let opened = Opened::diff(&old, &new, &scratch, &[]);
 
-    // What `specify-core diff` writes for the same pair.
+    // What `specify-pmi diff` writes for the same pair.
     let dir = scratch.path("diffed");
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("diff")
         .args([&old, &new])
         .arg("-o")
@@ -1971,7 +1971,7 @@ fn bad_arguments_and_names_that_are_not_step_are_refused_up_front() {
     }
 
     // The environment names the app as well as --app does.
-    let mut from_env = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let mut from_env = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .arg("open")
         .arg(scratch.input())
         .arg("--no-browser")
@@ -2016,7 +2016,7 @@ fn bad_arguments_and_names_that_are_not_step_are_refused_up_front() {
             .starts_with("error: ")
     );
 
-    let help = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+    let help = Command::new(env!("CARGO_BIN_EXE_specify-pmi"))
         .args(["open", "-h"])
         .output()
         .unwrap();
@@ -2046,7 +2046,7 @@ fn built_in(rel: &str) -> Vec<u8> {
 
 /// `open` with no `--app` or `--wasm` overrides, no user cache and no way to the network.
 fn offline_command(scratch: &Scratch, extra: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_specify-pmi"));
     let home = scratch.path("home");
     std::fs::create_dir_all(&home).unwrap();
     c.arg("open")
@@ -2107,14 +2107,14 @@ fn open_serves_the_built_in_app_and_engine_with_nothing_downloaded() {
             "app/specify-ui-app.json",
         ),
         (
-            "wasm/specify_core_wasm.js",
+            "wasm/specify_pmi_wasm.js",
             "text/javascript; charset=utf-8",
-            "wasm/specify_core_wasm.js",
+            "wasm/specify_pmi_wasm.js",
         ),
         (
-            "wasm/specify_core_wasm_bg.wasm",
+            "wasm/specify_pmi_wasm_bg.wasm",
             "application/wasm",
-            "wasm/specify_core_wasm_bg.wasm",
+            "wasm/specify_pmi_wasm_bg.wasm",
         ),
         // Percent-encoded segments name the same file.
         (
@@ -2147,7 +2147,7 @@ fn open_serves_the_built_in_app_and_engine_with_nothing_downloaded() {
     }
 
     let config = opened.config();
-    assert_eq!(config["wasmUrl"], "wasm/specify_core_wasm.js");
+    assert_eq!(config["wasmUrl"], "wasm/specify_pmi_wasm.js");
     assert_eq!(config["api"], open::API_VERSION);
     assert_eq!(config["readOnly"], true);
     // Nothing was written outside the scratch input's directory.
@@ -2174,9 +2174,9 @@ fn app_and_wasm_override_the_built_in_ones() {
         b"<!doctype html><title>stub app</title>"
     );
     assert_eq!(opened.get("assets/main.js").status, 404);
-    let engine = opened.get("wasm/specify_core_wasm.js");
+    let engine = opened.get("wasm/specify_pmi_wasm.js");
     assert_eq!(engine.status, 200);
-    assert_eq!(engine.body, built_in("wasm/specify_core_wasm.js"));
+    assert_eq!(engine.body, built_in("wasm/specify_pmi_wasm.js"));
     drop(opened);
 
     let opened = Opened::from_command(
@@ -2188,16 +2188,16 @@ fn app_and_wasm_override_the_built_in_ones() {
         b"<!doctype html><title>stub app</title>"
     );
     assert_eq!(
-        opened.get("wasm/specify_core_wasm.js").body,
+        opened.get("wasm/specify_pmi_wasm.js").body,
         b"export default 1;"
     );
     drop(opened);
 
     // An app's own wasm/ directory is its engine.
     std::fs::create_dir(scratch.path("app/wasm")).unwrap();
-    std::fs::write(scratch.path("app/wasm/specify_core_wasm.js"), b"own").unwrap();
+    std::fs::write(scratch.path("app/wasm/specify_pmi_wasm.js"), b"own").unwrap();
     let opened = Opened::from_command(&scratch.input(), offline_command(&scratch, &["--app", app]));
-    assert_eq!(opened.get("wasm/specify_core_wasm.js").body, b"own");
+    assert_eq!(opened.get("wasm/specify_pmi_wasm.js").body, b"own");
     drop(opened);
 
     // --wasm alone: the built-in app on that engine.
@@ -2207,7 +2207,7 @@ fn app_and_wasm_override_the_built_in_ones() {
     );
     assert_eq!(opened.get("").body, built_in("app/index.html"));
     assert_eq!(
-        opened.get("wasm/specify_core_wasm.js").body,
+        opened.get("wasm/specify_pmi_wasm.js").body,
         b"export default 1;"
     );
     drop(opened);
@@ -2244,7 +2244,7 @@ fn an_app_of_another_session_api_is_refused() {
     assert!(stderr.starts_with("cannot open: "), "{stderr}");
     assert!(
         stderr.contains(&format!(
-            "this app speaks session API {}, specify-core {} speaks {}",
+            "this app speaks session API {}, specify-pmi {} speaks {}",
             open::API_VERSION + 1,
             env!("CARGO_PKG_VERSION"),
             open::API_VERSION
@@ -2346,7 +2346,7 @@ fn a_stream_too_far_behind_is_dropped_and_the_others_carry_on() {
         (s.subscribe(), s.subscribe())
     };
     assert!(reading.try_recv().is_ok(), "the start event");
-    let limit = specify_core::session::MAX_BEHIND;
+    let limit = specify_pmi::session::MAX_BEHIND;
     for i in 0..=limit {
         let material = if i % 2 == 0 { "6061-T6" } else { "6082-T6" };
         let answers: Map<String, Value> =
@@ -2420,16 +2420,16 @@ fn a_part_with_only_metadata_answers_keeps_its_pmi() {
     let scratch = Scratch::new("metadata-only");
     let plate = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
     let analysis = analysis_of(&plate);
-    let loaded = specify_core::part::load(&plate, None).unwrap();
+    let loaded = specify_pmi::part::load(&plate, None).unwrap();
     let given: Map<String, Value> =
         serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
     // Only the metadata, as a boolean-era save with every default taken stores it.
     let mut stored = Map::new();
-    specify_core::answer_file::attach(&loaded, &mut stored, &given, std::iter::empty()).unwrap();
+    specify_pmi::answer_file::attach(&loaded, &mut stored, &given, std::iter::empty()).unwrap();
     assert!(!stored.is_empty());
-    let intent = specify_core::api::apply(&analysis, &given, true).unwrap();
+    let intent = specify_pmi::api::apply(&analysis, &given, true).unwrap();
     let old = scratch.path("work/old.step");
-    specify_core::api::write_file(&plate, &intent, &old, Some(&stored)).unwrap();
+    specify_pmi::api::write_file(&plate, &intent, &old, Some(&stored)).unwrap();
     let before = pmi_counts(&old);
     assert!(
         before.iter().sum::<usize>() > 0,
@@ -2447,7 +2447,7 @@ fn a_part_with_only_metadata_answers_keeps_its_pmi() {
     );
 
     let shared = session_of(&old);
-    let saved = specify_core::session::save_edits(&shared, None, &Default::default(), "page")
+    let saved = specify_pmi::session::save_edits(&shared, None, &Default::default(), "page")
         .unwrap_or_else(|e| panic!("{e}"));
     let path = PathBuf::from(&saved.path);
     assert_eq!(pmi_counts(&path), before, "nothing dropped");
@@ -2532,8 +2532,8 @@ fn a_no_change_save_leaves_the_file_byte_identical() {
 
 /// Sets part 0's answers, as an agent's `answer` would, between a save's applying its list and
 /// its writing the file.
-fn answered_meanwhile(shared: &specify_core::session::Shared) {
-    let mut s = specify_core::session::lock(shared);
+fn answered_meanwhile(shared: &specify_pmi::session::Shared) {
+    let mut s = specify_pmi::session::lock(shared);
     let mut answers = s.answers(0).cloned().unwrap_or_default();
     answers.insert("part.heat_treatment".into(), json!("None"));
     s.set(0, answers, "mcp");
@@ -2545,21 +2545,21 @@ fn answered_meanwhile(shared: &specify_core::session::Shared) {
 fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     let scratch = Scratch::new("changed-meanwhile");
     let shared = session_of(&scratch.input());
-    specify_core::session::lock(&shared).between_locks = Some(answered_meanwhile);
-    let list = specify_core::edits::parse_value(decide_coating()).unwrap();
-    let refused = specify_core::session::save_edits(&shared, None, &list, "mcp");
+    specify_pmi::session::lock(&shared).between_locks = Some(answered_meanwhile);
+    let list = specify_pmi::edits::parse_value(decide_coating()).unwrap();
+    let refused = specify_pmi::session::save_edits(&shared, None, &list, "mcp");
     assert!(
-        matches!(refused, Err(specify_core::session::SaveError::Stale(1))),
+        matches!(refused, Err(specify_pmi::session::SaveError::Stale(1))),
         "{refused:?}"
     );
     assert_eq!(scratch.work(), ["part.step"], "nothing written");
-    let s = specify_core::session::lock(&shared);
+    let s = specify_pmi::session::lock(&shared);
     assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }
 
 /// Exercise the old gap after the final check. Try the same lock MCP takes to publish an
 /// answer. On the old commit path the answer can enter here and the save erases it.
-fn answer_at_commit(shared: &specify_core::session::Shared) {
+fn answer_at_commit(shared: &specify_pmi::session::Shared) {
     match shared.try_lock() {
         Err(std::sync::TryLockError::WouldBlock) => {}
         Ok(mut session) => {
@@ -2578,14 +2578,14 @@ fn an_answer_cannot_enter_after_the_final_revision_check() {
     let shared = Arc::new(Mutex::new(
         Session::open(OpenedFile::read(&file).unwrap(), true).unwrap(),
     ));
-    specify_core::session::lock(&shared).commit_boundary = Some(answer_at_commit);
-    let list = specify_core::edits::parse_value(decide_coating()).unwrap();
-    let saved = specify_core::session::save_edits(&shared, Some(0), &list, "page").unwrap();
+    specify_pmi::session::lock(&shared).commit_boundary = Some(answer_at_commit);
+    let list = specify_pmi::edits::parse_value(decide_coating()).unwrap();
+    let saved = specify_pmi::session::save_edits(&shared, Some(0), &list, "page").unwrap();
     assert_eq!(saved.rev, 1, "an answer slipped in after the final check");
     assert!(scratch.path("work/part.step.bak").exists());
     // A real update immediately after publication can take the lock and remains in the session.
     answer_at_commit(&shared);
-    let s = specify_core::session::lock(&shared);
+    let s = specify_pmi::session::lock(&shared);
     assert_eq!(s.rev(), 2);
     assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }
@@ -2615,7 +2615,7 @@ fn save_edits_commits_general_measurements_at_the_requested_revision() {
     let saved = saved.json();
     assert_eq!(saved["rev"], 1);
     let path = Path::new(saved["path"].as_str().unwrap());
-    let after = specify_core::api::analyse_file(path, None).unwrap();
+    let after = specify_pmi::api::analyse_file(path, None).unwrap();
     let state = |id| {
         after["table"]["rows"]
             .as_array()
@@ -2640,7 +2640,7 @@ fn page_saves_part_lists_as_one_assembly_revision() {
     std::fs::write(&input, before).unwrap();
     let opened = Opened::start(&input, &scratch, &["--in-place"]);
     let page = opened.page();
-    let parts = specify_core::part::parts(&input).unwrap();
+    let parts = specify_pmi::part::parts(&input).unwrap();
     let rev = page.rev();
     let plate = json!({"part": 0, "edits": {"fill": {"part.material": "Steel"}}});
     let pin = json!({"part": 1, "edits": {"fill": {"part.material": "Brass"}}});
@@ -2684,7 +2684,7 @@ fn page_saves_part_lists_as_one_assembly_revision() {
     assert_eq!(saved["report"]["unchanged"], false);
     assert_eq!(saved["report"]["parts"][1]["name"], parts[1].name);
     for (part, material) in [(0, "Steel"), (1, "Brass")] {
-        let analysis = specify_core::api::analyse_file(&input, Some(part)).unwrap();
+        let analysis = specify_pmi::api::analyse_file(&input, Some(part)).unwrap();
         let rows = analysis["table"]["rows"].as_array().unwrap();
         let row = rows
             .iter()
@@ -2751,7 +2751,7 @@ fn simultaneous_page_saves_at_one_revision_have_one_winner() {
             vec![Some(0), Some(1)]
         };
         for part in selection {
-            let data = specify_core::api::analyse_file(&input, part).unwrap();
+            let data = specify_pmi::api::analyse_file(&input, part).unwrap();
             let coating = data["table"]["rows"]
                 .as_array()
                 .unwrap()
@@ -2763,7 +2763,7 @@ fn simultaneous_page_saves_at_one_revision_have_one_winner() {
     }
 }
 
-/// `specify-core open` without a file starts empty, validates uploads on `POST <token>/open` with
+/// `specify-pmi open` without a file starts empty, validates uploads on `POST <token>/open` with
 /// the same token/Host/Origin security and size limit, then serves and saves into the command's
 /// working directory.
 #[test]
@@ -2785,7 +2785,7 @@ fn open_without_file_accepts_upload_and_saves_to_working_directory() {
 
     // App and WASM serve normally while empty.
     assert_eq!(opened.get("").status, 200);
-    assert_eq!(opened.get("wasm/specify_core_wasm.js").status, 200);
+    assert_eq!(opened.get("wasm/specify_pmi_wasm.js").status, 200);
 
     // Config has the same 12 keys, with null file/path/saveTarget before upload.
     let config = opened.config();
@@ -2796,7 +2796,7 @@ fn open_without_file_accepts_upload_and_saves_to_working_directory() {
     assert_eq!(config["saveTarget"], Value::Null);
     assert_eq!(config["savedPath"], Value::Null);
     assert_eq!(config["readOnly"], false);
-    assert_eq!(config["wasmUrl"], "wasm/specify_core_wasm.js");
+    assert_eq!(config["wasmUrl"], "wasm/specify_pmi_wasm.js");
 
     // File, answers, events are 404 and save/discard are 409 before a file is uploaded.
     assert_eq!(opened.get("file").status, 404);

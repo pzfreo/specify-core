@@ -1,7 +1,7 @@
 //! Consumer regressions for quiddity #123 and #127; the recognition schema stays 6.
 mod common;
 use serde_json::{Map, json};
-use specify_core::{api, features, part, resume, revision, rules, writer};
+use specify_pmi::{api, features, part, resume, revision, rules, writer};
 use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
@@ -75,7 +75,7 @@ fn body_and_face_grooves_are_listed_without_duplicate_questions_or_intent() {
         // ADR P11: stored are the answers that leave no PMI behind.
         assert_eq!(
             resume::answers_for(&back).unwrap(),
-            Some(specify_core::feature_table::storable(&answers))
+            Some(specify_pmi::feature_table::storable(&answers))
         );
         let diff = revision::diff(&loaded, &loaded).unwrap();
         assert!(diff.features.is_empty(), "{name}: {:?}", diff.features);
@@ -312,7 +312,7 @@ fn profiles_and_inside_rounds_keep_material_side_and_plain_descriptions() {
     )
     .unwrap();
     let imported = part::load_bytes("radius.step", doc.apply(&edit).unwrap().bytes).unwrap();
-    let existing = specify_core::existing::read_existing(&imported).unwrap();
+    let existing = specify_pmi::existing::read_existing(&imported).unwrap();
     for (i, kind) in [(cylinder, "Size_Radius"), (caps[0], "Size_SphericalRadius")] {
         assert!(
             existing

@@ -1,4 +1,4 @@
-// The review panel's reading of the engine's feature table (specify-core docs/answers.md, "Reopening
+// The review panel's reading of the engine's feature table (specify-pmi docs/answers.md, "Reopening
 // a file"; ADR P11): `analysis.table`, `{rows, file_pmi, decided_none}`. Everything the panel knows of
 // the payload's shape is here, so a change to the payload is a change to this file only.
 //

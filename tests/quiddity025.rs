@@ -2,7 +2,7 @@
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, existing, features, part, resume, revision, rules, writer};
+use specify_pmi::{api, existing, features, part, resume, revision, rules, writer};
 use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
@@ -67,7 +67,7 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
         );
         // ADR P11: of the answers a v0.2.4 file stores, only those that leave no PMI resume;
         // the rest the file states.
-        let stored = specify_core::feature_table::storable(answers);
+        let stored = specify_pmi::feature_table::storable(answers);
         let mut a = api::analyse(&loaded).unwrap();
         assert_eq!(a["resume"]["answers"], json!(stored));
         let migrated: Vec<_> = base["answers"]

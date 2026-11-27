@@ -554,7 +554,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
     assert!(
         !std::str::from_utf8(&written)
             .unwrap()
-            .contains("specify-core:depth axis point")
+            .contains("specify-pmi:depth axis point")
     );
     assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     assert!(

@@ -22,7 +22,7 @@ REQUIRED_TAG = "v0.5.6"
 
 
 def api(path):
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "specify-core-quiddity-pin-check"}
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "specify-pmi-quiddity-pin-check"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -63,7 +63,7 @@ def pins(manifest, sources=(KERNEL,)):
     return result
 
 
-def check_wasm_pin(local, manifest=ROOT / "crates/specify-core-wasm/Cargo.toml"):
+def check_wasm_pin(local, manifest=ROOT / "crates/specify-pmi-wasm/Cargo.toml"):
     """The WASM kernel must follow the root source and exact tag or revision pin."""
     dependency = tomllib.loads(manifest.read_text())["dependencies"]["haecceity"]
     kind, value = local["haecceity"]
@@ -113,7 +113,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "Cargo.toml")
     parser.add_argument("--release", help="on mismatch append a Kernel note to this Specify release with gh release edit")
-    parser.add_argument("--repository", default=os.environ.get("GH_REPO", "pzfreo/specify-core"))
+    parser.add_argument("--repository", default=os.environ.get("GH_REPO", "pzfreo/specify-pmi"))
     args = parser.parse_args()
     try:
         local = pins(tomllib.loads(args.manifest.read_text()))
@@ -124,13 +124,13 @@ def main():
         tag = latest_release(SIBLING)
         contents = api(f"{SIBLING}/contents/Cargo.toml?ref={urllib.parse.quote(tag, safe='')}")
         sibling = pins(tomllib.loads(base64.b64decode(contents["content"]).decode()), (KERNEL, FORMER_KERNEL))
-        print(f"specify-core-rust: {describe(local)}")
+        print(f"specify-pmi: {describe(local)}")
         print(f"{SIBLING}@{tag}: {describe(sibling)}")
         matches, resolved = compare(local, sibling)
         if matches:
             print(f"Quiddity pins match: {next(iter(resolved.values()))} (haecceity and quiddity in both packages).")
         else:
-            note = f"Kernel note: specify-core-rust uses {describe(local)}; {SIBLING}@{tag} uses {describe(sibling)}. Different kernels may number STEP faces differently."
+            note = f"Kernel note: specify-pmi uses {describe(local)}; {SIBLING}@{tag} uses {describe(sibling)}. Different kernels may number STEP faces differently."
             warning(note)
             if args.release:
                 append_note(args.release, args.repository, note)

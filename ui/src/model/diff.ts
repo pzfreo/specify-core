@@ -177,7 +177,7 @@ const handed = (file: unknown): Handed | null => {
 };
 
 /**
- * The STEP file `?open=` names, if it is one this computer serves (`specify-core open`,
+ * The STEP file `?open=` names, if it is one this computer serves (`specify-pmi open`,
  * scripts/dw-open.mjs): http on 127.0.0.1 or localhost, at /<32 hex>/<name>, named .step or .stp
  * (or either gzipped), with no query. Nothing elsewhere is fetched this way, so a link can't make the editor fetch a file
  * from a site, only from the computer it runs on.

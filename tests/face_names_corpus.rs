@@ -1,7 +1,7 @@
 //! #87 round 1: the 20 named generic-label corpus parts retain pre-name behavior.
 mod common;
 use serde_json::{Map, Value, json};
-use specify_core::{api, features, part, resume, writer};
+use specify_pmi::{api, features, part, resume, writer};
 use std::collections::BTreeSet;
 
 type Snapshot = (Value, Value, Value, Vec<u8>, Value, Value);

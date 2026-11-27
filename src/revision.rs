@@ -1256,7 +1256,7 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
     (what, at)
 }
 
-/// What `specify-core diff OLD NEW [--part K]` compares, with the parts it loaded (for its
+/// What `specify-pmi diff OLD NEW [--part K]` compares, with the parts it loaded (for its
 /// picture): one part of each file, or, with no part chosen and a file of several parts (or of a
 /// part placed other than once), the two assemblies part by part. The command line's `diff`,
 /// MCP's `diff` and `open` and the page's diff session all compare through [`compare`], so they
@@ -1429,7 +1429,7 @@ pub fn diff_with_options(
         .collect();
     let (old_size, new_size) = (size(&old.part), size(&new.part));
 
-    // Features, by specify-core's IDs.
+    // Features, by specify-pmi's IDs.
     let (old_records, new_records) = (
         records(&old_features, &old_q.fingerprints),
         records(&new_features, &new_q.fingerprints),
@@ -2792,7 +2792,7 @@ impl Revised {
 }
 
 /// What a viewer needs to draw the new part as [`picture`] draws it: both parts' meshes (as
-/// `specify-core mesh` writes them), each new face's class (`changed`, `new` or `ambiguous`;
+/// `specify-pmi mesh` writes them), each new face's class (`changed`, `new` or `ambiguous`;
 /// unchanged faces left out), the old faces that are gone or moved, and `motion`, the rotation
 /// rows and translation taking the old part's frame to the new one's (`null` when none was
 /// found, the frames then taken as one). `changes` is the report's "What changed" lines, in its

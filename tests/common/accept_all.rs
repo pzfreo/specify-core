@@ -1,4 +1,4 @@
-//! What `write --accept-defaults` stores, found without specify-core's own planning of which
+//! What `write --accept-defaults` stores, found without specify-pmi's own planning of which
 //! answers write PMI (`api::stored_with_defaults`): the part is written with every default
 //! taken and only the given answers stored, then reopened; the defaults the file states are
 //! stated rows of its feature table (ADR P11). The answers stored are the given ones and every
@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use serde_json::{Map, Value};
-use specify_core::{api, part, rules};
+use specify_pmi::{api, part, rules};
 
 /// `given` and the defaults taken for part `k` of `input` (analysed as `analysis`) that the
 /// file written with them all does not state.
@@ -41,7 +41,7 @@ pub fn stored(
     for (id, value) in all {
         if !given.contains_key(&id)
             && (!present.contains(&id.as_str())
-                || specify_core::feature_table::leaves_nothing(&value))
+                || specify_pmi::feature_table::leaves_nothing(&value))
             && !id.starts_with("bom.")
             && id != "part.process"
         {

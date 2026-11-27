@@ -1,4 +1,4 @@
-//! Review, not interrogation: which questions need a person at all. specify-core's
+//! Review, not interrogation: which questions need a person at all. specify-pmi's
 //! `tests/test_attention.py`, on the oracle's captured analyses of the plate, the corpus spool
 //! and NIST CTC-03.
 
@@ -7,7 +7,7 @@ mod common;
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{ATTENTION, Question, questions};
+use specify_pmi::rules::{ATTENTION, Question, questions};
 
 fn analysis(case: &str) -> Value {
     common::case(case)

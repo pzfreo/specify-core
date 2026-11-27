@@ -32,7 +32,7 @@ jobs:
         with:
           key: bundle-wasm
       - run: cargo install wasm-pack --version 0.15.0 --locked
-      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - run: wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -47,16 +47,16 @@ jobs:
       - name: Lay out bundle/
         run: |
           set -eu
-          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "specify-core") | .version')
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "specify-pmi") | .version')
           app=$(jq -r .version ui/dist-app/specify-ui-app.json)
-          engine=$(jq -r .version crates/specify-core-wasm/pkg/package.json)
+          engine=$(jq -r .version crates/specify-pmi-wasm/pkg/package.json)
           [ "$app" = "$version" ] && [ "$engine" = "$version" ] || {
-            echo "::error::specify-core $version, app $app, engine $engine: versions are lockstep"
+            echo "::error::specify-pmi $version, app $app, engine $engine: versions are lockstep"
             exit 1
           }
           mkdir -p bundle/wasm
           cp -R ui/dist-app bundle/app
-          cp crates/specify-core-wasm/pkg/specify_core_wasm.js crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm crates/specify-core-wasm/pkg/package.json bundle/wasm/
+          cp crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm crates/specify-pmi-wasm/pkg/package.json bundle/wasm/
           du -sh bundle/app bundle/wasm
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

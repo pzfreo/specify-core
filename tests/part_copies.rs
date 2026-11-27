@@ -4,7 +4,7 @@
 use haecceity::p21::{self, Attribute as A, Document, Edit};
 use haecceity::pmi::{AttributeSet, AttributeValue};
 use serde_json::{Value, json};
-use specify_core::{api, part::File, process, resume};
+use specify_pmi::{api, part::File, process, resume};
 use std::path::Path;
 
 const PIN: &str = include_str!("fixtures/parts/pin.step");

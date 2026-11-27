@@ -1,6 +1,6 @@
 // Packs the real tarball and uses it in a minimal Vite host app (test/package-host), so the
 // post-build steps run on every PR: scripts/worker-url.mjs (the `new Worker(new URL(...))` form
-// host bundlers build as a worker), the worker's external import of @draftwright/specify-core-wasm,
+// host bundlers build as a worker), the worker's external import of @draftwright/specify-pmi-wasm,
 // and scripts/rewrite-dts-imports.mjs (the shipped .d.ts must typecheck with skipLibCheck: false).
 // The host is a copy in .cache/package-host with a package.json written here. It must typecheck,
 // build (worker and .wasm emitted), and pass test/step-diff-browser.mjs served by `vite preview`.
@@ -75,7 +75,7 @@ async function testHost(threeVersion) {
     },
     devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
     // The engine at this version is published by the same release, after this test: the in-repo build.
-    overrides: { '@draftwright/specify-core-wasm': `file:${engineBuild}` },
+    overrides: { '@draftwright/specify-pmi-wasm': `file:${engineBuild}` },
   }, null, 2));
 
   run(npm, ['install', '--no-audit', '--no-fund'], host);

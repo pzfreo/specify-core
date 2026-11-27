@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The STEP diff action's work (action.yml): install specify-core, compare each STEP file the
+# The STEP diff action's work (action.yml): install specify-pmi, compare each STEP file the
 # pull request changes with the base branch's, publish the pictures and write the comment.
 set -euo pipefail
 
@@ -17,13 +17,13 @@ if [ "$HEAD_REPO" != "$REPO" ]; then
 fi
 
 # The release: the one asked for, the action's own tag, or the latest with a Linux build.
-release() { echo "specify-core-$1-x86_64-unknown-linux-gnu"; }
+release() { echo "specify-pmi-$1-x86_64-unknown-linux-gnu"; }
 if [ -z "$VERSION" ]; then
   case "$ACTION_REF" in
     v[0-9]*) VERSION=$ACTION_REF ;;
     *)
-      for tag in $(gh release list -R pzfreo/specify-core -L 5 --exclude-drafts --json tagName --jq '.[].tagName'); do
-        if gh release view "$tag" -R pzfreo/specify-core --json assets --jq '.assets[].name' \
+      for tag in $(gh release list -R pzfreo/specify-pmi -L 5 --exclude-drafts --json tagName --jq '.[].tagName'); do
+        if gh release view "$tag" -R pzfreo/specify-pmi --json assets --jq '.assets[].name' \
           | grep -qx "$(release "$tag").tar.gz"; then
           VERSION=$tag
           break
@@ -33,7 +33,7 @@ if [ -z "$VERSION" ]; then
   esac
 fi
 name=$(release "$VERSION")
-gh release download "$VERSION" -R pzfreo/specify-core -p "$name.tar.gz" -p "$name.tar.gz.sha256" -D "$RUNNER_TEMP"
+gh release download "$VERSION" -R pzfreo/specify-pmi -p "$name.tar.gz" -p "$name.tar.gz.sha256" -D "$RUNNER_TEMP"
 (cd "$RUNNER_TEMP" && sha256sum -c "$name.tar.gz.sha256" && tar -xzf "$name.tar.gz")
 PATH="$RUNNER_TEMP/$name:$PATH"
 
@@ -79,7 +79,7 @@ for i in "${!kinds[@]}"; do
     links[i]=$link
     viewer=(--viewer "$link")
   fi
-  if ! specify-core diff "$out/old.step" "./$new" ${viewer[@]+"${viewer[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
+  if ! specify-pmi diff "$out/old.step" "./$new" ${viewer[@]+"${viewer[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
     cat "$out/error" >&2
     kinds[$i]=failed
   fi
@@ -157,7 +157,7 @@ body="$RUNNER_TEMP/comment.md"
     esac
   done
   if [ ${#kinds[@]} -eq 0 ]; then printf 'This pull request no longer changes a STEP file.\n\n'; fi
-  echo "<sub>Compared by [specify-core](https://github.com/pzfreo/specify-core) $VERSION at ${PR_HEAD:0:7}.</sub>"
+  echo "<sub>Compared by [specify-pmi](https://github.com/pzfreo/specify-pmi) $VERSION at ${PR_HEAD:0:7}.</sub>"
 } > "$body"
 # GitHub refuses a comment over 65,536 characters.
 if [ "$(wc -m < "$body")" -gt 65000 ]; then

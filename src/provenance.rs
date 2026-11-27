@@ -4,7 +4,7 @@ use haecceity::pmi::{PartPmi, PartProvenance};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MARKER: &str = "specify-core:written:v1";
-const CALLER_ATTRIBUTE: &str = "specify-core:caller-attribute:v1";
+const CALLER_ATTRIBUTE: &str = "specify-pmi:caller-attribute:v1";
 
 fn string(a: Option<&Attribute>, expected: &str) -> bool {
     matches!(a, Some(Attribute::String(s)) if s == expected)

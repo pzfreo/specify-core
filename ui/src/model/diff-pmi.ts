@@ -1,6 +1,6 @@
 /**
  * The PMI of two revisions as /diff compares them: Specify's diff report's PMI section
- * (`report.pmi`, specify-core 0.1.7), with the two scenes it compared (`pmi.scenes`), joined
+ * (`report.pmi`, specify-pmi 0.1.7), with the two scenes it compared (`pmi.scenes`), joined
  * by item id. Nothing here words or compares PMI, or chooses a scene: the changes and scenes
  * are the engine's, the callouts haecceity's. This is which colour a drawn item takes, which
  * old callout ghosts a changed one, and where the old part's callouts go.

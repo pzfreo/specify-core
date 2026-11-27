@@ -2,11 +2,11 @@
 __pycache__/
 *.pyc
 
-/crates/specify-core-wasm/pkg/
+/crates/specify-pmi-wasm/pkg/
 
 # The Python package built in place (maturin develop)
-/crates/specify-core-py/python/specify_core/_native*.so
-/crates/specify-core-py/python/specify_core/_native*.pyd
+/crates/specify-pmi-py/python/specify_pmi/_native*.so
+/crates/specify-pmi-py/python/specify_pmi/_native*.pyd
 
 # The built app and engine a release copies in for the crates.io package (crates.yml)
 /bundle/

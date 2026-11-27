@@ -1,4 +1,4 @@
-//! The Specify page server (`specify-core open`, and MCP's `show`): one session's STEP file
+//! The Specify page server (`specify-pmi open`, and MCP's `show`): one session's STEP file
 //! opened in the Specify app, served on 127.0.0.1 to the person's own browser, never uploaded,
 //! and saved back to disk by this process, applying the edit list the page sends
 //! (src/session.rs, src/edits.rs).
@@ -71,7 +71,7 @@ pub const KEEP_ALIVE: Duration = Duration::from_secs(15);
 pub const MAX_CONNECTIONS: usize = 16;
 
 /// The engine's entry point, relative to the app (`config.wasmUrl`).
-pub const WASM_URL: &str = "wasm/specify_core_wasm.js";
+pub const WASM_URL: &str = "wasm/specify_pmi_wasm.js";
 
 /// The version of this page contract (docs/open.md), given as `config.api`. It changes only in
 /// a minor release, when the contract changes in a way an app built for the old one cannot
@@ -122,7 +122,7 @@ pub(crate) fn same(a: &str, b: &str) -> bool {
 }
 
 /// 16 bytes from the operating system's random source, as 32 lowercase hex characters (also
-/// `specify-core mcp --http`'s bearer token).
+/// `specify-pmi mcp --http`'s bearer token).
 pub(crate) fn token() -> Result<String, Error> {
     let mut bytes = [0u8; 16];
     random(&mut bytes).map_err(|e| Error::Io(format!("cannot draw a random token: {e}")))?;
@@ -270,8 +270,8 @@ fn resolve_assets(
 /// A build without the app or engine (made before `ui/` and the WASM were built).
 fn not_built_in(what: &str) -> String {
     format!(
-        "this specify-core was built without the Specify {what} (a release has it built in: \
-         `pip install specify-core`; or build the WASM and ui/dist-app, then rebuild: see \
+        "this specify-pmi was built without the Specify {what} (a release has it built in: \
+         `pip install specify-pmi`; or build the WASM and ui/dist-app, then rebuild: see \
          docs/open.md)"
     )
 }
@@ -286,7 +286,7 @@ const MANIFEST: &str = "specify-ui-app.json";
 fn check_app_api(api: u32) -> Result<(), Error> {
     if api != API_VERSION {
         return Err(app_error(format!(
-            "this app speaks session API {api}, specify-core {CORE_VERSION} speaks \
+            "this app speaks session API {api}, specify-pmi {CORE_VERSION} speaks \
              {API_VERSION}: update the app, or run without --app to use the built-in one"
         )));
     }
@@ -621,7 +621,7 @@ struct Shared {
     name: String,
     /// `config.mode`: `specify`, `read-only` or `diff`.
     mode: &'static str,
-    /// None until a file is picked in an empty `specify-core open`.
+    /// None until a file is picked in an empty `specify-pmi open`.
     session: Mutex<Option<session::Shared>>,
     /// Where a file picked in the page saves (absolute); None when opened from a path on disk.
     save_dir: Option<PathBuf>,
@@ -991,7 +991,7 @@ fn check_open_bytes(bytes: &[u8]) -> Result<(), (&'static str, String)> {
 }
 
 /// `POST <token>/open`, from the app's own origin: loads a STEP file dropped or chosen in an
-/// empty `specify-core open` page into a session whose saves write into `save_dir`.
+/// empty `specify-pmi open` page into a session whose saves write into `save_dir`.
 fn open_file(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     let shared = ctx.shared;
     let Some(save_dir) = shared.save_dir.as_ref() else {
@@ -1657,16 +1657,16 @@ mod tests {
     fn a_build_without_the_app_asks_for_one() {
         let message = refused(resolve_assets(None, None, None, None));
         assert!(
-            message.starts_with("this specify-core was built without the Specify app"),
+            message.starts_with("this specify-pmi was built without the Specify app"),
             "{message}"
         );
-        assert!(message.contains("pip install specify-core"), "{message}");
+        assert!(message.contains("pip install specify-pmi"), "{message}");
         assert!(
             message.ends_with(": pass --app DIR / set SPECIFY_APP_DIR"),
             "{message}"
         );
         // An engine alone is not enough.
-        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        let engine = built(&[("specify_pmi_wasm.js", b"glue")]);
         assert!(
             refused(resolve_assets(None, None, None, Some(engine))).ends_with("SPECIFY_APP_DIR")
         );
@@ -1676,25 +1676,25 @@ mod tests {
     fn a_built_in_app_needs_its_engine() {
         let message = refused(resolve_assets(None, None, Some(app(API_VERSION)), None));
         assert!(
-            message.starts_with("this specify-core was built without the Specify WASM engine"),
+            message.starts_with("this specify-pmi was built without the Specify WASM engine"),
             "{message}"
         );
         assert!(
             message.ends_with(": pass --wasm DIR / set SPECIFY_WASM_DIR"),
             "{message}"
         );
-        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        let engine = built(&[("specify_pmi_wasm.js", b"glue")]);
         let assets = resolve_assets(None, None, Some(app(API_VERSION)), Some(engine)).unwrap();
         assert!(matches!(assets.app, Root::BuiltIn(_)));
         assert!(matches!(assets.wasm, Some(Root::BuiltIn(_))));
-        let (bytes, content_type) = assets.wasm.unwrap().file("specify_core_wasm.js").unwrap();
+        let (bytes, content_type) = assets.wasm.unwrap().file("specify_pmi_wasm.js").unwrap();
         assert_eq!(bytes, b"glue");
         assert_eq!(content_type, "text/javascript; charset=utf-8");
     }
 
     #[test]
     fn the_built_in_app_must_speak_this_session_api() {
-        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        let engine = built(&[("specify_pmi_wasm.js", b"glue")]);
         let message = refused(resolve_assets(
             None,
             None,

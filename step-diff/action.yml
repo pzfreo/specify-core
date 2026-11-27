@@ -1,5 +1,5 @@
 # The STEP diff action: on a pull request that changes a STEP file, compare it with the base
-# branch's using `specify-core diff` and keep one comment on the pull request up to date with
+# branch's using `specify-pmi diff` and keep one comment on the pull request up to date with
 # what changed in the part, its picture and the requirements that still apply to the new revision.
 # See README.md beside this file.
 name: Specify STEP diff
@@ -10,7 +10,7 @@ branding:
 
 inputs:
   version:
-    description: The specify-core release to run (e.g. v0.1.0). By default the action's own tag, or the latest release when it is used from a branch.
+    description: The specify-pmi release to run (e.g. v0.1.0). By default the action's own tag, or the latest release when it is used from a branch.
     required: false
     default: ''
   token:

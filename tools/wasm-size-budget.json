@@ -1,6 +1,6 @@
 {
-  "artifact": "crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm",
-  "build_command": "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked",
+  "artifact": "crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm",
+  "build_command": "wasm-pack build crates/specify-pmi-wasm --target web --profile wasm-release --locked",
   "measured_on": "2026-10-16",
   "toolchain": {
     "rust": "1.99",

@@ -12,7 +12,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
-use specify_core::{api, bom, extras, input, rules};
+use specify_pmi::{api, bom, extras, input, rules};
 
 const PART_LEVEL: &str = "Part-level ids";
 const KINDS: &str = "Requirement kinds";
@@ -204,9 +204,9 @@ fn file_pmi_ids_have_the_documented_form() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/ids.md"),
     )
     .unwrap();
-    let form = format!("`{}#<entity>`", specify_core::edits::FILE_PMI);
+    let form = format!("`{}#<entity>`", specify_pmi::edits::FILE_PMI);
     assert!(doc.contains(&form), "docs/ids.md does not give {form}");
-    let part = specify_core::part::load(
+    let part = specify_pmi::part::load(
         &common::fixtures().join("nist/nist_ctc_01_asme1_ap242.stp.gz"),
         None,
     )
@@ -221,7 +221,7 @@ fn file_pmi_ids_have_the_documented_form() {
     assert!(!ids.is_empty());
     for id in ids {
         let entity = id
-            .strip_prefix(specify_core::edits::FILE_PMI)
+            .strip_prefix(specify_pmi::edits::FILE_PMI)
             .and_then(|e| e.strip_prefix('#'));
         assert!(
             entity.is_some_and(|e| e.parse::<u64>().is_ok()),

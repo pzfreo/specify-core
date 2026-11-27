@@ -1,4 +1,4 @@
-# specify-core-rust: design of the port
+# specify-pmi: design of the port
 
 specify-core's original Python implementation (AGPL-3.0-or-later) is interview-driven
 AP242 PMI authoring: it loads a STEP part, recognises its features, works out what manufacturing
@@ -362,7 +362,7 @@ settings, not `oriented_slots:*` answers: they resume unchanged by part/face evi
 Its three old oriented-slot supports are checked against the merged slots by face support
 and end-wall geometry; no dimension/order-based answer migration is introduced.
 
-Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
+Axis/coordinate consumer audit (native and `crates/specify-pmi-wasm/src`):
 
 - `features::end_planes` reads slot/channel `long_axis`, `lo`, `hi` and `origin`.
   Without `origin`, letters mean absolute positive file axes. Converted records

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
-import init, { diff, IntentEngine } from '../public/wasm/intent/specify_core_wasm.js';
+import init, { diff, IntentEngine } from '../public/wasm/intent/specify_pmi_wasm.js';
 // <StepDiff> in a minimal host page (test/harness) on three-cad-viewer: two picked files
 // compared, the report and the part linked both ways, through src/specify/cad-view.ts. An upgrade
 // of the package that changes what it relies on fails here. Run `npm run fetch:wasm` first;
@@ -34,7 +34,7 @@ try {
   page.on('console', message => { if (/Content Security Policy|Uncaught/i.test(message.text())) problems.push(message.text()); });
   // Which engine's .wasm the page fetches.
   const wasmFetched = new Set();
-  page.on('request', request => { const path = new URL(request.url()).pathname; if (/specify_core_wasm.*\.wasm$/.test(path)) wasmFetched.add(path); });
+  page.on('request', request => { const path = new URL(request.url()).pathname; if (/specify_pmi_wasm.*\.wasm$/.test(path)) wasmFetched.add(path); });
   await page.goto(url);
   await page.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/cast_bearing_unit_before.step.gz');
   await page.locator('.diff-slot input[type=file]').nth(1).setInputFiles('test/fixtures/cast_bearing_unit_after.step.gz');
@@ -120,7 +120,7 @@ try {
 
   // PMI: two revisions Specify wrote, a tolerance changed, one removed, three added and a note
   // reworded (test/fixtures/README.md). The list is the engine's report, item for item.
-  await init({ module_or_path: readFileSync('public/wasm/intent/specify_core_wasm_bg.wasm') });
+  await init({ module_or_path: readFileSync('public/wasm/intent/specify_pmi_wasm_bg.wasm') });
   const spindle = which => gunzipSync(readFileSync(`test/fixtures/spindle_pmi_${which}.step.gz`));
   const spindlePmi = JSON.parse(diff('spindle_pmi_before.step', spindle('before'), 'spindle_pmi_after.step', spindle('after'), 'spindle', true)).report.pmi;
   const reported = spindlePmi.items;
@@ -257,14 +257,14 @@ try {
   await page.mouse.click(...callout);
   await check(page.locator('.diff-pmi li.is-picked')).toHaveAttribute('data-pmi', pointedAt);
   await page.screenshot({ path: '.cache/diff-pmi-clicked.png' });
-  // The report's richer items (specify-core 0.1.7): gramil's shaft, an end chamfer added, each
+  // The report's richer items (specify-pmi 0.1.7): gramil's shaft, an end chamfer added, each
   // revision written with Specify's defaults (ADR P11: diff compares the annotated files, and
-  // reads no answers). Since specify-core #106 its location dimensions pair by geometry, each
+  // reads no answers). Since specify-pmi #106 its location dimensions pair by geometry, each
   // with its own value: the overall 37.6 only renumbered (#5 → #6), with an old id that differs.
   // (The new file's defaults locate the shoulder from the chamfer, 1.5, not 36.1 as before: that
   // is now one removed and another added, never a value changed into another.)
   const shaft = which => gunzipSync(readFileSync(`test/fixtures/gramil_shaft_${which}.step.gz`));
-  // Written with Specify's suggestions (specify-core 0.3.0: an edit list accepting every gap's
+  // Written with Specify's suggestions (specify-pmi 0.3.0: an edit list accepting every gap's
   // suggestion that the file can take, all or nothing; a suggestion the check refuses is left out).
   const written = bytes => {
     const e = new IntentEngine('part.step', bytes);
@@ -283,13 +283,13 @@ try {
   const [shaftBefore, shaftAfter] = [written(shaft('before')), written(shaft('after'))];
   const shaftReport = JSON.parse(diff('gramil_shaft_before.step', shaftBefore, 'gramil_shaft_after.step', shaftAfter, 'gramil_shaft_after.step', true)).report.pmi;
   assert.deepEqual(shaftReport.items.filter(c => c.class === 'renumbered').map(c => [c.class, c.number, c.old, c.new, c.reason]), [
-    ['renumbered', 6, '37.6', '37.6', 'characteristic number #5 → #6']], 'the shaft\'s pairing (specify-core #106)');
+    ['renumbered', 6, '37.6', '37.6', 'characteristic number #5 → #6']], 'the shaft\'s pairing (specify-pmi #106)');
   assert.ok(!shaftReport.items.some(c => c.class === 'changed' && c.old !== c.new), 'each dimension keeps its own value');
   assert.ok(shaftReport.items.some(c => c.class === 'removed' && c.old === '36.1'), 'the 36.1 the new file no longer states');
   const renamed = shaftReport.items.find(c => c.old_id && c.old_id !== c.id && shaftReport.scenes.old.presentation.items[c.old_id]?.length);
   // The spindle pair, its old side written with Specify's defaults: the default for its ⌀3.3
   // bore is tapped M4, but the new file states ⌀3.3 H11, and the file's PMI wins. So since
-  // specify-core 0.1.8 (#110) the thread is reported removed, with its wording (#106), and the
+  // specify-pmi 0.1.8 (#110) the thread is reported removed, with its wording (#106), and the
   // ⌀3.3 H11 added; 0.1.7 paired the thread with an unrelated dimension and kept an M4 the new
   // file does not hold.
   // The old side is the spindle's bare geometry (the shaft's after) written with the defaults,
@@ -300,7 +300,7 @@ try {
   const thread = spindleReport.items.find(c => c.class === 'removed' && c.kind === 'thread' && /^M4×0\.7-6H THRU$/.test(c.old ?? ''));
   assert.ok(renamed && thread, 'the shaft has a renumbered item with an old id; the spindle its thread removed');
   assert.ok(spindleReport.items.some(c => c.class === 'added' && c.new === '⌀3.3 H11'), 'the file\'s ⌀3.3 H11 added');
-  // Reported once (specify-core 0.1.9): the thread's manufacturing note is no longer a second
+  // Reported once (specify-pmi 0.1.9): the thread's manufacturing note is no longer a second
   // removed item, with no callout, beside the thread.
   assert.equal(spindleReport.items.filter(c => c.class === 'removed' && c.old === 'M4×0.7-6H THRU').length, 1, 'the removed thread reported once');
   assert.ok(spindleReport.scenes.old.presentation.items[thread.id]?.length, 'the removed thread has its old callout');
@@ -326,12 +326,12 @@ try {
   await compareWith(file('spindle_pmi_before.step', spindleBefore), 'test/fixtures/spindle_pmi_after.step.gz');
   await check(page.locator('.diff-pmi li')).toHaveCount(spindleReport.items.length);
   await check(page.locator('.diff-pmi-now')).not.toHaveAttribute('data-drawn-items', '');
-  // Since specify-core 0.1.8 (#110) the old scene holds no stale ids: nothing fails to draw.
+  // Since specify-pmi 0.1.8 (#110) the old scene holds no stale ids: nothing fails to draw.
   const threadRow = page.locator(`.diff-pmi li[data-pmi="${thread.id}"]`).first();
   await check(threadRow).toContainText('M4×0.7-6H THRU');
   await check(page.getByRole('alert')).toHaveCount(0);
   // A removed item with no callout, shown on its faces, is no longer in the spindle pair: the
-  // thread's note it was is reported with the thread (specify-core 0.1.9).
+  // thread's note it was is reported with the thread (specify-pmi 0.1.9).
   await check(page.locator('.diff-pmi-on', { hasText: 'no callout' })).toHaveCount(0);
   assert.deepEqual(await page.evaluate(() => window.__events.includes('diff_failed')), false);
   // The shaft's two revisions as they are, with no PMI: the added end chamfer has nothing stated,

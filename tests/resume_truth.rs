@@ -7,9 +7,9 @@ mod common;
 use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
-use specify_core::api;
-use specify_core::part::{LoadedPart, load_bytes};
-use specify_core::resume;
+use specify_pmi::api;
+use specify_pmi::part::{LoadedPart, load_bytes};
+use specify_pmi::resume;
 
 fn plate() -> PathBuf {
     common::fixtures().join("parts").join("plate.step")
@@ -55,7 +55,7 @@ fn with_foreign_fit(bytes: Vec<u8>, analysis: &Value) -> Vec<u8> {
     let defs = haecceity::step::read_part_definitions(&source).unwrap();
     let read = pmi::read(&Document::parse(source.clone()).unwrap(), &defs).unwrap();
     // The hole's size: `read_existing` lists Specify's toleranced dimensions in order.
-    let listed = specify_core::existing::read_existing(&load(source.clone())).unwrap();
+    let listed = specify_pmi::existing::read_existing(&load(source.clone())).unwrap();
     let k = listed
         .iter()
         .filter(|e| e.kind == "dimension")
@@ -156,7 +156,7 @@ fn check_unchanged_round_trips(group: usize) {
         let Ok(intent) = api::apply(&analysis, &answers, true) else {
             continue;
         };
-        let Ok(source) = specify_core::part::load(&input, None) else {
+        let Ok(source) = specify_pmi::part::load(&input, None) else {
             continue;
         };
         let bytes = source.bytes.to_vec();

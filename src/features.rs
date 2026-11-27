@@ -2,7 +2,7 @@
 //!
 //! A face is identified by its index in the part's numbering ([`crate::part`]), and a feature
 //! by its family and the sorted indices of its faces (`holes:3`, `hole_patterns.grid:6.7.8`),
-//! as in specify-core. Saved STEP answers are re-matched on resume (see `resume`).
+//! as in specify-pmi. Saved STEP answers are re-matched on resume (see `resume`).
 //!
 //! What differs from Python, by design (docs/design.md, "Features differ by design"):
 //!
@@ -265,7 +265,7 @@ pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
             if unresolved.contains(&index) {
                 return Ok(out);
             }
-            // OpenCascade's GeomAbs kinds that specify-core names; a sphere, a freeform surface
+            // OpenCascade's GeomAbs kinds that specify-pmi names; a sphere, a freeform surface
             // and anything unresolved are `other`, as there.
             let (kind, frame, radius) = match &face.surface {
                 Surface::Plane { frame } => ("plane", frame, None),
@@ -302,7 +302,7 @@ const DERIVED: [(&str, &str, &str); 1] = [("hole_patterns", "holes", "holes")];
 /// Derived families that are not features: Python's evidence view lists physical families and
 /// hole patterns only, so a gusset rib, slot or pocket pattern (derived, like a
 /// hole pattern, with no defining faces of its own, but never in Python's analysis) is left out
-/// to keep the analysis JSON specify-core's. Its members remain, each a feature of its family.
+/// to keep the analysis JSON specify-pmi's. Its members remain, each a feature of its family.
 const NOT_FEATURES: [&str; 3] = ["gusset_rib_patterns", "slot_patterns", "pocket_patterns"];
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their

@@ -22,8 +22,8 @@ use common::{
     without_threads_beyond_python,
 };
 use serde_json::{Map, Value, json};
-use specify_core::problems::problems;
-use specify_core::rules::{
+use specify_pmi::problems::problems;
+use specify_pmi::rules::{
     self, Error, Intent, Question, open_questions, preview, questions, with_all_defaults,
 };
 

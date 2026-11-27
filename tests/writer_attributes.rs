@@ -9,10 +9,10 @@ use haecceity::p21::Document;
 use haecceity::pmi::{self, AttributeSet, AttributeValue, PartPmi};
 use haecceity::step::read_part_definitions;
 use serde_json::{Map, Value, json};
-use specify_core::part::{self, LoadedPart};
-use specify_core::rules::Intent;
-use specify_core::writer::{self, WriteError};
-use specify_core::{api, resume};
+use specify_pmi::part::{self, LoadedPart};
+use specify_pmi::rules::Intent;
+use specify_pmi::writer::{self, WriteError};
+use specify_pmi::{api, resume};
 
 const PROJECT: &str = "draftwright editor project";
 
@@ -124,12 +124,12 @@ fn editor_project_and_other_extras_read_back_and_answers_resume() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         resume::answers_for(&read).unwrap(),
-        Some(specify_core::feature_table::storable(&answers))
+        Some(specify_pmi::feature_table::storable(&answers))
     );
     assert_eq!(
         api::analyse(&read).unwrap()["resume"]["answers"],
         // ADR P11: stored are the answers that leave no PMI behind.
-        json!(specify_core::feature_table::storable(&answers))
+        json!(specify_pmi::feature_table::storable(&answers))
     );
 
     let jobs = [(&loaded, &intent, Some(&answers))];
@@ -236,7 +236,7 @@ fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
         // ADR P11: this payload retains only answers that leave no PMI behind.
         assert_eq!(
             resume::answers_for(&loaded).unwrap(),
-            Some(specify_core::feature_table::storable(&answers))
+            Some(specify_pmi::feature_table::storable(&answers))
         );
     }
 }
@@ -271,7 +271,7 @@ fn replay_keeps_an_attribute_with_the_old_ambiguous_author_marker() {
         };
         if name == "DESCRIPTION_ATTRIBUTE"
             && let [Attribute::String(marker), Attribute::EntityRef(root)] = attributes.as_slice()
-            && marker == "specify-core:caller-attribute:v1"
+            && marker == "specify-pmi:caller-attribute:v1"
         {
             let mut old = doc.get(id).unwrap().clone();
             if let RawEntity::Simple { attributes, .. } = &mut old {
@@ -316,7 +316,7 @@ fn adding_to_foreign_pmi_keeps_existing_attributes_and_adds_extras() {
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         resume::answers_for(&reopened).unwrap(),
-        Some(specify_core::feature_table::storable(&answers))
+        Some(specify_pmi::feature_table::storable(&answers))
     );
 }
 
@@ -344,7 +344,7 @@ fn extras_work_with_atomic_plain_and_gzip_destinations() {
         // ADR P11: stored are the answers that leave no PMI behind.
         assert_eq!(
             resume::answers_for(&read).unwrap(),
-            Some(specify_core::feature_table::storable(&answers))
+            Some(specify_pmi::feature_table::storable(&answers))
         );
         // The parts variant uses the same staging and compression path.
         writer::write_parts_with(&jobs, &output, &extra).unwrap();
@@ -413,7 +413,7 @@ fn extras_are_written_on_a_part_of_an_assembly() {
         assert_eq!(
             resume::answers_for(&back.load(Some(k)).unwrap()).unwrap(),
             // ADR P11: stored are the answers that leave no PMI behind.
-            Some(specify_core::feature_table::storable(&given[k]))
+            Some(specify_pmi::feature_table::storable(&given[k]))
         );
         assert_eq!(
             back.parts()[1].instances,

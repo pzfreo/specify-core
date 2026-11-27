@@ -1,8 +1,8 @@
 // Release-package refusals and recovery, alongside scripts/wasm-parity.mjs.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { IntentEngine, review, acceptDefaults, interpret, answerEdit, tolerancingEdit, openedTolerancing } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
-await init({ module_or_path: readFileSync(new URL('../crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', import.meta.url)) });
+import init, { IntentEngine, review, acceptDefaults, interpret, answerEdit, tolerancingEdit, openedTolerancing } from '../crates/specify-pmi-wasm/pkg/specify_pmi_wasm.js';
+await init({ module_or_path: readFileSync(new URL('../crates/specify-pmi-wasm/pkg/specify_pmi_wasm_bg.wasm', import.meta.url)) });
 const bytes = readFileSync(new URL('../tests/fixtures/parts/plate.step', import.meta.url));
 const engine = new IntentEngine('plate.step', bytes);
 let count = 0;

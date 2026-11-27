@@ -7,7 +7,7 @@ mod common;
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{Error, Faces, Question, apply_with_defaults, default_datums, questions};
+use specify_pmi::rules::{Error, Faces, Question, apply_with_defaults, default_datums, questions};
 
 fn analysis(case: &str) -> Value {
     common::case(case)
