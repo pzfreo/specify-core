@@ -62,9 +62,9 @@ fn round_trip_lossless_resumed_and_noop_with_sources_and_standard_material() {
         );
     }
     assert!(
-        haecceity::express::validate_document(doc.graph()).is_empty(),
+        haecceity::express::validate_document(&doc).is_empty(),
         "{:?}",
-        haecceity::express::validate_document(doc.graph())
+        haecceity::express::validate_document(&doc)
     );
     assert!(
         haecceity::express_rules::check_all(&doc).is_empty(),

@@ -52,7 +52,7 @@ pub fn only_numbering_added(old: &[u8], new: &[u8]) -> Result<(), String> {
         }
     }
     let old_max = old.ids().max().unwrap_or(0);
-    for (&id, e) in &new.graph().entities {
+    for (id, e) in new.iter() {
         if matches!(e, RawEntity::Simple { name, attributes, .. }
             if name == "ID_ATTRIBUTE" && id > old_max && matches!(attributes.first(),
                 Some(Attribute::String(s)) if s.parse::<u64>().is_ok_and(|n| n > 0 && n.to_string() == *s)))
@@ -61,7 +61,7 @@ pub fn only_numbering_added(old: &[u8], new: &[u8]) -> Result<(), String> {
         }
     }
     // Authorship annotations on the new history are themselves new metadata.
-    let descriptions: Vec<_> = new.graph().entities.iter().filter_map(|(&id, e)|
+    let descriptions: Vec<_> = new.iter().filter_map(|(id, e)|
         matches!(e, RawEntity::Simple { name, attributes, .. } if name == "DESCRIPTION_ATTRIBUTE"
             && matches!(attributes.get(1), Some(Attribute::EntityRef(target)) if removed.contains(target)))
         .then_some(id)).collect();

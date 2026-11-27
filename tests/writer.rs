@@ -1226,7 +1226,7 @@ fn mmc_positions_are_written_and_notes_are_read_back() {
 /// is violated.
 fn assert_conformant(path: &Path) {
     let doc = Document::parse(std::fs::read(path).unwrap()).unwrap();
-    let violations = haecceity::express::validate_document(doc.graph());
+    let violations = haecceity::express::validate_document(&doc);
     assert!(violations.is_empty(), "{}: {violations:?}", path.display());
     let rules = haecceity::express_rules::check_all(&doc);
     assert!(rules.is_empty(), "{}: {rules:?}", path.display());

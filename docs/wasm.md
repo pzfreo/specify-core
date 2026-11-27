@@ -373,7 +373,7 @@ on 2026-10-16:
 | Raw, optimized | 10,197,823 | 9.73 |
 | gzip, level 9 | 3,157,943 | 3.01 |
 | Brotli, quality 11 | 2,148,100 | 2.05 |
-| Raw ceiling | 18,000,000 | 17.17 |
+| Raw ceiling | 20,000,000 | 19.07 |
 
 These measure `specify_pmi_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
@@ -467,6 +467,8 @@ feature set: the integrated stack (feature table, edit writer, carry, WASM edits
 measured 16,568,361 bytes (68,361 over).
 On 2026-11-24 it was raised to 18,000,000 bytes, approved by Paul, at 0.3.0-rc.2, which
 measured 16,988,345 bytes on Linux CI (11,655 under).
+On 2026-11-27 it was raised to 20,000,000 bytes, approved by Paul, for Quiddity 0.6.0 and the
+Save read cache, which together measured 17,923,913 bytes (76,087 under).
 Raising it requires a deliberate, reviewed JSON edit; the size checker never
 updates the budget automatically. When rebaselining, record the three measurements and
 tool versions together and explain the increase in the changelog.

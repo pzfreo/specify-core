@@ -117,7 +117,7 @@ fn property_helper(doc: &Document, id: u64, attributes: &[Attribute]) -> bool {
 /// material names, surface-condition parameters and thread parameter helper definitions.
 pub fn mark_new(before: &Document, after: &Document, caller_links: &BTreeSet<u64>) -> Edit {
     let mut edit = Edit::new();
-    for (&id, entity) in &after.graph().entities {
+    for (id, entity) in after.iter() {
         if before.get(id).is_some() {
             continue;
         }
@@ -187,7 +187,7 @@ pub fn mark_new(before: &Document, after: &Document, caller_links: &BTreeSet<u64
 pub fn before_replace(doc: &Document, parts: &[PartProvenance]) -> Edit {
     let targets: BTreeSet<_> = parts.iter().flat_map(PartProvenance::all).collect();
     let mut edit = Edit::new();
-    for (&id, entity) in &doc.graph().entities {
+    for (id, entity) in doc.iter() {
         if description_target(entity).is_some_and(|target| targets.contains(&target)) {
             edit.remove(id);
         }
@@ -357,7 +357,7 @@ pub(crate) fn without_owned_except(
     // their exact target, and may join removal only when that target is already a seed.
     loop {
         let mut extra = Vec::new();
-        for (&id, e) in &doc.graph().entities {
+        for (id, e) in doc.iter() {
             if let RawEntity::Simple {
                 name, attributes, ..
             } = e

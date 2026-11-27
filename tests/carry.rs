@@ -128,10 +128,8 @@ fn assembly_bom_carry_keeps_a_decided_none_material() {
 /// Every entity's record text, by id.
 fn records(bytes: &[u8]) -> BTreeMap<u64, String> {
     let doc = Document::parse(bytes.to_vec()).unwrap();
-    doc.graph()
-        .entities
-        .keys()
-        .map(|&id| {
+    doc.ids()
+        .map(|id| {
             let span = doc.span(id).unwrap();
             (id, String::from_utf8_lossy(&doc.bytes()[span]).into_owned())
         })

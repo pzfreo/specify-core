@@ -198,6 +198,7 @@ Read first:
   default it is taken with every other default, so accepting all of them on such a part gives sheet
   metal's: no surface finish, edges `Deburr only`, ± dimensions. Recorded expectations change for
   sm-hanger, cgb245 and NIST CTC-03 only; answering `machined` there gives the rules as before.
+- **Quiddity 0.6.0.** Bumped `quiddity` and `haecceity` to `v0.6.0` (haecceity's own Part 21 types and step-io 0.4.0; meshes follow the STEP-selected boundary, quiddity #349, so `cgb207_torus_dense_deviation` runs again). Internal only: no behaviour change for users.
 - **Quiddity 0.5.6.** Bumped `quiddity` and `haecceity` to `v0.5.6` (tangent fillet chains and radius groups, sheet-metal flange bounds, and STEP-selected boundary face integrals; grouped fillet rows remain planned for 0.3.2).
 - **Saved answers use Quiddity's own fingerprints (schema 3) and are never dropped silently.**
   - New saves always write stored-answer schema 3 carrying Quiddity's versioned `geometry` fingerprints (`fingerprint_version`, `scale`, `features`, `faces`) instead of Specify's own 0.001 mm rounded-centroid SHA-256 hash (`faces`). Unique authored `f:` names keep `face_names` (all-named parts use `face_names` alone).
@@ -377,7 +378,9 @@ Read first:
 - The reviewed WASM size ceiling is raised from 16,500,000 to **17,000,000** bytes (approved by Paul,
   2026-11-22, for the 0.3.0 feature set), after the integrated 0.3.0 stack measured 16,568,361 bytes.
   Raised again to **18,000,000** bytes (approved by Paul, 2026-11-24) at 0.3.0-rc.2, which measured
-  16,988,345 bytes on Linux CI, 11,655 under 17,000,000.
+  16,988,345 bytes on Linux CI, 11,655 under 17,000,000. Raised again to **20,000,000** bytes
+  (approved by Paul, 2026-11-27) for Quiddity 0.6.0 and the Save read cache, which together
+  measured 17,923,913 bytes, 76,087 under 18,000,000.
 
 ### Removed
 

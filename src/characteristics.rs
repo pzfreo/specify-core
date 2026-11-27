@@ -582,7 +582,7 @@ pub(crate) fn located(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> Vec
 pub(crate) fn before_replace(doc: &Document, parts: &[PartProvenance]) -> Edit {
     let targets: BTreeSet<_> = parts.iter().flat_map(PartProvenance::all).collect();
     let mut edit = Edit::new();
-    for (&id, e) in &doc.graph().entities {
+    for (id, e) in doc.iter() {
         if let RawEntity::Simple {
             name, attributes, ..
         } = e

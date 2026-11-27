@@ -921,12 +921,12 @@ fn trim_measurement_distinguishes_cap_and_cone_parameter_cuts() {
 /// Regression for the toroidal patch whose worst point the fixed sample lattice missed.
 /// Use an independent analytic distance and 66 lattice points per output triangle.
 ///
-/// Ignored on Quiddity 0.5.6: its face integrals follow the STEP-selected boundary (quiddity
-/// #317) while its mesher still follows the 3D edges, so on face 78 (a small sphere) the mesh
-/// area and `face_moments` area differ by 2.3% and the deviation check cannot pass. Quiddity
-/// #349 moves the mesher to the selected boundary; re-enable this test when that ships.
+/// Ignored on Quiddity 0.6.0: the mesher now follows the STEP-selected boundary (quiddity #349,
+/// so face 78 no longer disagrees with `face_moments`), but face 109 cannot be meshed to 0.1 mm
+/// (best 0.0999 mm, "triangulator did not converge"), so the call returns an error before the
+/// torus check runs. Re-enable when quiddity meshes cgb207 at 0.1 mm.
 #[test]
-#[ignore = "waits on quiddity #349: mesher and face_moments use different boundaries on cgb207 face 78"]
+#[ignore = "quiddity 0.6.0 cannot mesh cgb207 face 109 within 0.1 mm"]
 fn cgb207_torus_dense_deviation() {
     let Some(root) = common::corpus_dir() else {
         return;

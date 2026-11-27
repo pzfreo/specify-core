@@ -1062,8 +1062,7 @@ fn notes(
             }),
         }
     };
-    let graph = doc.graph();
-    for entity in graph.entities.values() {
+    for (_, entity) in doc.iter() {
         let RawEntity::Simple {
             name, attributes, ..
         } = entity

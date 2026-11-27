@@ -133,7 +133,7 @@ fn every_kind_round_trips_standard_ids_additively_and_is_exposed_in_analysis_and
         (1..=6).collect()
     );
     let doc = Document::parse(written.bytes.to_vec()).unwrap();
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     for n in &ns {
         assert!(doc.referrers(n.entity).iter().any(|id| matches!(doc.get(*id),
@@ -1074,7 +1074,7 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
             .iter()
             .any(|a| a.name == characteristics::PROPERTY)
     );
-    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express::validate_document(&doc).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     assert_eq!(written.bytes, write(&written, &rebind(&i, &written)).bytes);
     i.requirements[0].insert("upper".into(), json!(0.2));
