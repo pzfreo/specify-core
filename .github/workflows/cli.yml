@@ -104,19 +104,24 @@ jobs:
       - name: The specify-core alias notices its name
         run: |
           bin="target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}"
-          alias="target/${{ matrix.target }}/release/specify-core-copy${{ matrix.exe }}"
+          mkdir -p alias-check
+          alias="alias-check/specify-core${{ matrix.exe }}"
           cp "$bin" "$alias"
-          "$alias" --version 2>&1 >/dev/null | grep -q 'removed in 0.4'
+          "$alias" --help 2>&1 >/dev/null | grep -q 'removed in 0.4'
+          # Nothing extra on stdout: the same help as specify-pmi.
+          diff <("$alias" --help 2>/dev/null) <("$bin" --help)
       - name: Package and checksum
         run: |
           name="specify-pmi-${RELEASE_TAG:-pr}-${{ matrix.target }}"
           mkdir -p dist "$name"
           cp "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" LICENSE README.md "$name/"
-          # The old name, for all of 0.3.x: the same binary, which notices its name.
-          cp "target/${{ matrix.target }}/release/specify-pmi${{ matrix.exe }}" "$name/specify-core${{ matrix.exe }}"
+          # The old name, for all of 0.3.x: the same binary, which notices its name. A symlink in
+          # the tarball (no second copy to download); a copy in the zip.
           if [ "${{ runner.os }}" = Windows ]; then
+            cp "$name/specify-pmi.exe" "$name/specify-core.exe"
             asset="$name.zip"; 7z a -bd "dist/$asset" "$name" > /dev/null
           else
+            ln -s specify-pmi "$name/specify-core"
             asset="$name.tar.gz"; tar -czf "dist/$asset" "$name"
           fi
           cd dist

@@ -393,6 +393,9 @@ Read first:
 
 ### WASM API
 
+- Renamed with the package: the npm package is `@draftwright/specify-pmi-wasm` and the generated
+  module is `specify_pmi_wasm.js` (`specify_pmi_wasm_bg.wasm`, `specify_pmi_wasm.d.ts`). Import from
+  the new names; the exports are otherwise unchanged.
 - `IntentEngine.edit(editsJson, project?, payload?)`: an edit list (or a 0.2 answers file)
   applied to the file in memory, all or nothing: `{written: true, bytes, report, source_sha256}`
   (the report with `retired` and `unchanged`), or `{written: false, failures, message}` naming

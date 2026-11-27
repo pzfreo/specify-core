@@ -79,7 +79,7 @@ ALIAS_LINE = re.compile(
     r'`specify-core` (alias|console script)|specify-core alias|``specify-core`` console|'
     r'"specify-core"\.as_ref|`specify-core`: the old name|'
     r'cargo install specify-core|cargo uninstall specify-core|installed `specify-core` crate|'
-    r'`specify-core` forwarder'
+    r'`specify-core` forwarder|alias-check/specify-core|\$name/specify-core'
 )
 
 
