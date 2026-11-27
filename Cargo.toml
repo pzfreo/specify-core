@@ -2,6 +2,7 @@
 members = ["crates/specify-pmi-wasm", "crates/specify-pmi-py"]
 default-members = ["."]
 resolver = "3"
+exclude = ["forwarders"]
 
 [package]
 name = "specify-pmi"
