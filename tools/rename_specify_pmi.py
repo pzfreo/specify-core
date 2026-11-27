@@ -173,18 +173,23 @@ def special_edits(path, text):
     return text
 
 
+def files():
+    """The tracked files, minus forwarders/ (the packages for the old names keep them)."""
+    return [p for p in git("ls-files").splitlines() if not p.startswith("forwarders/")]
+
+
 def main():
     if git("status", "--porcelain").strip() and "--force" not in sys.argv:
         sys.exit("working tree is not clean (commit or stash first, or pass --force)")
     # 1. Paths.
-    for p in git("ls-files").splitlines():
+    for p in files():
         n = new_path(p)
         if n != p:
             (ROOT / n).parent.mkdir(parents=True, exist_ok=True)
             git("mv", p, n)
     # 2. Text.
     changed = 0
-    for p in git("ls-files").splitlines():
+    for p in files():
         if p.endswith((".wasm", ".png", ".jpg", ".gz", ".step", ".stp", ".ico")):
             continue
         f = ROOT / p

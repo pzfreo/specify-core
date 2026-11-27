@@ -14,7 +14,8 @@ in the same group. The writer checks every group's differences against the full 
 checks each entry for staleness in its case or witness group. A local verification run covers
 all groups.
 macOS uses one job. It builds and runs the floating-point test binaries on ordinary
-PRs and runs the full suite on main, manual runs and PRs with `release*` heads.
+PRs and on main, and runs the full suite nightly (03:00 UTC), on manual runs (Rust CI or CI
+workflow; run Rust CI before a release) and on PRs with `release*` heads.
 Full macOS runs are outside the 25-minute target. Docs-only PRs skip Rust, WASM, UI
 and app jobs unless they touch a dependency listed in the workflow's path filter.
 A new CI run for a pull request cancels the previous run for that PR. Main pushes and

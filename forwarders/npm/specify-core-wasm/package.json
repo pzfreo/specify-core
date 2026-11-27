@@ -1,0 +1,24 @@
+{
+  "name": "@draftwright/specify-core-wasm",
+  "type": "module",
+  "description": "Renamed to @draftwright/specify-pmi-wasm: this package forwards to it",
+  "version": "0.3.1",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pzfreo/specify-pmi"
+  },
+  "files": [
+    "specify_core_wasm.js",
+    "specify_core_wasm.d.ts",
+    "NOTICE"
+  ],
+  "main": "specify_core_wasm.js",
+  "types": "specify_core_wasm.d.ts",
+  "dependencies": {
+    "@draftwright/specify-pmi-wasm": "0.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

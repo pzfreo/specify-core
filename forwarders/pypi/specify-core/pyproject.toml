@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "specify-core"
+version = "0.3.1"
+description = "Renamed to specify-pmi: this package forwards to it"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+dependencies = ["specify-pmi==0.3.0"]
+
+[project.urls]
+Repository = "https://github.com/pzfreo/specify-pmi"
+
+# No [project.scripts]: the specify-pmi wheel already installs the `specify-core` command.
+
+[tool.hatch.build.targets.wheel]
+packages = ["specify_core"]

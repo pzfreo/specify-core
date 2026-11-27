@@ -25,9 +25,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: The release tag to publish, e.g. v0.1.17
-        required: true
+        description: The release tag to publish, e.g. v0.1.17 (not needed with forwarders)
+        required: false
         type: string
+      forwarders:
+        description: Publish the forwarding package for the old name (forwarders/) and nothing else
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,7 +45,7 @@ jobs:
   bundle:
     needs: release-check
     if: >-
-      ${{ !cancelled() && (github.event_name == 'pull_request' ||
+      ${{ !cancelled() && !inputs.forwarders && (github.event_name == 'pull_request' ||
         (needs.release-check.result == 'success' && needs.release-check.outputs.publish == 'true')) }}
     uses: ./.github/workflows/bundle.yml
     with:
@@ -67,7 +71,7 @@ jobs:
       - run: cargo publish --dry-run --locked --allow-dirty -p specify-pmi
 
   release-check:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !inputs.forwarders
     uses: ./.github/workflows/release-check.yml
     with:
       tag: ${{ github.event.release.tag_name || inputs.tag }}
@@ -158,3 +162,27 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked --allow-dirty -p specify-pmi
+
+  # The forwarding crate for the old name, specify-core (forwarders/crates/specify-core):
+  # only a dispatch with `forwarders` runs this, and then nothing else does. Copied out of the
+  # checkout because cargo would otherwise find the root workspace.
+  forwarder:
+    if: github.event_name == 'workflow_dispatch' && inputs.forwarders
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: cp -r forwarders/crates/specify-core "$RUNNER_TEMP/specify-core"
+      - name: Mint a crates.io token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish
+        working-directory: ${{ runner.temp }}/specify-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish
