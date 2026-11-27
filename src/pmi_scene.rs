@@ -60,7 +60,7 @@ impl Scene {
     ) -> Result<Self, String> {
         let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-        let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        let read = crate::pmi_read::read(&doc, &defs).map_err(|e| e.to_string())?;
         let stored = match features {
             Some(features) => resume::answers_with(loaded, features),
             None => resume::answers_for(loaded),
@@ -81,7 +81,7 @@ impl Scene {
     pub(crate) fn of_file(loaded: &LoadedPart) -> Result<Self, String> {
         let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-        let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        let read = crate::pmi_read::read(&doc, &defs).map_err(|e| e.to_string())?;
         Ok(Self {
             doc,
             read,

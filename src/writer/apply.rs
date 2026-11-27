@@ -1914,9 +1914,17 @@ fn applied_pmi(
 
     // Plan what is written, on the file without what was taken out: only the questions the
     // list names, with the file's items fixed.
-    let loaded_clean = part::File::of_bytes(&loaded.path, cleaned.clone())
-        .and_then(|f| f.load(Some(k)))
-        .map_err(|e| whole(e.to_string()))?;
+    // When nothing was taken out the file is the part's own: it is not read and analysed again.
+    let untouched = cleaned.as_slice() == loaded.bytes.as_slice();
+    let loaded_reread;
+    let loaded_clean: &LoadedPart = if untouched {
+        loaded
+    } else {
+        loaded_reread = part::File::of_bytes(&loaded.path, cleaned.clone())
+            .and_then(|f| f.load(Some(k)))
+            .map_err(|e| whole(e.to_string()))?;
+        &loaded_reread
+    };
     let stored: Map<String, Json> = analysis["resume"]["answers"]
         .as_object()
         .cloned()
@@ -1942,8 +1950,11 @@ fn applied_pmi(
     let mut pmi = if given.is_empty() {
         PartPmi::default()
     } else {
-        let analysis_clean =
-            crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
+        let analysis_clean = if untouched {
+            analysis.clone()
+        } else {
+            crate::api::analyse(loaded_clean).map_err(|e| whole(e.to_string()))?
+        };
         let mut planned = given.clone();
         let mut lengths = Vec::new();
         for (id, change) in &list.change {
@@ -2087,7 +2098,7 @@ fn applied_pmi(
         });
         let mut made: Vec<Map<String, Json>> = Vec::new();
         let (mut pmi, planned) = super::part_pmi_observed(
-            &loaded_clean,
+            loaded_clean,
             &intent,
             clean_before,
             mode,
@@ -2151,7 +2162,7 @@ fn applied_pmi(
             .map(|(id, value)| (id.clone(), value.clone()))
             .collect();
         for id in super::unwritten_approvals(
-            &loaded_clean,
+            loaded_clean,
             &approved,
             &made,
             &pmi,

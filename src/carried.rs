@@ -35,7 +35,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use haecceity::p21::Document;
-use haecceity::pmi::{self, AttributeSet, AttributeValue};
+use haecceity::pmi::{AttributeSet, AttributeValue};
 use haecceity::step::read_part_definitions;
 use regex::bytes::{NoExpand, Regex};
 use serde_json::{Value, json};
@@ -157,7 +157,7 @@ pub fn payload(bytes: &[u8], name: &str) -> Option<Value> {
 pub fn part_payload(bytes: &[u8], part: usize, name: &str) -> Option<Value> {
     let defs = read_part_definitions(bytes).ok()?;
     let doc = Document::parse(bytes.to_vec()).ok()?;
-    let read = pmi::read(&doc, &defs).ok()?;
+    let read = crate::pmi_read::read(&doc, &defs).ok()?;
     read.parts
         .get(part)?
         .attributes

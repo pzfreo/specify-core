@@ -656,7 +656,7 @@ pub(crate) fn read_parsed(
 pub fn read(loaded: &LoadedPart) -> Result<Vec<Characteristic>, String> {
     let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
     let defs = haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-    let p = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+    let p = crate::pmi_read::read(&doc, &defs).map_err(|e| e.to_string())?;
     let i = loaded.binding.part;
     Ok(read_parsed(&doc, &p.parts[i], &p.provenance.parts[i]))
 }
@@ -1224,7 +1224,7 @@ pub(crate) fn annotate(
     after: &Document,
     defs: &[haecceity::step::PartDefinition],
 ) -> Result<Edit, String> {
-    let read = pmi::read(after, defs).map_err(|e| e.to_string())?;
+    let read = crate::pmi_read::read(after, defs).map_err(|e| e.to_string())?;
     let mut edit = Edit::new();
     for (p, prov) in read.parts.iter().zip(&read.provenance.parts) {
         let Some(h) = history(p)? else {
@@ -1334,7 +1334,7 @@ pub(crate) fn carry_revision(
 ) -> Result<(), String> {
     let doc = Document::parse(old.bytes.to_vec()).map_err(|e| e.to_string())?;
     let defs = haecceity::step::read_part_definitions(&old.bytes).map_err(|e| e.to_string())?;
-    let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+    let read = crate::pmi_read::read(&doc, &defs).map_err(|e| e.to_string())?;
     let i = old.binding.part;
     let Some(mut h) = history(&read.parts[i])? else {
         return Ok(());
