@@ -1541,9 +1541,13 @@ fn applied_pmi(
         && list.items.remove.is_empty()
         && list.items.remove_ids.is_empty()
     {
+        let mut lines = super::Lines::default();
+        if let Some(note) = analysis["resume_warning"].as_str() {
+            lines.warnings.push(note.to_string());
+        }
         return Ok(Applied {
             bytes: loaded.bytes.to_vec(),
-            report: report(loaded, super::Lines::default(), Default::default()),
+            report: report(loaded, lines, Default::default()),
             outcome,
             retired: Vec::new(),
             unchanged: true,
@@ -1782,15 +1786,25 @@ fn applied_pmi(
     }
     // Keep unrecognised, unmarked attributes as input data. A scoped payload supersedes
     // them when the file is read. Recognised legacy duplicates are removed on save (P11).
+    // When Specify's own saved answers did not match this geometry (e.g. a part changed
+    // before a direct material edit), keep the unrecognised attribute intact unless this
+    // edit writes or clears stored decisions, so saved answers and the non-reuse warning
+    // are never silently deleted.
     let mut unmarked_answers = false;
+    let mut preserved_mismatched_answers = false;
+    let edits_stored = !chosen.is_empty() || !none.is_empty() || !list.clear.is_empty();
     for (i, set) in before.attributes.iter().enumerate() {
         if crate::resume::is_answers(set)
-            && !crate::provenance::marked(&original.doc, &prov.attributes[i], "attribute")
             && crate::resume::unrecognised_attribute(loaded, set)
                 .map_err(|e| whole(e.to_string()))?
         {
-            all.insert(("attributes".to_string(), i));
-            unmarked_answers = true;
+            if !crate::provenance::marked(&original.doc, &prov.attributes[i], "attribute") {
+                all.insert(("attributes".to_string(), i));
+                unmarked_answers = true;
+            } else if !edits_stored {
+                all.insert(("attributes".to_string(), i));
+                preserved_mismatched_answers = true;
+            }
         }
     }
     let bookkeeping: BTreeSet<(String, usize)> = (0..before.attributes.len())
@@ -1918,7 +1932,7 @@ fn applied_pmi(
         .map(|(id, v)| (id.clone(), v.clone()))
         .chain(chosen.iter().map(|(id, v)| (id.clone(), v.clone())))
         .collect();
-    let mode = if source.has_pmi(k) || unmarked_answers {
+    let mode = if source.has_pmi(k) || unmarked_answers || preserved_mismatched_answers {
         Mode::Add
     } else {
         Mode::Replace
@@ -2189,9 +2203,26 @@ fn applied_pmi(
         saved.insert(id.clone(), value.clone());
     }
     saved.extend(unwritten);
-    if !saved.is_empty() || unmarked_answers {
+    // Saved answers this part did not reuse are carried on, never replaced by the edit, unless
+    // the edit names them.
+    // (An attribute kept intact above already carries them.)
+    let mut held = if preserved_mismatched_answers {
+        Map::new()
+    } else {
+        crate::resume::held_back(loaded, &analysis)
+    };
+    held.retain(|id, _| {
+        !saved.contains_key(id)
+            && !given.contains_key(id)
+            && !none.contains_key(id)
+            && !list.clear.contains(id)
+    });
+    if !saved.is_empty() || unmarked_answers || !held.is_empty() {
         let mut payload =
             crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        if !held.is_empty() {
+            payload[crate::resume::UNREUSED] = Json::Object(held);
+        }
         // Every stored answer that would write a requirement is one that wrote nothing (rule 2).
         let no_pmi: Vec<Json> = saved
             .iter()
@@ -2203,7 +2234,7 @@ fn applied_pmi(
         if !no_pmi.is_empty() {
             payload[crate::feature_table::NO_PMI] = Json::Array(no_pmi);
         }
-        if unmarked_answers {
+        if unmarked_answers || preserved_mismatched_answers {
             payload["pmi_scope"] = Json::String(super::PMI_PROVENANCE.into());
         }
         pmi.attributes.push(crate::resume::attribute_set(&payload));
@@ -2247,6 +2278,9 @@ fn applied_pmi(
         ));
     }
     lines.warnings.extend(still_stated);
+    if let Some(note) = analysis["resume_warning"].as_str() {
+        lines.warnings.push(note.to_string());
+    }
     for n in &list.items.remove {
         lines.written.push(format!("removed {n}"));
     }

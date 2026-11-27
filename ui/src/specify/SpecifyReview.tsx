@@ -792,6 +792,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     : about.startsWith('datum.') ? 'datums'
       : groups.find((g) => g.questions.some((q) => q.id === about))?.key ?? null);
   const problemsIn = (key: string) => problems.filter((p) => rowOf(p.about) === key);
+  const generalProblems = problems.filter((p) => rowOf(p.about) === null);
   const problemLines = (key: string) => problemsIn(key).map((p) => (
     <button
       key={`${p.about}:${p.message}`} type="button" className={`problem ${p.severity}`}
@@ -1462,6 +1463,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               calledOut={callOutDimension ? calledOut.size : added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
+          {generalProblems.length > 0 && (
+            <div className="pmi-lab-problems" role="status">
+              {generalProblems.map((p) => (
+                <div key={`${p.about}:${p.message}`} className={`problem ${p.severity}`}>
+                  {p.message}
+                </div>
+              ))}
+            </div>
+          )}
           {(partGroup || stated.length > 0) && (
             <section className="pmi-lab-fields">
               {stated.map(([key, value]) => (

@@ -444,7 +444,7 @@ fn amount(x: f64) -> String {
 
 /// Families that are facts about faces, not features a person answers for: they follow every
 /// change to the faces around them.
-const EVIDENCE: [&str; 2] = ["risers", "step_levels"];
+const EVIDENCE: [&str; 4] = ["risers", "step_levels", "fillet_chains", "fillet_groups"];
 
 /// Families that border the features a person names: they change as those do.
 const ROUNDS: [&str; 5] = [
@@ -487,8 +487,14 @@ fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, 
                 )
             })
             .filter(|(f, n)| *n > 0 && *n == f.faces.len().min(record.faces.len()))
-            // The most faces shared, then the smallest feature: a hole, not its pattern.
-            .max_by_key(|(f, n)| (*n, std::cmp::Reverse(f.faces.len())));
+            // The most faces shared, then same family, then the smallest feature: a hole, not its pattern.
+            .max_by_key(|(f, n)| {
+                (
+                    *n,
+                    f.family == record.family,
+                    std::cmp::Reverse(f.faces.len()),
+                )
+            });
         if let Some((f, _)) = best {
             out.entry(record.id.clone()).or_insert_with(|| f.id.clone());
         }

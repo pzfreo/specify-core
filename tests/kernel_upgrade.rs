@@ -249,29 +249,23 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         }
         assert_eq!(stored, kept, "{name}");
         kept.shift_remove("_specify");
-        // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
-        let mut before = resume::stored(&loaded.bytes);
-        // Every payload field and string byte survives apart from the migrated keys.
-        before
-            .get_mut(&0)
-            .unwrap()
-            .insert("answers".into(), json!(kept)); // ADR P11: only the kept answers are stored
-        if let Some(list) = &payload_no_pmi {
-            before
-                .get_mut(&0)
-                .unwrap()
-                .insert("no_pmi".into(), list.clone());
-        }
-        // Every save marks the payload it writes, so it is the one read (ADR P11).
-        before
-            .get_mut(&0)
-            .unwrap()
-            .insert("pmi_scope".into(), json!("specify-core:written:v1"));
+        // Rewriting upgrades the old schema-2 payload to schema 3 (Quiddity fingerprints),
+        // keeping every answer, no_pmi entry, pmi_scope, and literal Unicode/quote/backslash text.
         let after = resume::stored(&back.bytes);
+        assert_eq!(after[&0]["schema"], json!(3), "{name}");
+        assert_eq!(after[&0]["answers"], json!(kept), "{name}");
+        assert_eq!(after[&0].get("no_pmi"), payload_no_pmi.as_ref(), "{name}");
         assert_eq!(
-            resume::encode(&json!(before[&0])),
-            resume::encode(&json!(after[&0]))
+            after[&0]["pmi_scope"],
+            json!("specify-core:written:v1"),
+            "{name}"
         );
+        assert_eq!(
+            after[&0]["geometry"]["fingerprint_version"],
+            json!(quiddity::correspondence::FINGERPRINT_VERSION),
+            "{name}"
+        );
+        assert!(after[&0].get("faces").is_none(), "{name}");
         let settings = specify_core::existing::part_settings(&back).unwrap();
         assert_eq!(settings["notes"], base["answers"]["part.notes"]);
     }
@@ -809,7 +803,26 @@ fn unresolved_saved_answers_reach_review_and_the_file_answers_the_current_questi
             .unwrap();
         let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
         assert!(analysis.get("resume").is_none(), "{field}");
-        assert!(warnings.is_empty(), "{field}: {warnings:?}");
+        assert_eq!(
+            analysis["resume_warning"].as_str(),
+            Some(resume::NOT_REUSED_MESSAGE),
+            "{field}"
+        );
+        assert!(
+            warnings.iter().any(|w| w == resume::NOT_REUSED_MESSAGE),
+            "{field}: {warnings:?}"
+        );
+        let review = api::review(&analysis, &Map::new()).unwrap();
+        assert!(
+            review["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "saved_answers_not_reused"
+                    && p["message"] == resume::NOT_REUSED_MESSAGE),
+            "{field}: {}",
+            review["problems"]
+        );
         assert!(
             !analysis["existing"].as_array().unwrap().is_empty(),
             "{field}"

@@ -77,7 +77,8 @@ fn twenty_named_corpus_parts_preserve_geometric_analysis_write_and_resume() {
             answers.insert("datum.A".into(), json!([f.id]));
         }
         let actual = snapshot(&p, &answers);
-        assert_eq!(actual.1["schema"], 2, "{}", case.name);
+        assert_eq!(actual.1["schema"], 3, "{}", case.name);
+        assert!(actual.1.get("face_names").is_none(), "{}", case.name);
         assert!(
             actual.0["faces"]
                 .as_array()

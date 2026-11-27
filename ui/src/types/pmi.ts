@@ -84,6 +84,8 @@ export interface PmiAnalysis {
     /** 0.3.0 (D11): stored answers left out on reopening, reported once, and not stored again. */
     readonly dropped_answers?: readonly { readonly id: string; readonly value: unknown; readonly reason: string }[];
   };
+  /** Set when stored answers in the STEP file did not match this part and were not reused. */
+  readonly resume_warning?: string;
   /** The file's numbered characteristics (`characteristics::read`). */
   readonly characteristics?: readonly { readonly number: number; readonly kind: string; readonly type: string; readonly faces: readonly number[] }[];
   /** 0.3.0 (ADR P11, D3): the feature table, a row per question with its state in the file. */

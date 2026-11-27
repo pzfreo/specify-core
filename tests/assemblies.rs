@@ -121,13 +121,15 @@ fn parts_are_listed_by_index_with_name_and_product_id() {
     assert_eq!(cli, Value::Array(api));
 }
 
-/// `got` equals `want` field for field, numbers within 1e-12 mm: the base was captured on
-/// macOS, and other platforms' libm can move a frame origin by a few 1e-17.
+/// `got` equals `want` field for field, numbers within 1e-12 (relative above 1): the base was
+/// captured on macOS, and other platforms' libm or boundary summation can move a number by a
+/// few ULPs.
 fn assert_same(got: &Value, want: &Value, at: &str) {
     match (got, want) {
         (Value::Number(a), Value::Number(b)) => {
             let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
-            assert!((a - b).abs() <= 1e-12, "{at}: {a} != {b}");
+            let tol = 1e-12 * a.abs().max(b.abs()).max(1.0);
+            assert!((a - b).abs() <= tol, "{at}: {a} != {b}");
         }
         (Value::Array(a), Value::Array(b)) => {
             assert_eq!(a.len(), b.len(), "{at}: length");

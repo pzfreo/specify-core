@@ -78,7 +78,7 @@ def test_python_shared_and_generic_source_labels_write_and_resume(tmp_path):
     for i, face in enumerate(faces):
         label = "24" if i == 0 else "Fill.1" if i == 1 else "PartBody"
         generic = generic.replace(f"'{face['name']}'", f"'{label}'")
-    for name, source, schema in [("shared", shared, 3), ("generic", generic, 2)]:
+    for name, source, has_names in [("shared", shared, True), ("generic", generic, False)]:
         path = tmp_path / f"{name}.step"
         path.write_text(source)
         analysis = api.analyse(path)
@@ -87,9 +87,9 @@ def test_python_shared_and_generic_source_labels_write_and_resume(tmp_path):
         write_answers(path, answers, out, accept_defaults=True)
         assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(analysis, answers))
         payload = json.loads(base64.b64decode(ITEM.search(out.read_text()).group(2)))
-        assert payload["schema"] == schema
-        if schema == 3:
+        assert payload["schema"] == 3
+        assert "geometry" in payload
+        if has_names:
             assert payload["face_names"][hole] is None and payload["face_names"][other] is None
-            assert "geometry" in payload
         else:
             assert "face_names" not in payload

@@ -50,8 +50,9 @@ fn ftc10() -> (part::LoadedPart, Value, Map<String, Value>, Value) {
 #[test]
 fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     let (loaded, analysis, answers, evidence) = ftc10();
-    // What a caller keeps now is what alpha.6 stored: the schema 2 fingerprint is the same.
-    assert_eq!(resume::evidence(&loaded).unwrap(), evidence);
+    // Old schema 2 evidence from alpha.6 still verifies; newly generated evidence is schema 3.
+    assert!(resume::evidence_matches(&loaded, &evidence).unwrap());
+    assert_eq!(resume::evidence(&loaded).unwrap()["schema"], 3);
     let out = resume::rematch_answers(
         &loaded,
         &features(&analysis),
@@ -419,11 +420,11 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
         "{codes:?}"
     );
 
-    // Rewriting replaces its PMI (it is the writer's own) and stores schema 2, which verifies.
+    // Rewriting replaces its PMI (it is the writer's own) and stores schema 3, which verifies.
     let intent = api::preview(&analysis, resumed).unwrap();
     let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(resumed)).unwrap();
     let back = part::load_bytes("again.step", bytes).unwrap();
-    assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
+    assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(3));
     let again = &api::analyse(&back).unwrap()["resume"];
     // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(

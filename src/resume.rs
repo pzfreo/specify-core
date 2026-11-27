@@ -3,11 +3,13 @@
 //! Writing a part, specify-core also stores in the file the answers that leave no PMI behind
 //! (decided none, and choices): ADR P11, the file's PMI is the only copy of the rest. Older
 //! files store every answer; those that repeat the file's PMI are ignored on reading. Older
-//! Payloads carry `pmi_scope`, which only picks among several stored frames. The payload is
-//! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
-//! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
-//! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
-//! authored STEP names; wholly unnamed parts keep schema 2 and its bytes. Schemas 1/2 still read.
+//! payloads carry `pmi_scope`, which only picks among several stored frames. Schema 3 payloads
+//! store `{schema: 3, answers, part, face_count, geometry?, face_names?}` as compact JSON,
+//! base64-encoded (a Part 21 string then needs no escapes): `geometry` holds Quiddity's own
+//! versioned [`quiddity::correspondence::Fingerprints`] (face and feature fingerprints with
+//! `fingerprint_version`) for unnamed and mixed parts, and `face_names` holds unique authored
+//! `f:` STEP face names when present. Legacy schemas 1 and 2 store Specify's own SHA-256 face
+//! hash in `faces` and stay readable; the next save rewrites them as schema 3.
 //!
 //! **Where it is stored.** Python appends its own text: `PROPERTY_DEFINITION('pmi-assist
 //! answers','schema 1',#pd)` with a representation holding one
@@ -16,8 +18,8 @@
 //! ([`attribute_set`]: `AttributeSet` 'pmi-assist answers' with that one string item), within
 //! the same `pmi::write` edit as the PMI: a standard construct that haecceity's reader consumes
 //! as the part's, so a replace removes it with the PMI it describes. Both forms carry the same
-//! `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','<base64>')`, which is all Python's
-//! reader looks for, so each engine resumes the other's files; [`stored`] reads both.
+//! `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','<base64>')` (or haecceity's ordered
+//! text compound when the encoded text exceeds the literal bound); [`stored`] reads all forms.
 //!
 //! In an assembly each part's answers are stored on that part and say which part they are for;
 //! a part with none stored has no resumable interview. Older Add-mode parts can carry
@@ -40,13 +42,25 @@ use crate::part::LoadedPart;
 use crate::pyfmt::round_half_even;
 use crate::pyjson;
 
-/// Latest stored-answer schema: 3 adds indexed `face_names` (null for unnamed faces),
-/// with geometric fingerprints only for mixed parts. Wholly unnamed parts still write 2.
+/// Latest stored-answer schema: 3 stores Quiddity's own versioned `geometry` fingerprints
+/// (faces and features with `fingerprint_version`) and optional indexed authored `face_names`
+/// (null for unnamed faces), instead of Specify's own SHA-256 face hash.
 /// Readers unaware of 3 ignore the entire stored-answer item, keeping standard STEP PMI.
 pub const SCHEMA: i64 = 3;
 
-/// Accepted schemas: signed-zero legacy 1, unsigned-zero 2, and authored-name 3.
+/// Accepted schemas: signed-zero legacy 1, unsigned-zero legacy 2, and Quiddity-fingerprint /
+/// authored-name 3.
 pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
+
+/// Tolerance (mm) for recovering saved answers when face count and surface kinds match in order
+/// and every centroid agrees within this distance (e.g. across a Quiddity fingerprint version
+/// bump or small integration accuracy improvement).
+pub const CENTROID_TOLERANCE_MM: f64 = 0.01;
+
+/// User-facing notice emitted when a STEP file carries saved answers for this part whose
+/// fingerprint does not match and could not be recovered. Never drop saved answers silently.
+pub const NOT_REUSED_MESSAGE: &str =
+    "Saved answers in this file were not reused: the part has changed since they were saved";
 
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
 /// before specify-core was renamed so that older files still resume.
@@ -57,6 +71,12 @@ pub const NAME: &str = "pmi-assist answers";
 /// `_specify` among answers (and ignore unknown payload members). On resume they return as the
 /// answers' `_specify.unresolved`, so a block applies again once its question is asked.
 pub const UNRESOLVED: &str = "unresolved";
+
+/// The payload member keeping saved answers that were not reused when the answers were last
+/// written (`{answer ID: answer}`), beside `answers` and never inside it. A later edit carries
+/// them forward unchanged, and reading them reports them as not reused, so they survive with
+/// their warning and are never attached to a face of the current evidence.
+pub const UNREUSED: &str = "unreused";
 
 /// Stored answers whose ID no question can have (a STEP written before such IDs were
 /// refused, #126) are left open with a reason rather than resumed, so the rules, which refuse
@@ -185,6 +205,33 @@ fn rounded_faces(loaded: &LoadedPart) -> Result<Value, FeatureError> {
     ))
 }
 
+/// The faces as `[kind, [x, y, z]]` using `part`'s face moments (used to recover legacy
+/// schema 1/2 payloads written before haecceity 0.5.6 #317 switched public `face_moments`
+/// from projected 3D edges to STEP's declared master pcurves).
+fn rounded_faces_with_part(
+    loaded: &LoadedPart,
+    part: &haecceity::Part,
+) -> Result<Value, FeatureError> {
+    Ok(Value::Array(
+        describe_faces(loaded)?
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let centroid: Option<Vec<Value>> = f.centroid.and_then(|_| {
+                    part.face_moments(i).map(|m| {
+                        m.centroid
+                            .map(|x| round_half_even(x, 6))
+                            .iter()
+                            .map(|&c| json!(round_half_even(c, 3)))
+                            .collect()
+                    })
+                });
+                json!([f.kind, centroid])
+            })
+            .collect(),
+    ))
+}
+
 /// The fingerprint, of `schema`, of `faces` given as `[kind, [x, y, z]]` with each component
 /// already rounded to 3 decimals: the lowercase hex sha256 of the UTF-8 text Python's
 /// `json.dumps(faces)` writes (`pyjson::dumps`: `", "` and `": "` separators, floats by
@@ -223,7 +270,8 @@ pub fn fingerprint_of(faces: &Value, schema: i64) -> String {
         .collect()
 }
 
-/// The payload Python's `embed` stores for `answers` given for `loaded`, in its key order.
+/// The payload stored for `answers` given for `loaded`, in its key order: schema 3 with
+/// Quiddity's versioned `geometry` fingerprints (and `face_names` when authored names exist).
 pub fn payload(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<Value, FeatureError> {
     let evidence = evidence(loaded)?;
     let mut payload = json!({
@@ -231,9 +279,8 @@ pub fn payload(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<Valu
         "answers": answers,
         "part": loaded.binding.part,
         "face_count": loaded.binding.face_count,
-        "faces": evidence["faces"],
     });
-    for key in ["face_names", "geometry"] {
+    for key in ["faces", "face_names", "geometry"] {
         if let Some(value) = evidence.get(key) {
             payload[key] = value.clone();
         }
@@ -265,7 +312,7 @@ pub fn is_answers(set: &AttributeSet) -> bool {
         && matches!(set.items.as_slice(), [(name, AttributeValue::Text(_))] if name == NAME)
 }
 
-/// Whether an answer attribute is unreadable or its legacy face evidence rejects the part.
+/// Whether an answer attribute is unreadable or its face evidence rejects the part.
 /// The writer can preserve such an unmarked attribute as input data without resuming it.
 pub(crate) fn unrecognised_attribute(
     loaded: &LoadedPart,
@@ -277,7 +324,16 @@ pub(crate) fn unrecognised_attribute(
     let Some(payload) = decode(text) else {
         return Ok(true);
     };
-    Ok(schema_of(&payload) != Some(3) && check(loaded, &payload, true)? == Check::Mismatch)
+    if schema_of(&payload) == Some(3) {
+        if payload.get("face_names").is_some() {
+            return Ok(false);
+        }
+        return Ok(matches!(
+            match_geometry(loaded, &payload),
+            Ok(GeometryMatch::Mismatch | GeometryMatch::Symmetric) | Err(_)
+        ));
+    }
+    Ok(check(loaded, &payload, true)? == Check::Mismatch)
 }
 
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
@@ -517,6 +573,47 @@ fn stored_answers(
         return Ok(None);
     };
     if schema_of(&payload) == Some(3) {
+        if payload.get("face_names").is_none() {
+            let matched = match match_geometry(loaded, &payload) {
+                Ok(m) => m,
+                Err(_) => return Ok(None),
+            };
+            let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
+                return Ok(None);
+            };
+            let mut resumed = match matched {
+                GeometryMatch::Mismatch => return Ok(None),
+                GeometryMatch::Symmetric => {
+                    let held = open(answers, SYMMETRIC).answers;
+                    if held.is_empty() {
+                        return Ok(None);
+                    }
+                    held
+                }
+                GeometryMatch::SameOrder => {
+                    let Need::Answers(known) = need else {
+                        return Ok(Some(answers.clone()));
+                    };
+                    let features = if answers.keys().any(|id| answer_feature(id).is_some()) {
+                        recognised(loaded, known)?
+                    } else {
+                        std::borrow::Cow::Owned(Vec::new())
+                    };
+                    rematch(answers, &features).answers
+                }
+                GeometryMatch::Mapped(faces) => {
+                    let Need::Answers(known) = need else {
+                        return Ok(Some(answers.clone()));
+                    };
+                    let features = recognised(loaded, known)?;
+                    rematch_by(answers, &features, Matching::Mapped(&faces)).answers
+                }
+            };
+            resumed.retain(|id, _| crate::input::known_id(id));
+            restore_blocks(loaded, &payload, &mut resumed);
+            resumed.extend(crate::bom::answered_in(&doc, &loaded.definition));
+            return Ok(Some(resumed));
+        }
         let known = match need {
             Need::Answers(known) => known,
             Need::Presence => None,
@@ -581,11 +678,33 @@ fn check(
     if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
         return Ok(Check::Mismatch);
     }
+    let Some(stored_hash) = payload.get("faces").and_then(Value::as_str) else {
+        return Ok(Check::Mismatch);
+    };
     let schema = schema_of(payload).unwrap_or(SCHEMA);
     let faces = fingerprint_of(&rounded_faces(loaded)?, schema);
-    Ok(if payload.get("faces") == Some(&Value::String(faces)) {
-        Check::Verified
-    } else if schema == 1 && attribute_form {
+    if stored_hash == faces {
+        return Ok(Check::Verified);
+    }
+    // Pre-#317 legacy recovery: haecceity 0.5.6 switched public `face_moments` from projected
+    // 3D edges to STEP's declared master pcurves (#317), which can shift face centroids across
+    // schema 2's 0.001 mm rounding grid (e.g. cgb217). Recompute the legacy hash under projected
+    // 3D edges and the recognition boundary policy: an exact SHA-256 match proves the same faces
+    // in order without accepting real part changes.
+    let projected = haecceity::Part::new(
+        loaded.part.faces.clone(),
+        loaded.part.edges.clone(),
+        loaded.part.solids.clone(),
+    );
+    if fingerprint_of(&rounded_faces_with_part(loaded, &projected)?, schema) == stored_hash
+        || fingerprint_of(
+            &rounded_faces_with_part(loaded, loaded.part.recognition_part())?,
+            schema,
+        ) == stored_hash
+    {
+        return Ok(Check::Verified);
+    }
+    Ok(if schema == 1 && attribute_form {
         Check::Legacy
     } else {
         Check::Mismatch
@@ -648,9 +767,43 @@ const LEGACY: &str = "the stored schema 1 face fingerprint keeps the signs of ze
      kernel computes differently, so it cannot be checked; answers were matched by feature ID";
 const NO_EVIDENCE: &str = "no saved face fingerprint was given; answers were matched by feature ID";
 const MISMATCH: &str = "the saved face fingerprint does not match this part's faces";
+const SYMMETRIC: &str =
+    "the part is symmetric, so its faces cannot be told apart from the saved ones";
 const UNVERIFIED_ALL: &str = "answers on features and datums are left open";
 const UNVERIFIED_EACH: &str = "the faces it was given for cannot be matched to this part's, even \
      where the feature ID or face is unchanged";
+
+/// Outcome of reading stored answers from a STEP file.
+#[derive(Clone, Debug)]
+pub enum Report {
+    /// The file holds no stored answers for this part.
+    None,
+    /// Stored answers were read and matched to this part.
+    Resumed(Resumed),
+    /// Stored answers were present in the file, but their fingerprint did not match and
+    /// could not be recovered; they were not reused. The message explains why for the user.
+    NotReused(String),
+}
+
+/// Read saved answers with correspondence and diagnostics, using the already recognised
+/// features. Returns [`Report::NotReused`] when a stored payload is present for this part
+/// but its fingerprint does not match and cannot be recovered, so callers never drop saved
+/// answers silently.
+pub fn report_outcome_for_parsed(
+    loaded: &LoadedPart,
+    doc: Option<&Document>,
+    features: &[crate::features::Feature],
+) -> Result<Report, FeatureError> {
+    let mut report = ordinary_report_for_parsed(loaded, doc, features)?;
+    if let Report::Resumed(resumed) = &mut report
+        && let Some(doc) = doc
+    {
+        resumed
+            .answers
+            .extend(crate::bom::answered_in(doc, &loaded.definition));
+    }
+    Ok(report)
+}
 
 /// Read saved answers with correspondence and diagnostics, using the already recognised
 /// features. Legacy schemas contain no quiddity fingerprint: their ordered whole-part
@@ -660,76 +813,140 @@ pub fn report_for_parsed(
     doc: Option<&Document>,
     features: &[crate::features::Feature],
 ) -> Result<Option<Resumed>, FeatureError> {
-    let mut report = ordinary_report_for_parsed(loaded, doc, features)?;
-    if let Some(report) = &mut report
-        && let Some(doc) = doc
-    {
-        report
-            .answers
-            .extend(crate::bom::answered_in(doc, &loaded.definition));
-    }
-    Ok(report)
+    Ok(match report_outcome_for_parsed(loaded, doc, features)? {
+        Report::Resumed(resumed) => Some(resumed),
+        Report::None | Report::NotReused(_) => None,
+    })
 }
 
 fn ordinary_report_for_parsed(
     loaded: &LoadedPart,
     doc: Option<&Document>,
     features: &[crate::features::Feature],
-) -> Result<Option<Resumed>, FeatureError> {
+) -> Result<Report, FeatureError> {
     let Some((payload, form)) = doc
         .map(stored_with_form)
         .unwrap_or_default()
         .remove(&loaded.binding.part)
     else {
-        return Ok(None);
+        return Ok(Report::None);
     };
     let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
-        return Ok(None);
+        return Ok(Report::None);
     };
     let mut out = if schema_of(&payload) == Some(3) {
-        Some(
-            rematch_answers(
-                loaded,
-                features,
-                answers,
-                Some(&Value::Object(payload.clone())),
-                None,
+        if payload.get("face_names").is_some() {
+            Report::Resumed(
+                rematch_answers(
+                    loaded,
+                    features,
+                    answers,
+                    Some(&Value::Object(payload.clone())),
+                    None,
+                )
+                .unwrap_or_else(|error| open(answers, &error.to_string())),
             )
-            .unwrap_or_else(|error| open(answers, &error.to_string(), true)),
-        )
+        } else {
+            match match_geometry(loaded, &payload) {
+                Ok(GeometryMatch::SameOrder) => Report::Resumed(rematch(answers, features)),
+                Ok(GeometryMatch::Mapped(faces)) => {
+                    Report::Resumed(rematch_by(answers, features, Matching::Mapped(&faces)))
+                }
+                Ok(GeometryMatch::Symmetric) => {
+                    // The part matches: answers on it as a whole stand, and the answers on
+                    // faces are held back and reported. With none on the part, all are held.
+                    let held = open(answers, SYMMETRIC);
+                    if held.answers.is_empty() {
+                        Report::NotReused(NOT_REUSED_MESSAGE.into())
+                    } else {
+                        Report::Resumed(held)
+                    }
+                }
+                Ok(GeometryMatch::Mismatch) | Err(_) => {
+                    Report::NotReused(NOT_REUSED_MESSAGE.into())
+                }
+            }
+        }
     } else {
         match check(loaded, &payload, form)? {
-            Check::Verified => Some(rematch(answers, features)),
-            Check::Legacy => Some(by_id(answers, features, loaded, LEGACY)),
-            Check::Mismatch => None,
+            Check::Verified => Report::Resumed(rematch(answers, features)),
+            Check::Legacy => Report::Resumed(by_id(answers, features, loaded, LEGACY)),
+            Check::Mismatch => Report::NotReused(NOT_REUSED_MESSAGE.into()),
         }
     };
-    if let Some(out) = &mut out {
-        without_unknown(out);
-        restore_blocks(loaded, &payload, &mut out.answers);
+    if let Report::Resumed(resumed) = &mut out {
+        without_unknown(resumed);
+        restore_blocks(loaded, &payload, &mut resumed.answers);
+        for (id, answer) in unreused_in(&payload) {
+            resumed.unresolved.push(UnresolvedAnswer {
+                id,
+                feature: None,
+                answer,
+                reason:
+                    "saved answer not reused earlier: it could not be bound to this part's faces"
+                        .into(),
+                automatic: false,
+            });
+        }
     }
     Ok(out)
 }
 
-/// Evidence kept beside external answers. Unnamed parts keep `{schema:2, face_count, faces}`.
-/// Unique authored `f:` identities use schema 3 and add indexed `face_names`; mixed
-/// parts also carry `geometry` for unnamed, shared or generic-labelled faces. The writer
-/// embeds these same fields. Names are opaque STEP strings, never inferred from geometry.
+fn unreused_in(payload: &Map<String, Value>) -> Map<String, Value> {
+    payload
+        .get(UNREUSED)
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The stored answers `analysis` (of `loaded`) did not reuse, to carry in the next payload
+/// ([`UNREUSED`]): the unresolved ones, or every stored one when none were reused.
+pub fn held_back(loaded: &LoadedPart, analysis: &Value) -> Map<String, Value> {
+    let mut held = Map::new();
+    if analysis["resume_warning"].is_string() {
+        if let Some(payload) = stored(&loaded.bytes).remove(&loaded.binding.part) {
+            if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
+                held.extend(answers.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            held.extend(unreused_in(&payload));
+        }
+    } else {
+        for u in analysis["resume"]["unresolved"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = u["id"].as_str() {
+                held.insert(id.into(), u["answer"].clone());
+            }
+        }
+    }
+    held
+}
+
+/// Evidence kept beside external answers and embedded with stored answers in STEP.
+/// Always writes schema 3 using Quiddity's own versioned geometric fingerprints (`geometry`,
+/// carrying `fingerprint_version`, face fingerprints, and feature fingerprints) instead of
+/// Specify's own SHA-256 face hash. Unique authored `f:` identities add indexed `face_names`;
+/// all-named parts rely on `face_names` alone, while unnamed and mixed parts carry `geometry`.
+/// Names are opaque STEP strings, never inferred from geometry.
 pub fn evidence(loaded: &LoadedPart) -> Result<Value, FeatureError> {
     let names = names::identities(&loaded.face_names);
     let named = names.iter().any(Option::is_some);
     let mut evidence = json!({
-        "schema": if named { SCHEMA } else { 2 },
+        "schema": SCHEMA,
         "face_count": loaded.binding.face_count,
-        "faces": fingerprint(loaded)?,
     });
     if named {
         evidence["face_names"] = json!(names);
-        // Only mixed parts need geometric evidence across revisions. All-named parts
-        // use names alone; unnamed parts keep their existing schema and bytes.
+        // Mixed parts need Quiddity's geometric fingerprints for unnamed faces.
+        // All-named parts resolve every face strictly by authored name.
         if names.iter().any(Option::is_none) {
             evidence["geometry"] = json!(loaded.recognition().fingerprints);
         }
+    } else {
+        evidence["geometry"] = json!(loaded.recognition().fingerprints);
     }
     Ok(evidence)
 }
@@ -737,7 +954,7 @@ pub fn evidence(loaded: &LoadedPart) -> Result<Value, FeatureError> {
 /// Why [`rematch_answers`] refused.
 #[derive(Debug)]
 pub enum RematchError {
-    /// The evidence is not `{schema, face_count, faces}` of a schema read.
+    /// The evidence is not valid for a schema read.
     Evidence(String),
     Faces(FeatureError),
 }
@@ -756,14 +973,23 @@ pub fn validate_evidence(evidence: &Value) -> Result<&Map<String, Value>, Rematc
     let payload = evidence
         .as_object()
         .ok_or_else(|| RematchError::Evidence("not an object".into()))?;
-    if schema_of(payload).is_none() {
+    let Some(schema) = schema_of(payload) else {
         return Err(RematchError::Evidence(format!(
             "schema must be one of {SCHEMAS:?}"
         )));
+    };
+    if !payload.get("face_count").is_some_and(Value::is_u64) {
+        return Err(RematchError::Evidence("face_count must be a count".into()));
     }
-    if !payload.get("face_count").is_some_and(Value::is_u64)
-        || !payload.get("faces").is_some_and(Value::is_string)
-    {
+    if schema == 3 {
+        let has_names = payload.get("face_names").is_some_and(Value::is_array);
+        let has_geometry = payload.get("geometry").is_some_and(Value::is_object);
+        if !has_names && !has_geometry {
+            return Err(RematchError::Evidence(
+                "schema 3 requires face_names or geometry".into(),
+            ));
+        }
+    } else if !payload.get("faces").is_some_and(Value::is_string) {
         return Err(RematchError::Evidence(
             "face_count must be a count and faces a fingerprint".into(),
         ));
@@ -775,20 +1001,337 @@ pub fn validate_evidence(evidence: &Value) -> Result<&Map<String, Value>, Rematc
 /// a write never migrates indices by name, nor trusts a legacy mismatching fingerprint.
 pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, RematchError> {
     let payload = validate_evidence(evidence)?;
-    Ok(
-        check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified
-            && (schema_of(payload) != Some(3)
-                || payload.get("face_names")
-                    == Some(&json!(names::identities(&loaded.face_names)))),
-    )
+    if schema_of(payload) != Some(3) {
+        return Ok(check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified);
+    }
+    if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
+        return Ok(false);
+    }
+    if let Some(names) = payload.get("face_names")
+        && names != &json!(names::identities(&loaded.face_names))
+    {
+        return Ok(false);
+    }
+    if payload.get("geometry").is_some() {
+        let old = parse_geometry(payload, loaded.binding.face_count)?;
+        let new = &loaded.recognition().fingerprints;
+        return Ok(
+            (old.fingerprint_version == new.fingerprint_version && old.faces == new.faces)
+                || tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM),
+        );
+    }
+    if payload.get("faces").is_some() {
+        return Ok(check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified);
+    }
+    // All-named schema 3 evidence with no geometry: face_count and face_names already matched.
+    Ok(payload.get("face_names").is_some())
+}
+
+/// Result of matching a schema 3 payload's Quiddity `geometry` fingerprints against `loaded`.
+enum GeometryMatch {
+    /// Exact match or tolerant same-order recovery (face indices unchanged).
+    SameOrder,
+    /// Rebound through `quiddity::correspondence::correspond` on an unchanged part whose faces
+    /// all carried 1-to-1 (possibly reordered).
+    Mapped(BTreeMap<usize, Result<usize, String>>),
+    /// The part matches but is symmetric: its faces cannot be told apart, so answers on them
+    /// are held back while answers on the part as a whole stand.
+    Symmetric,
+    /// Part changed or unrecoverable mismatch.
+    Mismatch,
+}
+
+fn parse_geometry(
+    payload: &Map<String, Value>,
+    face_count: usize,
+) -> Result<quiddity::correspondence::Fingerprints, RematchError> {
+    let invalid = |why: &str| RematchError::Evidence(why.into());
+    let geometry = payload
+        .get("geometry")
+        .ok_or_else(|| invalid("schema 3 requires face_names or geometry"))?;
+    let old: quiddity::correspondence::Fingerprints =
+        serde_json::from_value(geometry.clone()).map_err(|_| invalid("invalid saved geometry"))?;
+    if old.faces.len() != face_count || old.faces.iter().enumerate().any(|(i, f)| f.index != i) {
+        return Err(invalid(
+            "saved geometry must have one face in index order per saved face",
+        ));
+    }
+    Ok(old)
+}
+
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn same_area(a: Option<f64>, b: Option<f64>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()).max(1.0),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_direction(a: Option<[f64; 3]>, b: Option<[f64; 3]>, line: bool) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => {
+            let c = dot3(x, y);
+            (if line { c.abs() } else { c }) >= 1.0 - 1e-4
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_parameters(a: &BTreeMap<String, f64>, b: &BTreeMap<String, f64>, tol_mm: f64) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .all(|(k, &av)| b.get(k).is_some_and(|&bv| (av - bv).abs() <= tol_mm))
+}
+
+/// Tolerant recovery when two Quiddity `Fingerprints` describe the same ordered part:
+/// same face count, every face's surface kind, area, orientation, intrinsic parameters,
+/// adjacency and neighbour indices match in order, and every centroid agrees within `tol_mm`
+/// (0.01 mm). Requiring area, orientation and neighbours prevents coplanar faces with
+/// coincident centroids (such as concentric annular lands) from passing when swapped.
+fn tolerant_faces_match(
+    old: &quiddity::correspondence::Fingerprints,
+    new: &quiddity::correspondence::Fingerprints,
+    tol_mm: f64,
+) -> bool {
+    if old.faces.len() != new.faces.len() {
+        return false;
+    }
+    old.faces
+        .iter()
+        .zip(&new.faces)
+        .enumerate()
+        .all(|(i, (a, b))| {
+            a.index == i
+                && b.index == i
+                && a.surface == b.surface
+                && dist3(a.centroid, b.centroid) <= tol_mm
+                && same_area(a.area, b.area)
+                && same_direction(a.normal, b.normal, false)
+                && same_direction(a.axis, b.axis, a.surface != "plane")
+                && same_parameters(&a.parameters, &b.parameters, tol_mm)
+                && a.adjacency == b.adjacency
+                && a.neighbours == b.neighbours
+        })
+}
+
+/// Whether an axisymmetric part's faces are ambiguous under a symmetry about or flipping
+/// its axis `[o, d]`: either a 180° end-for-end flip maps every face onto a matching face
+/// while swapping at least two distinct faces, or two distinct faces share the same
+/// axisymmetric invariants so rotation about `d` cannot tell them apart.
+fn axisymmetric_ambiguous(
+    prints: &quiddity::correspondence::Fingerprints,
+    [o, d]: [[f64; 3]; 2],
+) -> bool {
+    let tol = (prints.scale * 1e-3).max(CENTROID_TOLERANCE_MM);
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let norm = |v: [f64; 3]| dot3(v, v).sqrt();
+    let axial = |p: [f64; 3]| -> (f64, f64) {
+        let v = sub(p, o);
+        let s = dot3(v, d);
+        let r = norm([v[0] - s * d[0], v[1] - s * d[1], v[2] - s * d[2]]);
+        (s, r)
+    };
+    let coords: Vec<(f64, f64)> = prints.faces.iter().map(|f| axial(f.centroid)).collect();
+    let (Some(min_s), Some(max_s)) = (
+        coords.iter().map(|(s, _)| *s).reduce(f64::min),
+        coords.iter().map(|(s, _)| *s).reduce(f64::max),
+    ) else {
+        return false;
+    };
+    let mid_s = 0.5 * (min_s + max_s);
+    let same_scalar = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-3,
+        (None, None) => true,
+        _ => false,
+    };
+    let face_matches = |i: usize, j: usize, flip: bool| -> bool {
+        let (a, b) = (&prints.faces[i], &prints.faces[j]);
+        if a.surface != b.surface
+            || !same_area(a.area, b.area)
+            || !same_parameters(&a.parameters, &b.parameters, tol)
+            || a.adjacency != b.adjacency
+        {
+            return false;
+        }
+        let ((sa, ra), (sb, rb)) = (coords[i], coords[j]);
+        let expected_s = if flip { 2.0 * mid_s - sa } else { sa };
+        if (expected_s - sb).abs() > tol || (ra - rb).abs() > tol {
+            return false;
+        }
+        let sign = if flip { -1.0 } else { 1.0 };
+        let na = a.normal.map(|n| sign * dot3(n, d));
+        let nb = b.normal.map(|n| dot3(n, d));
+        if !same_scalar(na, nb) {
+            return false;
+        }
+        let aa = a.axis.map(|v| {
+            let c = dot3(v, d);
+            if a.surface == "plane" {
+                sign * c
+            } else {
+                c.abs()
+            }
+        });
+        let ab = b.axis.map(|v| {
+            let c = dot3(v, d);
+            if b.surface == "plane" { c } else { c.abs() }
+        });
+        same_scalar(aa, ab)
+    };
+    let n = prints.faces.len();
+    // Two distinct faces indistinguishable under rotation about the axis.
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if face_matches(i, j, false) {
+                return true;
+            }
+        }
+    }
+    // 180° end-for-end flip maps every face onto a matching face and swaps at least two faces.
+    let mut swaps_distinct = false;
+    for i in 0..n {
+        let mut any = false;
+        for j in 0..n {
+            if face_matches(i, j, true) {
+                any = true;
+                if j != i {
+                    swaps_distinct = true;
+                }
+            }
+        }
+        if !any {
+            return false;
+        }
+    }
+    swaps_distinct
+}
+
+/// What [`unchanged_correspondence_map`] concluded.
+enum Unchanged {
+    /// A unique, unambiguous face bijection `old -> Ok(new)`.
+    Map(BTreeMap<usize, Result<usize, String>>),
+    /// The part is unchanged but symmetric: which face is which cannot be told apart.
+    Symmetric,
+    /// Not proven unchanged.
+    Changed,
+}
+
+/// Whether `correspond` proved an unchanged part with a unique, unambiguous face bijection
+/// (alignment found, no face-swapping symmetry, all faces and features carried 1-to-1,
+/// nothing added, adapted, ambiguous or orphaned). A symmetric part is accepted only when the
+/// motion is a pure translation that leaves every face where it was numbered.
+fn unchanged_correspondence_map(
+    corr: &quiddity::correspondence::Correspondence,
+    old: &quiddity::correspondence::Fingerprints,
+    new: &quiddity::correspondence::Fingerprints,
+) -> Unchanged {
+    use quiddity::correspondence::Class;
+    if !corr.alignment.found
+        || old.faces.len() != new.faces.len()
+        || !corr.new_faces.is_empty()
+        || !corr.new_features.is_empty()
+        || corr.faces.len() != old.faces.len()
+        || corr.features.iter().any(|f| f.class != Class::Carried)
+    {
+        return Unchanged::Changed;
+    }
+    let mut symmetric = false;
+    if corr.alignment.axisymmetric {
+        let Some(axis) = corr.alignment.axis else {
+            return Unchanged::Changed;
+        };
+        if axisymmetric_ambiguous(new, axis) {
+            return Unchanged::Symmetric;
+        }
+    } else if corr.alignment.symmetric {
+        symmetric = true;
+    }
+    let mut map = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    for face in &corr.faces {
+        let Some(target) = face.new else {
+            return Unchanged::Changed;
+        };
+        if face.class != Class::Carried || target >= new.faces.len() || !seen.insert(target) {
+            return Unchanged::Changed;
+        }
+        map.insert(face.old, Ok(target));
+    }
+    if map.len() != old.faces.len() {
+        return Unchanged::Changed;
+    }
+    if symmetric {
+        let identity_motion = (0..3).all(|i| {
+            (0..3)
+                .all(|j| (corr.alignment.rotation[i][j] - f64::from(u8::from(i == j))).abs() < 1e-6)
+        });
+        if !identity_motion || map.iter().any(|(&k, v)| v.as_ref().ok() != Some(&k)) {
+            return Unchanged::Symmetric;
+        }
+    }
+    Unchanged::Map(map)
+}
+
+fn match_geometry(
+    loaded: &LoadedPart,
+    payload: &Map<String, Value>,
+) -> Result<GeometryMatch, RematchError> {
+    let face_count = payload
+        .get("face_count")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RematchError::Evidence("face_count must be a count".into()))?
+        as usize;
+    let old = parse_geometry(payload, face_count)?;
+    let new = &loaded.recognition().fingerprints;
+    if old.fingerprint_version == new.fingerprint_version && old.faces == new.faces {
+        return Ok(GeometryMatch::SameOrder);
+    }
+    let mut symmetric = false;
+    if old.fingerprint_version == new.fingerprint_version
+        && let Ok(corr) = quiddity::correspondence::correspond(&old, new)
+    {
+        match unchanged_correspondence_map(&corr, &old, new) {
+            Unchanged::Map(map) => {
+                if map.iter().all(|(&k, v)| v.as_ref().ok() == Some(&k)) {
+                    return Ok(GeometryMatch::SameOrder);
+                }
+                return Ok(GeometryMatch::Mapped(map));
+            }
+            Unchanged::Symmetric => symmetric = true,
+            Unchanged::Changed => {}
+        }
+    }
+    if tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM) {
+        return Ok(GeometryMatch::SameOrder);
+    }
+    Ok(if symmetric {
+        GeometryMatch::Symmetric
+    } else {
+        GeometryMatch::Mismatch
+    })
 }
 
 /// Answers held outside the STEP (a saved project's), matched to `features`, this part's as
 /// now recognised, as answers stored in the file are on opening ([`report_for_parsed`]).
 ///
-/// Schema 3 resolves stored names exactly first, refusing missing/duplicate names without
-/// geometric fallback. Stored nulls use verified indices or saved geometric correspondence.
-/// Datum lists and extras (including distance references) follow the same per-face mapping.
+/// Schema 3 with authored `face_names` resolves stored names exactly first, refusing
+/// missing/duplicate names without geometric fallback; stored nulls use verified indices or
+/// saved Quiddity geometric correspondence. Schema 3 without `face_names` checks Quiddity's
+/// `geometry` fingerprints (exact match, `correspond` rebind on an unchanged part, or tolerant
+/// same-order recovery within 0.01 mm). Datum lists and extras (including distance references)
+/// follow the same per-face mapping.
 ///
 /// With schema 1/2 `evidence` ([`evidence`] of the part when the answers were saved, or a stored
 /// payload) whose face count and fingerprint match this part, feature answers move to a
@@ -828,11 +1371,22 @@ pub fn rematch_answers(
         Some(evidence) => {
             let payload = validate_evidence(evidence)?;
             if schema_of(payload) == Some(3) {
-                rematch_named(loaded, features, answers, payload)?
+                if payload.get("face_names").is_some() {
+                    rematch_named(loaded, features, answers, payload)?
+                } else {
+                    match match_geometry(loaded, payload)? {
+                        GeometryMatch::SameOrder => rematch(answers, features),
+                        GeometryMatch::Mapped(faces) => {
+                            rematch_by(answers, features, Matching::Mapped(&faces))
+                        }
+                        GeometryMatch::Symmetric => open(answers, SYMMETRIC),
+                        GeometryMatch::Mismatch => open(answers, MISMATCH),
+                    }
+                }
             } else {
                 match check(loaded, payload, false).map_err(RematchError::Faces)? {
                     Check::Verified => rematch(answers, features),
-                    _ => open(answers, MISMATCH, false),
+                    _ => open(answers, MISMATCH),
                 }
             }
         }
@@ -869,8 +1423,8 @@ pub fn rematch_answers(
     Ok(out)
 }
 
-/// Schema 3: exact names override every geometric proposal, including a verified
-/// same-index fingerprint. Only stored `None` entries may use geometry.
+/// Schema 3 with authored `face_names`: exact names override every geometric proposal,
+/// including a verified same-index fingerprint. Only stored `None` entries may use geometry.
 fn rematch_named(
     loaded: &LoadedPart,
     features: &[crate::features::Feature],
@@ -898,32 +1452,21 @@ fn rematch_named(
             .map(|(i, binding)| (i, binding.result()))
             .collect();
     if old_names.iter().all(Option::is_some) {
+        reject_collisions(&mut faces);
         return Ok(rematch_by(answers, features, Matching::Mapped(&faces)));
     }
-    if check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified {
-        faces.extend(
-            old_names
-                .iter()
-                .enumerate()
-                .filter(|(_, name)| name.is_none())
-                .map(|(i, _)| (i, Ok(i))),
-        );
-    } else if old_names.iter().any(Option::is_none)
-        && let Some(geometry) = payload.get("geometry")
-    {
-        let old: quiddity::correspondence::Fingerprints = serde_json::from_value(geometry.clone())
-            .map_err(|_| invalid("invalid saved geometry"))?;
-        if old.faces.len() != old_names.len()
-            || old.faces.iter().enumerate().any(|(i, f)| f.index != i)
-        {
-            return Err(invalid(
-                "saved geometry must have one face in index order per saved face",
-            ));
-        }
+    if payload.get("geometry").is_some() {
+        let old = parse_geometry(payload, old_names.len())?;
         let new = &loaded.recognition().fingerprints;
-        // A future incompatible fingerprint format must leave unnamed faces open. Names
-        // remain usable independently of the geometry format and kernel version.
-        if let Ok(correspondence) = quiddity::correspondence::correspond(&old, new) {
+        if old.fingerprint_version == new.fingerprint_version && old.faces == new.faces {
+            faces.extend(
+                old_names
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| name.is_none())
+                    .map(|(i, _)| (i, Ok(i))),
+            );
+        } else if let Ok(correspondence) = quiddity::correspondence::correspond(&old, new) {
             for face in correspondence.faces {
                 use quiddity::correspondence::Class;
                 let binding = match face.class {
@@ -939,9 +1482,46 @@ fn rematch_named(
                     faces.insert(face.old, binding);
                 }
             }
+        } else if tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM) {
+            faces.extend(
+                old_names
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| name.is_none())
+                    .map(|(i, _)| (i, Ok(i))),
+            );
+        }
+        // A future incompatible fingerprint format on a changed part leaves unnamed faces open.
+        // Names remain usable independently of the geometry format and kernel version.
+    } else if check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified {
+        faces.extend(
+            old_names
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| name.is_none())
+                .map(|(i, _)| (i, Ok(i))),
+        );
+    }
+    reject_collisions(&mut faces);
+    Ok(rematch_by(answers, features, Matching::Mapped(&faces)))
+}
+
+/// Two saved faces bound to one current face (a name and a geometric match disagreeing, as when
+/// a part with some faces named is turned over) are both refused: an answer must never move to
+/// a face it was not made on, nor be silently merged with another face's.
+fn reject_collisions(faces: &mut BTreeMap<usize, Result<usize, String>>) {
+    let mut by_target: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (&old, binding) in faces.iter() {
+        if let Ok(new) = binding {
+            by_target.entry(*new).or_default().push(old);
         }
     }
-    Ok(rematch_by(answers, features, Matching::Mapped(&faces)))
+    for (new, olds) in by_target.into_iter().filter(|(_, olds)| olds.len() > 1) {
+        let why = format!("saved faces {olds:?} would all bind to face {new}; not reused");
+        for old in olds {
+            faces.insert(old, Err(why.clone()));
+        }
+    }
 }
 
 /// Answers without face evidence, `why`, trusted by ID: a feature answer is kept on the
@@ -964,15 +1544,16 @@ fn by_id(
     out
 }
 
-/// Answers whose evidence contradicts this part, `why`: those on features or datums
-/// ([`is_geometric`]) are left open with their values, the rest kept.
-fn open(answers: &Map<String, Value>, why: &str, extras: bool) -> Resumed {
+/// Answers whose evidence contradicts this part, `why`: those on features, datums,
+/// general measurements or added requirements ([`is_geometric`]) are left open with their
+/// values, the rest kept.
+fn open(answers: &Map<String, Value>, why: &str) -> Resumed {
     let mut out = Resumed {
         unverified: Some(format!("{why}; {UNVERIFIED_ALL}")),
         ..Resumed::default()
     };
     for (id, answer) in answers {
-        if is_geometric(id) || (extras && id.starts_with("extra.")) {
+        if is_geometric(id) {
             out.unresolved.push(UnresolvedAnswer {
                 id: id.clone(),
                 feature: answer_feature(id).map(|(_, f)| f.into()),
@@ -987,10 +1568,15 @@ fn open(answers: &Map<String, Value>, why: &str, extras: bool) -> Resumed {
     out
 }
 
-/// Whether the answer `id` is given for faces of the part: a feature question's, or a datum's
-/// faces and the settings that follow its datum (`datum.A.flatness`, `datum.B.control`).
+/// Whether the answer `id` is given for faces of the part: a feature question's, a datum's
+/// faces and the settings that follow its datum (`datum.A.flatness`, `datum.B.control`), a
+/// general measurement (`length:planes:...`, `location:holes:...`), or an added requirement
+/// (`extra.*`).
 fn is_geometric(id: &str) -> bool {
-    answer_feature(id).is_some() || id.starts_with("datum.")
+    answer_feature(id).is_some()
+        || id.starts_with("datum.")
+        || crate::rules::general_rows::is_id(id)
+        || id.starts_with("extra.")
 }
 
 fn answer_feature(id: &str) -> Option<(&str, &str)> {
@@ -1065,6 +1651,29 @@ fn rematch_by(
             }
         };
         let Some((question, old)) = answer_feature(id) else {
+            if crate::rules::general_rows::is_id(id) {
+                match matching {
+                    Matching::Mapped(_) => match crate::rules::general_rows::remap_id(id, mapped) {
+                        Ok(new_id) => proposals.entry(new_id).or_default().push((id, value)),
+                        Err(reason) => out.unresolved.push(refuse(reason)),
+                    },
+                    Matching::Exact { face_count } => {
+                        if let Err(reason) = crate::rules::general_rows::remap_id(id, |i| {
+                            (i < face_count).then_some(i).ok_or_else(|| {
+                                format!("names a face this part does not have ({face_count} faces)")
+                            })
+                        }) {
+                            out.unresolved.push(refuse(reason));
+                        } else {
+                            proposals.entry(id.clone()).or_default().push((id, value));
+                        }
+                    }
+                    Matching::Support => {
+                        proposals.entry(id.clone()).or_default().push((id, value));
+                    }
+                }
+                continue;
+            }
             if let Matching::Exact { face_count } = matching
                 && id.starts_with("datum.")
                 && let Some(faces) = answer.as_array()

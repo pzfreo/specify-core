@@ -48,6 +48,11 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         diagnostic["code"] = Value::from("saved_answers_unverified");
         out.push(diagnostic);
     }
+    if let Some(note) = analysis["resume_warning"].as_str() {
+        let mut diagnostic = problem("warning", note.to_string(), Value::Array(vec![]), "");
+        diagnostic["code"] = Value::from("saved_answers_not_reused");
+        out.push(diagnostic);
+    }
     for finding in analysis["unmeasured_faces"]
         .as_array()
         .into_iter()

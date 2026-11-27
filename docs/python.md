@@ -177,11 +177,11 @@ decisions waiting for the maintainer in [docs/questions.md](questions.md).
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
 without its limits, no thread and no surface finish, as specify-core's reader asks only for its
-own forms of those. Named parts now store schema 3, which older engines skip;
-see [authored face names and compatibility](face-names.md). Unnamed parts retain
-schema 2. Answers the Rust engine stores in schema 2 (Q14) resume in
-specify-core from its branch `fingerprint-v2` on, which writes schema 2 too; files the older
-specify-core wrote (schema 1) do not resume in Rust.
+own forms of those. Newly saved parts write schema 3 using Quiddity's own versioned fingerprints,
+which older engines skip (while still reading the standard AP242 PMI); see
+[docs/design.md](design.md) and [authored face names and compatibility](face-names.md). Legacy
+schema 1 and 2 payloads written by earlier builds remain readable and upgrade to schema 3 on the
+next save; files the older Python specify-core wrote (schema 1) do not resume in Rust.
 
 ## Where this engine differs
 

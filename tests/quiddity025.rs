@@ -44,7 +44,8 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
                 );
             }
         }
-        assert_eq!(resume::evidence(&loaded).unwrap(), base["evidence"]);
+        assert!(resume::evidence_matches(&loaded, &base["evidence"]).unwrap());
+        assert_eq!(resume::evidence(&loaded).unwrap()["schema"], 3);
         // #216 adds the chamfered shaft hole's floor: the three saved keys migrate,
         // with unchanged saved values and answered contracts. The exact legacy
         // floor-to-datum span is checked separately below.

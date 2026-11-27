@@ -214,10 +214,10 @@ pub(crate) fn plane_length_id(from: &[usize], to: &[usize]) -> String {
 }
 
 /// Rebind both supports of a measurement to a new revision, keeping its direction.
-pub(crate) fn remap_id(
+pub(crate) fn remap_id<E: From<&'static str>>(
     id: &str,
-    map: impl Fn(usize) -> Result<usize, &'static str>,
-) -> Result<String, &'static str> {
+    map: impl Fn(usize) -> Result<usize, E>,
+) -> Result<String, E> {
     let (kind, sides) = id.rsplit_once(':').ok_or("invalid measurement id")?;
     let mut sides = sides.split('-');
     let faces = |side: Option<&str>| {
