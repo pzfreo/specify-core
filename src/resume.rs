@@ -72,6 +72,12 @@ pub const NAME: &str = "pmi-assist answers";
 /// answers' `_specify.unresolved`, so a block applies again once its question is asked.
 pub const UNRESOLVED: &str = "unresolved";
 
+/// The payload member keeping saved answers that were not reused when the answers were last
+/// written (`{answer ID: answer}`), beside `answers` and never inside it. A later edit carries
+/// them forward unchanged, and reading them reports them as not reused, so they survive with
+/// their warning and are never attached to a face of the current evidence.
+pub const UNREUSED: &str = "unreused";
+
 /// Stored answers whose ID no question can have (a STEP written before such IDs were
 /// refused, #126) are left open with a reason rather than resumed, so the rules, which refuse
 /// them, can still open the part.
@@ -324,7 +330,7 @@ pub(crate) fn unrecognised_attribute(
         }
         return Ok(matches!(
             match_geometry(loaded, &payload),
-            Ok(GeometryMatch::Mismatch) | Err(_)
+            Ok(GeometryMatch::Mismatch | GeometryMatch::Symmetric) | Err(_)
         ));
     }
     Ok(check(loaded, &payload, true)? == Check::Mismatch)
@@ -577,6 +583,13 @@ fn stored_answers(
             };
             let mut resumed = match matched {
                 GeometryMatch::Mismatch => return Ok(None),
+                GeometryMatch::Symmetric => {
+                    let held = open(answers, SYMMETRIC).answers;
+                    if held.is_empty() {
+                        return Ok(None);
+                    }
+                    held
+                }
                 GeometryMatch::SameOrder => {
                     let Need::Answers(known) = need else {
                         return Ok(Some(answers.clone()));
@@ -754,6 +767,8 @@ const LEGACY: &str = "the stored schema 1 face fingerprint keeps the signs of ze
      kernel computes differently, so it cannot be checked; answers were matched by feature ID";
 const NO_EVIDENCE: &str = "no saved face fingerprint was given; answers were matched by feature ID";
 const MISMATCH: &str = "the saved face fingerprint does not match this part's faces";
+const SYMMETRIC: &str =
+    "the part is symmetric, so its faces cannot be told apart from the saved ones";
 const UNVERIFIED_ALL: &str = "answers on features and datums are left open";
 const UNVERIFIED_EACH: &str = "the faces it was given for cannot be matched to this part's, even \
      where the feature ID or face is unchanged";
@@ -837,6 +852,16 @@ fn ordinary_report_for_parsed(
                 Ok(GeometryMatch::Mapped(faces)) => {
                     Report::Resumed(rematch_by(answers, features, Matching::Mapped(&faces)))
                 }
+                Ok(GeometryMatch::Symmetric) => {
+                    // The part matches: answers on it as a whole stand, and the answers on
+                    // faces are held back and reported. With none on the part, all are held.
+                    let held = open(answers, SYMMETRIC);
+                    if held.answers.is_empty() {
+                        Report::NotReused(NOT_REUSED_MESSAGE.into())
+                    } else {
+                        Report::Resumed(held)
+                    }
+                }
                 Ok(GeometryMatch::Mismatch) | Err(_) => {
                     Report::NotReused(NOT_REUSED_MESSAGE.into())
                 }
@@ -852,8 +877,52 @@ fn ordinary_report_for_parsed(
     if let Report::Resumed(resumed) = &mut out {
         without_unknown(resumed);
         restore_blocks(loaded, &payload, &mut resumed.answers);
+        for (id, answer) in unreused_in(&payload) {
+            resumed.unresolved.push(UnresolvedAnswer {
+                id,
+                feature: None,
+                answer,
+                reason:
+                    "saved answer not reused earlier: it could not be bound to this part's faces"
+                        .into(),
+                automatic: false,
+            });
+        }
     }
     Ok(out)
+}
+
+fn unreused_in(payload: &Map<String, Value>) -> Map<String, Value> {
+    payload
+        .get(UNREUSED)
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The stored answers `analysis` (of `loaded`) did not reuse, to carry in the next payload
+/// ([`UNREUSED`]): the unresolved ones, or every stored one when none were reused.
+pub fn held_back(loaded: &LoadedPart, analysis: &Value) -> Map<String, Value> {
+    let mut held = Map::new();
+    if analysis["resume_warning"].is_string() {
+        if let Some(payload) = stored(&loaded.bytes).remove(&loaded.binding.part) {
+            if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
+                held.extend(answers.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            held.extend(unreused_in(&payload));
+        }
+    } else {
+        for u in analysis["resume"]["unresolved"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = u["id"].as_str() {
+                held.insert(id.into(), u["answer"].clone());
+            }
+        }
+    }
+    held
 }
 
 /// Evidence kept beside external answers and embedded with stored answers in STEP.
@@ -965,6 +1034,9 @@ enum GeometryMatch {
     /// Rebound through `quiddity::correspondence::correspond` on an unchanged part whose faces
     /// all carried 1-to-1 (possibly reordered).
     Mapped(BTreeMap<usize, Result<usize, String>>),
+    /// The part matches but is symmetric: its faces cannot be told apart, so answers on them
+    /// are held back while answers on the part as a whole stand.
+    Symmetric,
     /// Part changed or unrecoverable mismatch.
     Mismatch,
 }
@@ -1146,47 +1218,70 @@ fn axisymmetric_ambiguous(
     swaps_distinct
 }
 
+/// What [`unchanged_correspondence_map`] concluded.
+enum Unchanged {
+    /// A unique, unambiguous face bijection `old -> Ok(new)`.
+    Map(BTreeMap<usize, Result<usize, String>>),
+    /// The part is unchanged but symmetric: which face is which cannot be told apart.
+    Symmetric,
+    /// Not proven unchanged.
+    Changed,
+}
+
 /// Whether `correspond` proved an unchanged part with a unique, unambiguous face bijection
 /// (alignment found, no face-swapping symmetry, all faces and features carried 1-to-1,
-/// nothing added, adapted, ambiguous or orphaned). Returns the face map `old -> Ok(new)`.
+/// nothing added, adapted, ambiguous or orphaned). A symmetric part is accepted only when the
+/// motion is a pure translation that leaves every face where it was numbered.
 fn unchanged_correspondence_map(
     corr: &quiddity::correspondence::Correspondence,
     old: &quiddity::correspondence::Fingerprints,
     new: &quiddity::correspondence::Fingerprints,
-) -> Option<BTreeMap<usize, Result<usize, String>>> {
+) -> Unchanged {
     use quiddity::correspondence::Class;
     if !corr.alignment.found
         || old.faces.len() != new.faces.len()
         || !corr.new_faces.is_empty()
         || !corr.new_features.is_empty()
         || corr.faces.len() != old.faces.len()
+        || corr.features.iter().any(|f| f.class != Class::Carried)
     {
-        return None;
+        return Unchanged::Changed;
     }
+    let mut symmetric = false;
     if corr.alignment.axisymmetric {
-        let axis = corr.alignment.axis?;
+        let Some(axis) = corr.alignment.axis else {
+            return Unchanged::Changed;
+        };
         if axisymmetric_ambiguous(new, axis) {
-            return None;
+            return Unchanged::Symmetric;
         }
     } else if corr.alignment.symmetric {
-        return None;
-    }
-    if corr.features.iter().any(|f| f.class != Class::Carried) {
-        return None;
+        symmetric = true;
     }
     let mut map = BTreeMap::new();
     let mut seen = BTreeSet::new();
     for face in &corr.faces {
-        if face.class != Class::Carried {
-            return None;
-        }
-        let target = face.new?;
-        if target >= new.faces.len() || !seen.insert(target) {
-            return None;
+        let Some(target) = face.new else {
+            return Unchanged::Changed;
+        };
+        if face.class != Class::Carried || target >= new.faces.len() || !seen.insert(target) {
+            return Unchanged::Changed;
         }
         map.insert(face.old, Ok(target));
     }
-    (map.len() == old.faces.len()).then_some(map)
+    if map.len() != old.faces.len() {
+        return Unchanged::Changed;
+    }
+    if symmetric {
+        let identity_motion = (0..3).all(|i| {
+            (0..3)
+                .all(|j| (corr.alignment.rotation[i][j] - f64::from(u8::from(i == j))).abs() < 1e-6)
+        });
+        if !identity_motion || map.iter().any(|(&k, v)| v.as_ref().ok() != Some(&k)) {
+            return Unchanged::Symmetric;
+        }
+    }
+    Unchanged::Map(map)
 }
 
 fn match_geometry(
@@ -1203,19 +1298,29 @@ fn match_geometry(
     if old.fingerprint_version == new.fingerprint_version && old.faces == new.faces {
         return Ok(GeometryMatch::SameOrder);
     }
+    let mut symmetric = false;
     if old.fingerprint_version == new.fingerprint_version
         && let Ok(corr) = quiddity::correspondence::correspond(&old, new)
-        && let Some(map) = unchanged_correspondence_map(&corr, &old, new)
     {
-        if map.iter().all(|(&k, v)| v.as_ref().ok() == Some(&k)) {
-            return Ok(GeometryMatch::SameOrder);
+        match unchanged_correspondence_map(&corr, &old, new) {
+            Unchanged::Map(map) => {
+                if map.iter().all(|(&k, v)| v.as_ref().ok() == Some(&k)) {
+                    return Ok(GeometryMatch::SameOrder);
+                }
+                return Ok(GeometryMatch::Mapped(map));
+            }
+            Unchanged::Symmetric => symmetric = true,
+            Unchanged::Changed => {}
         }
-        return Ok(GeometryMatch::Mapped(map));
     }
     if tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM) {
         return Ok(GeometryMatch::SameOrder);
     }
-    Ok(GeometryMatch::Mismatch)
+    Ok(if symmetric {
+        GeometryMatch::Symmetric
+    } else {
+        GeometryMatch::Mismatch
+    })
 }
 
 /// Answers held outside the STEP (a saved project's), matched to `features`, this part's as
@@ -1274,6 +1379,7 @@ pub fn rematch_answers(
                         GeometryMatch::Mapped(faces) => {
                             rematch_by(answers, features, Matching::Mapped(&faces))
                         }
+                        GeometryMatch::Symmetric => open(answers, SYMMETRIC),
                         GeometryMatch::Mismatch => open(answers, MISMATCH),
                     }
                 }
@@ -1346,6 +1452,7 @@ fn rematch_named(
             .map(|(i, binding)| (i, binding.result()))
             .collect();
     if old_names.iter().all(Option::is_some) {
+        reject_collisions(&mut faces);
         return Ok(rematch_by(answers, features, Matching::Mapped(&faces)));
     }
     if payload.get("geometry").is_some() {
@@ -1395,7 +1502,26 @@ fn rematch_named(
                 .map(|(i, _)| (i, Ok(i))),
         );
     }
+    reject_collisions(&mut faces);
     Ok(rematch_by(answers, features, Matching::Mapped(&faces)))
+}
+
+/// Two saved faces bound to one current face (a name and a geometric match disagreeing, as when
+/// a part with some faces named is turned over) are both refused: an answer must never move to
+/// a face it was not made on, nor be silently merged with another face's.
+fn reject_collisions(faces: &mut BTreeMap<usize, Result<usize, String>>) {
+    let mut by_target: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (&old, binding) in faces.iter() {
+        if let Ok(new) = binding {
+            by_target.entry(*new).or_default().push(old);
+        }
+    }
+    for (new, olds) in by_target.into_iter().filter(|(_, olds)| olds.len() > 1) {
+        let why = format!("saved faces {olds:?} would all bind to face {new}; not reused");
+        for old in olds {
+            faces.insert(old, Err(why.clone()));
+        }
+    }
 }
 
 /// Answers without face evidence, `why`, trusted by ID: a feature answer is kept on the

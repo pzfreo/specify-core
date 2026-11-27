@@ -2203,9 +2203,26 @@ fn applied_pmi(
         saved.insert(id.clone(), value.clone());
     }
     saved.extend(unwritten);
-    if !saved.is_empty() || unmarked_answers {
+    // Saved answers this part did not reuse are carried on, never replaced by the edit, unless
+    // the edit names them.
+    // (An attribute kept intact above already carries them.)
+    let mut held = if preserved_mismatched_answers {
+        Map::new()
+    } else {
+        crate::resume::held_back(loaded, &analysis)
+    };
+    held.retain(|id, _| {
+        !saved.contains_key(id)
+            && !given.contains_key(id)
+            && !none.contains_key(id)
+            && !list.clear.contains(id)
+    });
+    if !saved.is_empty() || unmarked_answers || !held.is_empty() {
         let mut payload =
             crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        if !held.is_empty() {
+            payload[crate::resume::UNREUSED] = Json::Object(held);
+        }
         // Every stored answer that would write a requirement is one that wrote nothing (rule 2).
         let no_pmi: Vec<Json> = saved
             .iter()

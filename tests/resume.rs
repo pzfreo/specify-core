@@ -1394,3 +1394,193 @@ fn direct_material_edit_after_bore_move_preserves_locating_and_warns() {
         "{warnings:?}"
     );
 }
+
+/// `face_grooves.step` with face `face` given the authored name `name`.
+fn name_face(
+    bytes: &[u8],
+    loaded: &specify_core::part::LoadedPart,
+    face: usize,
+    name: &str,
+) -> Vec<u8> {
+    use haecceity::p21::{Attribute, Document, Edit, RawEntity};
+    let doc = Document::parse(bytes.to_vec()).unwrap();
+    let id = loaded.face_entity(face);
+    let RawEntity::Simple {
+        name: entity,
+        attributes,
+        ..
+    } = doc.get(id).unwrap()
+    else {
+        panic!("face entity")
+    };
+    let mut attributes = attributes.clone();
+    attributes[0] = haecceity::p21::Attribute::String(name.into());
+    let _: Option<&Attribute> = None;
+    let mut edit = Edit::new();
+    edit.replace(id, haecceity::p21::simple(entity, attributes));
+    doc.apply(&edit).unwrap().bytes
+}
+
+#[test]
+fn mixed_names_and_geometry_that_collide_hold_the_answer_back_not_drop_it() {
+    let fg = load(
+        &common::fixtures().join("quiddity023/face_grooves.step"),
+        None,
+    )
+    .unwrap();
+    let named_bytes = name_face(&fg.bytes, &fg, 2, "f:fg.land;M:fg.body");
+    let named = specify_core::part::load_bytes("fg-named.step", named_bytes).unwrap();
+    let applied = common::apply_edits(&named, json!({"none": ["length:planes:2-8"]}));
+    let saved = specify_core::part::load_bytes("fg-saved.step", applied.bytes.clone()).unwrap();
+    let payload = stored(&applied.bytes).remove(&0).unwrap();
+    assert!(payload.contains_key("face_names") && payload.contains_key("geometry"));
+    assert_eq!(
+        specify_core::api::analyse(&saved).unwrap()["resume"]["answers"]["length:planes:2-8"],
+        json!("none")
+    );
+
+    let flipped = specify_core::part::load_bytes(
+        "fg-flipped.step",
+        flip_face_grooves_end_for_end(&applied.bytes),
+    )
+    .unwrap();
+    let (analysis, warnings) = specify_core::api::analyse_reporting(&flipped).unwrap();
+    let answers = analysis["resume"]["answers"].as_object().unwrap();
+    assert!(
+        !answers.contains_key("length:planes:2-2") && !answers.contains_key("length:planes:2-8"),
+        "{answers:?}"
+    );
+    let unresolved = analysis["resume"]["unresolved"].as_array().unwrap();
+    let held = unresolved
+        .iter()
+        .find(|u| u["id"] == "length:planes:2-8")
+        .unwrap_or_else(|| panic!("the answer must be reported: {unresolved:?}"));
+    assert_eq!(held["answer"], json!("none"));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("length:planes:2-8") && w.contains("not reused")),
+        "{warnings:?}"
+    );
+}
+
+/// `bytes` with every `CARTESIAN_POINT` moved by `dx` along X: a pure rigid translation.
+fn translate_x(bytes: &[u8], dx: f64) -> Vec<u8> {
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    let num = r"([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)";
+    let pt = Regex::new(&format!(
+        r"(CARTESIAN_POINT\('[^']*',)\({num},{num},{num}\)"
+    ))
+    .unwrap();
+    pt.replace_all(&text, |c: &regex::Captures<'_>| {
+        let x: f64 = c[2].parse().unwrap();
+        format!("{}({:?},{},{})", &c[1], x + dx, &c[3], &c[4])
+    })
+    .into_owned()
+    .into_bytes()
+}
+
+#[test]
+fn translating_a_symmetric_plate_keeps_its_saved_answers() {
+    // Four identical corner holes: the plate is symmetric under turns and flips.
+    let plate = load(
+        &fixture("four_corner_holes_are_quiddity_rectangle_with_members"),
+        None,
+    )
+    .unwrap();
+    let locating = json!(specify_core::rules::LOCATING[1]);
+    let answers = json!({"part.material": "steel", "part.locating": locating, "datum.A": [0]})
+        .as_object()
+        .unwrap()
+        .clone();
+    let saved = embed_payload_bytes(&plate, &resume::payload(&plate, &answers).unwrap());
+    let moved =
+        specify_core::part::load_bytes("plate-moved.step", translate_x(&saved, 100.0)).unwrap();
+    let (analysis, warnings) = specify_core::api::analyse_reporting(&moved).unwrap();
+    assert!(analysis.get("resume_warning").is_none(), "{warnings:?}");
+    assert_eq!(analysis["resume"]["answers"]["part.locating"], locating);
+    // Order is unchanged, so the face answers rebind too rather than being held back.
+    let features: Vec<specify_core::features::Feature> =
+        serde_json::from_value(analysis["features"].clone()).unwrap();
+    let rebound = resume::rematch_answers(
+        &moved,
+        &features,
+        &answers,
+        Some(&resume::evidence(&plate).unwrap()),
+        None,
+    )
+    .unwrap();
+    assert!(rebound.unresolved.is_empty(), "{:?}", rebound.unresolved);
+    assert!(rebound.unverified.is_none());
+    assert_eq!(rebound.answers, answers);
+
+    // A later edit keeps the choice.
+    let applied = common::apply_edits(&moved, json!({"none": ["part.coating"]}));
+    let after = stored(&applied.bytes).remove(&0).unwrap();
+    assert_eq!(after["answers"]["part.locating"], locating);
+    assert!(after["answers"].get("part.coating").is_some());
+    assert!(after.get("unreused").is_none());
+}
+
+#[test]
+fn part_answers_stand_when_face_answers_are_held_back_and_a_later_edit_keeps_both() {
+    let fg = load(
+        &common::fixtures().join("quiddity023/face_grooves.step"),
+        None,
+    )
+    .unwrap();
+    let locating = json!(specify_core::rules::LOCATING[1]);
+    let answers = json!({
+        "part.locating": locating,
+        "extra.end_flat": {"kind": "flatness", "faces": [0], "value": "0.02"},
+        "datum.A": [0],
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let payload = resume::payload(&fg, &answers).unwrap();
+    let flipped_bare =
+        specify_core::part::load_bytes("fg-flip.step", flip_face_grooves_end_for_end(&fg.bytes))
+            .unwrap();
+    let flipped = specify_core::part::load_bytes(
+        "fg-flip-saved.step",
+        embed_payload_bytes(&flipped_bare, &payload),
+    )
+    .unwrap();
+
+    // The part-wide choice stands; the face answers are held back and reported.
+    let (analysis, warnings) = specify_core::api::analyse_reporting(&flipped).unwrap();
+    assert_eq!(analysis["resume"]["answers"]["part.locating"], locating);
+    let ids = |a: &Value| -> Vec<String> {
+        let mut ids: Vec<String> = a["resume"]["unresolved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|u| u["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids(&analysis), ["datum.A", "extra.end_flat"]);
+    assert!(
+        warnings.iter().any(|w| w.contains("datum.A")),
+        "{warnings:?}"
+    );
+
+    // A later edit merges into the saved answers: nothing held back is lost, and reopening
+    // still reports it.
+    let applied = common::apply_edits(&flipped, json!({"none": ["part.coating"]}));
+    let after = stored(&applied.bytes).remove(&0).unwrap();
+    assert_eq!(after["answers"]["part.locating"], locating);
+    assert!(after["answers"].get("part.coating").is_some());
+    assert_eq!(after["unreused"]["datum.A"], json!([0]));
+    assert!(after["unreused"].get("extra.end_flat").is_some());
+    let reopened = specify_core::part::load_bytes("fg-edited.step", applied.bytes).unwrap();
+    let (again, warnings) = specify_core::api::analyse_reporting(&reopened).unwrap();
+    assert_eq!(again["resume"]["answers"]["part.locating"], locating);
+    assert_eq!(ids(&again), ["datum.A", "extra.end_flat"]);
+    assert!(
+        warnings.iter().any(|w| w.contains("datum.A")),
+        "{warnings:?}"
+    );
+}
