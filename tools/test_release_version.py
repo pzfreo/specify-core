@@ -36,6 +36,7 @@ class ReleaseVersionTests(unittest.TestCase):
             (final, False, final, "0.2.3", "latest", final, True),
             (final, False, final, "0.3.1", "release-0.3.0", final, True),
             (final, False, final, "", "", final, True),
+            (final, False, final, "none", "latest", final, True),
             (rc, True, final, "0.2.3", "", "", False),
         ]
         header = ("tag", "flag", "pyproject", "npm-latest", *(job[0] for job in jobs))

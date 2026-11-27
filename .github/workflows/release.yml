@@ -157,8 +157,14 @@ jobs:
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url/$VERSION")
           latest=
           if [ "$status" = 404 ] && [ "$PRERELEASE" = false ]; then
-            metadata=$(curl -fsS --retry 3 "$url")
-            latest=$(jq -r '."dist-tags".latest // empty' <<<"$metadata")
+            # A package's first publish has no metadata yet (404): no latest to compare with.
+            package_status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url")
+            if [ "$package_status" = 404 ]; then
+              latest=none
+            else
+              metadata=$(curl -fsS --retry 3 "$url")
+              latest=$(jq -r '."dist-tags".latest // empty' <<<"$metadata")
+            fi
           fi
           python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
             --registry-status="$status" --latest="$latest"
