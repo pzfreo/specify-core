@@ -235,13 +235,16 @@ try {
       await check(picker).toHaveValue(String(part));
     };
     const pageSave = async () => {
-      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
+      // A two-part assembly save takes ~10 s of server CPU on a fast machine, more on CI runners:
+      // allow 120 s until the save path stops re-analysing each part (then lower this again).
+      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST',
+        { timeout: 120_000 });
       let saved;
       try {
         await page.getByRole('button', { name: 'Save', exact: true }).click({ timeout: 30_000 });
         saved = await response;
       } catch (error) {
-        // Say why no save was sent: the button's state, what the bar holds, and the page's own messages.
+        // Say why no save answered: the button's state, what the bar holds, and the page's own messages.
         const state = await page.evaluate(() => ({
           save: [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Save')
             .map(b => ({ disabled: b.disabled, title: b.title, aria: b.getAttribute('aria-disabled') })),
@@ -249,7 +252,7 @@ try {
           status: [...document.querySelectorAll('[role=status], [role=alert], .app-agent, .error')].map(e => e.innerText),
           ops: window.__engineOps.slice(-12),
         })).catch(e => `state unavailable: ${e}`);
-        throw new Error(`no save sent: ${error.message}\n${JSON.stringify(state, null, 1)}\nproblems: ${JSON.stringify(problems)}`);
+        throw new Error(`no save answered: ${error.message}\n${JSON.stringify(state, null, 1)}\nproblems: ${JSON.stringify(problems)}`);
       }
       assert.equal(saved.status(), 200, await saved.text());
       return saved;
