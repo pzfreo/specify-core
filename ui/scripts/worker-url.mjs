@@ -4,15 +4,20 @@
 // builds the worker as an entry of its own and resolves the engine and its .wasm, so a host need pass nothing.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-// The worker is made in a chunk shared by the entries (the root's and ./helpers'), whatever its hash.
+// The worker is created in the chunk the entries share (the engine client), wherever Vite puts it.
 const wrapped = /new Worker\(\s*new URL\(\s*(?:\/\*\s*@vite-ignore\s*\*\/\s*)?new URL\("assets\/intent\.worker\.js", import\.meta\.url\)\.href,\s*"" \+ import\.meta\.url\s*\)/g;
-const files = readdirSync('dist').filter(name => name.endsWith('.js')).map(name => `dist/${name}`)
-  .filter(name => readFileSync(name, 'utf8').includes('new Worker('));
-if (files.length !== 1) throw new Error(`dist: expected one chunk with the intent worker, found ${files.length}.`);
-const [file] = files;
-const text = readFileSync(file, 'utf8');
-const out = text.replace(wrapped, 'new Worker(new URL("./assets/intent.worker.js", import.meta.url)');
-if (out.match(/new Worker\(/g)?.length !== 1 || !out.includes('new Worker(new URL("./assets/intent.worker.js", import.meta.url), { type: "module" })')) {
-  throw new Error(`${file}: the intent worker's URL is not in the form a host's bundler builds as a worker; check the Vite output.`);
+const standard = 'new Worker(new URL("./assets/intent.worker.js", import.meta.url), { type: "module" })';
+let found = 0;
+for (const name of readdirSync('dist').filter(n => n.endsWith('.js'))) {
+  const file = `dist/${name}`;
+  const text = readFileSync(file, 'utf8');
+  const out = text.replace(wrapped, 'new Worker(new URL("./assets/intent.worker.js", import.meta.url)');
+  const count = out.match(/new Worker\(/g)?.length ?? 0;
+  if (count === 0) continue;
+  if (count !== 1 || !out.includes(standard)) {
+    throw new Error(`${file}: the intent worker's URL is not in the form a host's bundler builds as a worker; check the Vite output.`);
+  }
+  writeFileSync(file, out);
+  found++;
 }
-writeFileSync(file, out);
+if (found !== 1) throw new Error(`expected the intent worker's URL in one dist chunk, found it in ${found}`);
