@@ -5,10 +5,10 @@
 // (the package carries its own three.js).
 import * as THREE from 'three';
 import { CollapseState, Display, Viewer, type Shapes } from 'three-cad-viewer';
-import 'three-cad-viewer/css';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
+import { pathOf, ROOT } from './cad-path';
 import { createOrientationCube } from './orientation-cube';
 import { lightGroup } from './cad-highlight.ts';
 import { edgesOf, hostViewOf, type DefaultView } from './default-view';
@@ -83,15 +83,13 @@ export interface CadView {
   dispose(): void;
 }
 
-const ROOT = 'Part';
+export { pathOf };
 /** The orientation cube's side in CSS pixels, on a wide view and a narrow one, and its place:
  * at the canvas's top right, below the viewer's toolbar and its tree's filter. */
 const CUBE_PX = 84;
 const CUBE_PX_NARROW = 64;
 const CUBE_RIGHT = 10;
 const CUBE_TOP = 64;
-/** A node's path: the viewer's tree finds what to show, hide or light by names. */
-export const pathOf = (...names: string[]) => `/${[ROOT, ...names].join('/')}`;
 const isGroup = (node: CadNode): node is CadGroup => 'leaves' in node;
 
 /** A leaf's faces as one triangle soup, each face its own vertices, and each triangle's face. */
