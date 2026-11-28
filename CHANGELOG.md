@@ -77,6 +77,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
   some). Optional; `DrawnLink.written` carries it.
 
+### WASM API
+
+- `IntentEngine.editFile(editsJson, project?, payload?)`: as `edit`, but returns an `EditedFile` whose `json`
+  is the outcome without `bytes` (`EditFileResult`) and whose `bytes()` gives the new file as a `Uint8Array`.
+  Free it (or `using`) when done. `edit` is unchanged.
+
 ## 0.3.0 (2026-11-27)
 
 Every package is released at 0.3.0 (see "Lockstep versions").
