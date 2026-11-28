@@ -9,7 +9,8 @@
 // Run from ui/ after `npm run build` and `npm run fetch:wasm`. CI supplies one host
 // version (or "pinned") and the tarball already packed by the UI build.
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { engineBuild } from './fetch-wasm.mjs';
 import { pack } from './pack.mjs';
@@ -34,9 +35,10 @@ const dev = rootPkg.devDependencies;
 const version = name => dev[name] ?? fail(`${name} is not in the root devDependencies`);
 const hostVersions = [version('three'), '0.186.1', '0.187.0'];
 const [variant, prepacked, ...extra] = process.argv.slice(2);
-const selectedVersion = variant === 'pinned' ? version('three') : variant;
+const onlyBare = variant === 'no-viewer';
+const selectedVersion = onlyBare ? undefined : variant === 'pinned' ? version('three') : variant;
 if (extra.length || (selectedVersion && !hostVersions.includes(selectedVersion))) {
-  fail(`usage: npm run test:package -- [pinned|${hostVersions.join('|')} [tarball]]`);
+  fail(`usage: npm run test:package -- [no-viewer|pinned|${hostVersions.join('|')} [tarball]]`);
 }
 
 function packLocalBuild() {
@@ -129,5 +131,53 @@ async function testHost(threeVersion) {
   stop();
 }
 
-for (const threeVersion of selectedVersion ? [selectedVersion] : hostVersions) await testHost(threeVersion);
+// A host with its own view does not need three-cad-viewer (an optional peer): installed without it,
+// it typechecks and builds with components that import the package, and the build holds none of it.
+async function testHostWithoutViewer(threeVersion) {
+  console.log(`\n== host without three-cad-viewer, on three ${threeVersion} ==`);
+  // Outside the repo: resolution walks up from the host, and would find this repo's own three-cad-viewer.
+  const bare = resolve(mkdtempSync(resolve(tmpdir(), 'package-host-no-viewer-')), 'host');
+  cpSync(resolve(root, 'test/package-host'), bare, { recursive: true });
+  rmSync(resolve(bare, 'src'), { recursive: true });
+  mkdirSync(resolve(bare, 'src'));
+  writeFileSync(resolve(bare, 'src/main.tsx'), `import '@draftwright/specify-ui/style.css';
+import { createRoot } from 'react-dom/client';
+import { AssemblyDiffView, SpecifyReview, StepDiff, type HostView } from '@draftwright/specify-ui';
+
+// A view of the host's own: the components draw through it and load no viewer of ours.
+const view = {} as HostView;
+const none = new Uint8Array();
+const file = { name: 'a.step', bytes: none };
+createRoot(document.getElementById('root')!).render(<>
+  <StepDiff before={file} after={file} view={view} />
+  {typeof AssemblyDiffView === 'function' && typeof SpecifyReview === 'function' && 'imported'}
+</>);
+`);
+  const pick = names => Object.fromEntries(names.map(name => [name, version(name)]));
+  writeFileSync(resolve(bare, 'package.json'), JSON.stringify({
+    name: 'package-host-no-viewer',
+    private: true,
+    type: 'module',
+    dependencies: { '@draftwright/specify-ui': `file:${tarball}`, ...pick(['react', 'react-dom']), three: threeVersion },
+    devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
+    overrides: { '@draftwright/specify-pmi-wasm': `file:${engineBuild}` },
+  }, null, 2));
+  run(npm, ['install', '--no-audit', '--no-fund'], bare);
+  if (existsSync(resolve(bare, 'node_modules/three-cad-viewer'))) fail('three-cad-viewer was installed in the host without it');
+  run(npx, ['tsc', '-p', '.'], bare);
+  run(npx, ['vite', 'build'], bare);
+  // The package's own view loads it by a dynamic import, which the host's build leaves as it is, or
+  // rewrites to a failure when it is not there; either way no module of it is in the bundle.
+  const assets = resolve(bare, 'dist/assets');
+  for (const name of readdirSync(assets)) {
+    if (name.includes('three-cad-viewer')) fail(`the build holds ${name}`);
+    if (!name.endsWith('.js')) continue;
+    const code = readFileSync(resolve(assets, name), 'utf8');
+    if (/(^|[;\n])\s*import[^;\n]*from\s*["']three-cad-viewer/.test(code)) fail(`${name} imports three-cad-viewer statically`);
+  }
+  console.log('built without three-cad-viewer');
+}
+
+if (!onlyBare) for (const threeVersion of selectedVersion ? [selectedVersion] : hostVersions) await testHost(threeVersion);
+await testHostWithoutViewer(selectedVersion ?? version('three'));
 console.log('test:package passed');

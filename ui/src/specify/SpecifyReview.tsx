@@ -1,5 +1,5 @@
 // Ported from Draftwright.io's PmiLabReview; see third_party/README.md.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { IntentReview, PartTint, PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import { editorDefault } from '../model/intent';
@@ -23,6 +23,7 @@ import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Uni
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
+import { useCadViewer } from './use-cad-viewer';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
@@ -56,7 +57,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
+function SpecifyReviewInner({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -272,8 +273,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // The picker lives as long as the session; React state reaches it through refs.
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
+  const cad = useCadViewer(hostView);
   useEffect(() => {
-    if (!stage.current) return undefined;
+    if (!stage.current || !cad.ready) return undefined;
     const entities = session.provenance?.face_entities;
     const created = createReviewView(stage.current, {
       mesh: session.mesh, analysis: session.analysis, view: hostView, part: session.provenance?.part ?? 0,
@@ -293,7 +295,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       created.dispose();
       picker.current = null;
     };
-  }, [session, faces, hostView]);
+  }, [session, faces, hostView, cad.ready]);
 
   useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
   // The view's tree lists the rows by feature, as the panel does.
@@ -1254,6 +1256,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
+        {cad.error && <p role="alert" className="pmi-lab-error">{cad.error}</p>}
         {visibleDrawn && primaryViews.length > 0 && (
           <div className={`pmi-lab-view-bar${moreTools ? ' with-tools' : ''}`} role="group" aria-label="Look square at" ref={viewBarRef}>
             <div className="pmi-lab-view-pills">
@@ -1719,6 +1722,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 }
 
 /** Hands ``file`` to the browser to save, under its own name. */
+/**
+ * The review. Its own 3D view needs three-cad-viewer (an optional peer), loaded on demand: the review
+ * mounts once it has, so the view is made with the rest of the component's state. A host's ``view`` is
+ * used at once; when the package is missing, the review mounts with the error in the view's place.
+ */
+export function SpecifyReview(props: ComponentProps<typeof SpecifyReviewInner>) {
+  const cad = useCadViewer(props.view ?? null);
+  if (!cad.ready && !cad.error) return <div className="pmi-lab-stage" aria-busy="true" />;
+  return <SpecifyReviewInner {...props} />;
+}
+
 export function saveFile(file: File): void {
   const url = URL.createObjectURL(file);
   const link = document.createElement('a');

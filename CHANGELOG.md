@@ -6,6 +6,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **`three-cad-viewer` is an optional peer dependency** (`@draftwright/specify-ui`). The package's own 3D view
+  loads it with a dynamic import, only when a component is given no `view` (SpecifyReview, StepDiff,
+  AssemblyDiffView); a host that passes its own `HostView` installs and bundles none of it. Without a host view
+  and without the package, the component shows an error naming `three-cad-viewer`. `/view` gains
+  `loadCadViewer()`, to await before `createCadView`. `npm run test:package` now also builds a host without
+  three-cad-viewer.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
   PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
   had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a

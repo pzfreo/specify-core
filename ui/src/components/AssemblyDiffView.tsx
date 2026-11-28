@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WorkerClient } from '../engine/rpc';
+import { loadCadViewer } from '../specify/cad-lib';
 import { createCadView, pathOf, type CadNode, type CadView } from '../specify/cad-view';
 import type { AssemblyPart, PmiMesh } from '../types/pmi';
 import type { FaceRef, HostView, Mat4 } from '../specify/host-view';
@@ -160,6 +161,8 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
         if (!live) return;
         if (hostView) { setReady(oldParts); return; }
         if (!stage.current) return;
+        await loadCadViewer();
+        if (!live) return;
         const cad = createCadView(stage.current, nodes, {
           onPick: path => { const row = rowAt(path); if (row) onOpen(row.name); },
         });

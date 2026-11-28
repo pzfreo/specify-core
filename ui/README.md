@@ -38,9 +38,14 @@ npm install @draftwright/specify-ui
 ```
 
 Peer dependencies, which the host provides (the package bundles none of them): `react` and `react-dom` ^19,
-`three` 0.184 to 0.187 and `three-cad-viewer` ~5.1.3 (this package's tests run on three 0.184.0; its package test also installs it on 0.186.1 and 0.187.0). `three-cad-viewer`
+`three` 0.184 to 0.187, and optionally `three-cad-viewer` ~5.1.3 (this package's tests run on three 0.184.0; its package test also installs it on 0.186.1 and 0.187.0). `three-cad-viewer`
 5.1.3's build contains its own copy of three (r184), so a host that uses this package ships that copy as well as its
 own, whatever its three version (asked upstream: bernhard-42/three-cad-viewer#52).
+
+`three-cad-viewer` is only needed when the host does not supply its own view: it draws the package's own 3D view, and is
+loaded (a dynamic import) only when a component is given no `view` prop. A host that passes a `HostView` can leave it
+uninstalled and its bundle holds none of it; a component given no view, with `three-cad-viewer` missing, shows an error
+that names the package to install. The `/view` entry's `createCadView` needs `await loadCadViewer()` first.
 
 The Specify engine comes in as a dependency, `@draftwright/specify-pmi-wasm` (the same version as this package). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
 beside it, so a host passes nothing. Two things the host's build must allow:
