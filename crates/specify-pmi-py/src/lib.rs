@@ -381,11 +381,11 @@ fn check_edits(py: Python<'_>, step: &Bound<'_, PyAny>, edits: &str) -> PyResult
             &owned
         }
     };
-    Ok(py.guard(|| {
+    py.guard(|| {
         specify_pmi::writer::apply::check(&handle.loaded, edits)
             .to_json()
             .to_string()
-    })?)
+    })
 }
 
 /// Write several parts of `step` (a path, or any part of the file, loaded) together: each
