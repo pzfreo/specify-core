@@ -27,6 +27,17 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   numbers on the HTML fallback labels. `DrawnLink.number` and `DrawnGraphic.balloonSlot` are new, optional.
   The characteristics table shows the engine's planned numbers before Save too, marked (amber ring) until
   the file has them. A callout draws amber while its number is one the file does not have yet (Save writes it), the file's own in blue.
+- **A suggestion not kept has no number, and every number shown before Save is the one Save writes.**
+  Before, the datums Specify suggests were numbered with the call-outs even when they were not kept, so a
+  bracket's datums showed 1–3 and its called-out dimensions 4–8, and Save, which writes only what was kept,
+  wrote the dimensions as 1–5. `IntentEngine.pmiScene`'s review state takes `suggested`, the questions
+  whose answers are shown as suggestions Save does not write: their requirements have no number, and the
+  others are numbered by the writer's allocation of the answers without them. The app and the
+  characteristics table pass their unkept suggestions, so neither the table nor the 3D view numbers or
+  balloons one. Keeping everything numbers as before.
+- **A called-out dimension is shown once before Save.** Its drawn callout answers its `extra.N` question,
+  so the amber fallback label for the same call-out is no longer drawn beside it, nor the callout listed
+  under "Drawing annotations".
 - **`pmiScene`'s `specify[item]` overlay gains `written: true`** on a saved requirement the file marks as
   written by Specify (`specify-core:written:v1`). The UI lays such a callout out as Specify lays out an
   unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved

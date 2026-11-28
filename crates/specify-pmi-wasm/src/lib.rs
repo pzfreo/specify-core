@@ -300,13 +300,22 @@ export interface PmiScene {
                 .and_then(|rows| serde_json::to_string(&rows).map_err(|e| e.to_string()))
                 .map_err(js_error)
         }
-        /// `PmiScene` JSON for current answers or `{answers, auto?, gdt?}` review state.
+        /// `PmiScene` JSON for current answers or `{answers, auto?, gdt?, suggested?}` review
+        /// state. `suggested`: questions whose answers are shown as suggestions Save does not
+        /// write; their requirements have no number, and every number is the one Save writes.
         /// Parse with `JSON.parse`; ids join semantic rows, graphics and Specify statuses.
         #[wasm_bindgen(js_name = pmiScene)]
         pub fn pmi_scene(&self, answers: &str) -> Result<String, JsValue> {
             let value = json("Answers or review state", answers)?;
             let scene = if value.get("answers").is_some_and(Value::is_object) {
-                self.0.pmi_scene_state(&self::state(answers)?)
+                let suggested = match value.get("suggested") {
+                    None | Some(Value::Null) => Default::default(),
+                    Some(list) => serde_json::from_value(list.clone()).map_err(|error| {
+                        JsValue::from_str(&format!("Invalid state: suggested: {error}"))
+                    })?,
+                };
+                self.0
+                    .pmi_scene_suggesting(&self::state(answers)?, &suggested)
             } else {
                 self.0.pmi_scene(&self::answers(answers)?)
             };
