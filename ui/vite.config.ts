@@ -14,9 +14,9 @@ export default defineConfig({
   worker: { format: 'es', rollupOptions: { external, output: { entryFileNames: 'assets/[name].js' } } },
   build: {
     target: 'es2023',
-    // Two entries: the components, and the DOM-free helpers (no three, no CSS) for a host's Node code.
+    // Entries: the components, the DOM-free helpers (no three, no CSS) for a host's Node code, the 3D view's, and the save side (edits).
     lib: {
-      entry: { 'specify-ui': 'src/index.ts', helpers: 'src/helpers.ts', view: 'src/view.ts' }, formats: ['es'],
+      entry: { 'specify-ui': 'src/index.ts', helpers: 'src/helpers.ts', view: 'src/view.ts', edits: 'src/specify/edits/index.ts' }, formats: ['es'],
       fileName: (_format, name) => `${name}.js`, cssFileName: 'specify-ui',
     },
     rollupOptions: { external },

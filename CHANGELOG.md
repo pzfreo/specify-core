@@ -6,6 +6,15 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **A host can save and rematch with `@draftwright/specify-ui` alone** (no copy of the app's editor code). The
+  engine worker gains `edit` (an edit list or a 0.2 answers file applied all or nothing: the new bytes, or every
+  refused entry), `rematch` (`rematchAnswers`) and `table`, as typed calls on `WorkerClient`
+  (`engine.edit/rematch/table`). The answers-to-edit-list translation moves from `ui/app` into the package as the
+  new `@draftwright/specify-ui/edits` entry (`editList`, `answerEdit`, `PendingEdits`, `panelModel`, `statedRows`,
+  `tableOf` and the `FeatureTable`, `EditList`, `Pending`, `EditFailure` types); the local app imports it from there.
+  `.pmi-lab-pane` now fills its positioned container in the package's own CSS, and StepDiff's page-level
+  `html body` rule applies only to a page that holds a diff. The datum-removal confirmation is in the panel
+  row, no longer a native dialog. README: "Embedding and saving".
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
   PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
   had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a

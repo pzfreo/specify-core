@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, suggestionEdits } from '../app/edits.ts';
+import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../src/specify/edits/table.ts';
+import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, suggestionEdits } from '../src/specify/edits/pending.ts';
 import { compose, emptyBlock, parse } from '../src/specify/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).

@@ -68,7 +68,7 @@ const onlyLocal = (requests, url) => {
   const origin = new URL(url).origin;
   assert.deepEqual(requests.filter(u => !u.startsWith(`${origin}/`) && !/^(blob|data):/.test(u)), [], 'no request leaves 127.0.0.1');
 };
-/** Question ``id`` in the review (the editor's screens, app/adapter.ts): a part setting's line or
+/** Question ``id`` in the review (the editor's screens, src/specify/edits/adapter.ts): a part setting's line or
  * field, or an item the file states (`.pmi-lab-stated`, its `data-state`). */
 const question = (page, id) => page.locator(`[data-question="${id}"]`);
 /** The suggestion card for gap ``id`` (its first button keeps the suggestion). */

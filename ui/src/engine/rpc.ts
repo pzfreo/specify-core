@@ -1,3 +1,6 @@
+import type { EngineFile, EditOutcome, EditRequest, RematchRequest, Rematched } from './save';
+import type { FeatureTable } from '../specify/edits/table';
+
 export class WorkerClient {
   private worker: Worker;
   private sequence = 0;
@@ -42,6 +45,14 @@ export class WorkerClient {
       catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
     });
   }
+
+  /** Applies an edit list (or a 0.2 answers file) to ``file`` in memory, all or nothing: the new bytes, or every entry
+   * refused. Nothing is written to disk; the host stores ``bytes``. */
+  edit(file: EngineFile, request: EditRequest): Promise<EditOutcome> { return this.request('edit', { ...file, ...request }); }
+  /** Answers the host saved outside the STEP, matched to ``file`` (a new revision of the part they were made on). */
+  rematch(file: EngineFile, request: RematchRequest): Promise<Rematched> { return this.request('rematch', { ...file, ...request }); }
+  /** The feature table of ``file``: each row's state, value and suggestion; row ids are the ids an edit list names. */
+  table(file: EngineFile): Promise<FeatureTable> { return this.request('table', file); }
 
   private fail(error: Error) {
     for (const pending of this.pending.values()) {

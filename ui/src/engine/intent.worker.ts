@@ -21,7 +21,8 @@ interface IntentModule {
   };
 }
 interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string;
-    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string; checkEdits(edits: string): string }
+    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string; checkEdits(edits: string): string;
+    edit(edits: string, project?: string | null, payload?: string | null): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string; table(): string }
 
 let engine: IntentInstance | undefined;
 // The open engine's analysis as JSON, for the free acceptDefaults (made once per engine).
@@ -102,7 +103,7 @@ self.onmessage = ({ data }) => {
           const { analysis } = JSON.parse(file.snapshot());
           result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
         } finally { file.free(); }
-      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits') {
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits' || operation === 'edit' || operation === 'rematch' || operation === 'table') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined; analysisJson = undefined; stepOrigin = null;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -135,6 +136,16 @@ self.onmessage = ({ data }) => {
         } else if (operation === 'check-edits') {
           // An edit list checked against the file, all or nothing (WASM checkEdits): writes nothing.
           result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
+        } else if (operation === 'edit') {
+          // An edit list (0.3) or a 0.2 answers file applied to the file in memory, all or nothing.
+          const done = JSON.parse(engine.edit(JSON.stringify(args.edits), args.project ?? null, args.payload === undefined ? null : JSON.stringify(args.payload)));
+          result = done.written ? { written: true, bytes: new Uint8Array(done.bytes), report: done.report, source_sha256: done.source_sha256 } : done;
+        } else if (operation === 'rematch') {
+          // Saved answers held outside the STEP matched to this file (reads only).
+          result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence === undefined ? null : JSON.stringify(args.evidence),
+            args.automatic === undefined ? null : JSON.stringify(args.automatic)));
+        } else if (operation === 'table') {
+          result = JSON.parse(engine.table());
         } else if (operation === 'open') {
           const snapshot = JSON.parse(engine.snapshot());
           analysisJson = JSON.stringify(snapshot.analysis);

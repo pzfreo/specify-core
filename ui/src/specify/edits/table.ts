@@ -5,9 +5,9 @@
 // Each row is a feature-and-kind: `stated` in the file (its value and requirements, with their
 // characteristic numbers), a `gap` (Specify's suggestion, and whether it is open), or `decided_none`.
 // `file_pmi` is the file's PMI on no recognised feature-and-kind ("Other PMI in the file").
-import { codeOf } from '../src/specify/choose.ts';
-import { CHARACTERISTIC } from '../src/specify/labels.ts';
-import type { PmiAnalysis, PmiFeature, PmiQuestion } from '../src/types/pmi.ts';
+import { codeOf } from '../choose.ts';
+import { CHARACTERISTIC } from '../labels.ts';
+import type { PmiAnalysis, PmiFeature, PmiQuestion } from '../../types/pmi.ts';
 
 export type RowState = 'stated' | 'gap' | 'decided_none';
 

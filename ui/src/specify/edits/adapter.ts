@@ -7,11 +7,11 @@
 // - general dimensions are not asked one by one (item 1): their questions are not shown, and
 //   Call Out on a dimension adds it with a tolerance of its own, as the editor's Call out does.
 import { answerText, isNoneValue, type FeatureTable, type TableRow } from './table.ts';
-import { removalTargets as targetsOf, type Pending } from './edits.ts';
-import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../src/types/pmi.ts';
-import { describeFaces } from '../src/specify/datums.ts';
-import type { CalledOut } from '../src/specify/SpecifyReview.tsx';
-import { labelStated } from '../src/specify/units';
+import { removalTargets as targetsOf, type Pending } from './pending.ts';
+import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../../types/pmi.ts';
+import { describeFaces } from '../datums.ts';
+import type { CalledOut } from '../SpecifyReview.tsx';
+import { labelStated } from '../units.ts';
 
 /** A general dimension's question (one per dimension under the general tolerance): not shown as a row. */
 export const isDimensionQuestion = (id: string) => id.startsWith('length:') || id.startsWith('location:');
