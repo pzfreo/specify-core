@@ -47,6 +47,9 @@ export const isDecidedNoCallout = (value: unknown): boolean => {
 };
 
 const isDimensionId = (id: string) => id.startsWith('length:') || id.startsWith('location:');
+/** A question that is not a table row but is still the person's own: a dimension's, or an added
+ * requirement's (`extra.N`, before Save). A drawn item for one answers that question. */
+const isOwnQuestion = (id: string) => isDimensionId(id) || id.startsWith('extra.');
 
 const readable = (name: string) => {
   const text = (name.split('_').pop() ?? name).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
@@ -269,7 +272,7 @@ export function oneViewFile(
     const rowId = rowOf(id);
     if (hidden(rowId)) return;
     const row = rowId ? rowsById.get(rowId) : undefined;
-    const question = row?.id ?? (rowId && isDimensionId(rowId) ? rowId : `drawing:${id}`);
+    const question = row?.id ?? (rowId && isOwnQuestion(rowId) ? rowId : `drawing:${id}`);
     const shown = graphics.filter((g) => {
       if (!hasInk(g) || (g.id && (seen.has(g.id) || (!row && removedInk.has(g.id))))) return false;
       if (g.id) seen.set(g.id, question);
@@ -292,7 +295,7 @@ export function oneViewFile(
       cells: [name], title: [name, support, number].filter(Boolean).join(' · '),
       faces: faces.length ? faces : row?.faces ?? [],
     };
-    if (!row && !(rowId && isDimensionId(rowId))) extras.set(question, label);
+    if (!row && !(rowId && isOwnQuestion(rowId))) extras.set(question, label);
     labels.set(id, label);
     items[id] = shown;
     links[id] = { ...link, faces: label.faces, status: 'stated', question };

@@ -56,7 +56,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, calledOutNumbers, takenKeys }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -132,6 +132,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /** General dimensions the host holds called out, by characteristic, with their tolerance (it
    * outlasts the review, a part switch say); without it the review keeps its own. */
   calledOutDimensions?: ReadonlyMap<string, string>;
+  /** The number Save writes for each general dimension called out, by characteristic: the engine's
+   * for the call-out that replaces it (its drawn callout's), shown on its row until Save. */
+  calledOutNumbers?: ReadonlyMap<string, number>;
   /** "Added by you" keys (extra.N) the host already uses, which a new requirement must not take. */
   takenKeys?: readonly string[];
   /** The file's length unit: the units a general tolerance by decimal places starts in (#228). */
@@ -453,8 +456,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // Numbers the saved file does not have yet: the engine's plan for what Save will write.
   const plannedNumbers = useMemo(() => {
     const saved = new Set((session.analysis.characteristics ?? []).map((c) => c.number));
-    return new Set(chars.filter((c) => c.n && !saved.has(c.n)).map((c) => c.n));
-  }, [chars, session.analysis]);
+    return new Set([...chars.filter((c) => c.n && !saved.has(c.n)).map((c) => c.n), ...calledOutNumbers?.values() ?? []]);
+  }, [chars, session.analysis, calledOutNumbers]);
   const drawnReveal = useMemo(() => {
     const items = new Set<string>();
     for (const [item, label] of oneFile.labels) {
@@ -481,9 +484,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       const key = label.id.split(':').slice(0, 2).join(':');
       if (out.has(key) || !label.question) continue;
       // The engine's number for the drawn callout that answers it, else its characteristics'.
-      // (An added requirement's drawn item is named for it: `location:extra.1:[0]:extra.1`.)
-      const linked = Object.entries(oneFile.drawn?.links ?? {})
-        .filter(([item, l]) => l.number && (l.question === label.question || item.endsWith(`:${label.question}`))).map(([, l]) => l.number!);
+      const linked = Object.values(oneFile.drawn?.links ?? {})
+        .filter((l) => l.number && l.question === label.question).map((l) => l.number!);
       const numbers = linked.length ? [...new Set(linked)] : [...new Set(chars.filter((c) => c.n && c.question === label.question).map((c) => c.n))];
       if (numbers.length) out.set(key, numbers);
     }
@@ -1480,7 +1482,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           {view === 'table' ? (
             <CharacteristicsTable
               file={lengthUnit}
-              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv} planned={plannedNumbers}
+              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv} planned={plannedNumbers} calledOutNumbers={calledOutNumbers}
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && (callOutDimension || !row.source.startsWith('general:existing:'))
@@ -1563,6 +1565,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {generalDims.map((r) => (
                     <DimensionLine
                       key={r.id} row={r} file={lengthUnit} selected={selectedChar === r.id} calledOut={calledOut.get(r.id) ?? null}
+                      planned={calledOutNumbers?.get(r.id)}
                       startOpen={callingOut === r.id}
                       onSelect={() => showChar(r.id, r.faces)}
                       onCallOut={(tolerance) => {
@@ -1755,8 +1758,10 @@ export interface CalledOut {
 
 /** One dimension the general tolerance covers: its feature, characteristic, nominal, ± and number,
  * and Call Out, which takes a tolerance of its own in place (change list item 1). */
-function DimensionLine({ row, file, selected, calledOut, startOpen, onSelect, onCallOut }: {
+function DimensionLine({ row, file, selected, calledOut, planned, startOpen, onSelect, onCallOut }: {
   row: Characteristic; file: LengthUnit; selected: boolean; calledOut: string | null; startOpen: boolean;
+  /** The number Save writes for it, called out (the engine's). */
+  planned?: number;
   onSelect: () => void; onCallOut: (tolerance: string) => boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
@@ -1771,7 +1776,7 @@ function DimensionLine({ row, file, selected, calledOut, startOpen, onSelect, on
   return (
     <div className={`pmi-lab-dim${selected ? ' on' : ''}${calledOut ? ' changed' : ''}`} data-characteristic={row.id}>
       <button type="button" className="pmi-lab-dim-line" onClick={onSelect}>
-        <span className="bal">{row.n ? row.id : '—'}</span>
+        <span className={`bal${!row.n && planned ? ' planned' : ''}`}>{row.n ? row.id : planned ?? '—'}</span>
         <span className="feature">{labelName(row.feature, file)}</span>
         <span className="text">{labelRow(row)}</span>
         <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')} mm</> : withUnits(tol, 'mm')}</span>

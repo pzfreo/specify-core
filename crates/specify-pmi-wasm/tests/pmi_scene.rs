@@ -246,3 +246,118 @@ fn assembly_view_only_diameters_match_actual_mesh_faces_and_frame_after_an_edit(
         assert!(check_diameters(&reopened.pmi_scene(&answers).unwrap(), &after) > 0);
     }
 }
+
+/// The bent bracket's datum frame suggestions and its five dimensions called out, as the editor
+/// holds them before Save: `(suggestions, call-outs)`.
+fn bracket_answers() -> (Map<String, Value>, Map<String, Value>) {
+    let object = |v: Value| v.as_object().unwrap().clone();
+    let suggestions = object(json!({
+        "part.general_tolerance": "ISO 2768-m", "part.edges": "Deburr only", "part.process": "sheet metal",
+        "datum.A": [0], "datum.B": [2], "datum.C": [8],
+        "datum.A.flatness": "none", "datum.B.control": "none", "datum.C.control": "none",
+    }));
+    let calls = object(json!({
+        "extra.1": {"faces": [6], "kind": "distance", "value": "±0.1", "reference": [0]},
+        "extra.2": {"faces": [4], "kind": "distance", "value": "±0.1", "reference": [2]},
+        "extra.3": {"faces": [3], "kind": "distance", "value": "±0.3", "reference": [0]},
+        "extra.4": {"faces": [7], "kind": "distance", "value": "±0.3", "reference": [2]},
+        "extra.5": {"faces": [8], "kind": "distance", "value": "±0.3", "reference": [9]},
+    }));
+    (suggestions, calls)
+}
+
+/// Each numbered requirement of `scene`, by its number: its collection and its semantic value
+/// (features are named by their geometry, so a requirement is the same row before and after Save).
+fn numbered(scene: &Value) -> std::collections::BTreeMap<u64, (String, Value)> {
+    let mut out = std::collections::BTreeMap::new();
+    for (collection, rows) in scene["pmi"]["pmi"].as_object().unwrap() {
+        for row in rows.as_array().into_iter().flatten() {
+            let Some(id) = row["id"].as_str() else {
+                continue;
+            };
+            if let Some(n) = scene["specify"][id]["number"].as_u64() {
+                let mut value = row["value"].clone();
+                value.as_object_mut().map(|v| v.remove("identifier"));
+                assert!(
+                    out.insert(n, (collection.clone(), value)).is_none(),
+                    "number {n} twice"
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Every number the scene shows before Save is the one Save writes, for the same requirement;
+/// a suggestion not kept has none (docs/characteristic-numbers.md, "Numbers in the 3D view").
+#[test]
+fn planned_numbers_are_the_numbers_save_writes_whatever_is_kept() {
+    let gz = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/parts/sheet-metal/bent-bracket.step.gz"),
+    )
+    .unwrap();
+    let bytes = specify_pmi::part::gunzip(&gz).unwrap().unwrap();
+    let (suggestions, calls) = bracket_answers();
+    let datums = ["datum.A", "datum.B", "datum.C"];
+    // (what is kept, as edits Save writes; how many numbered requirements that is)
+    let cases: [(&str, Vec<&str>, usize); 3] = [
+        (
+            "keep all",
+            suggestions.keys().map(String::as_str).collect(),
+            8,
+        ),
+        ("nothing kept", vec![], 5),
+        ("datum A kept", vec!["datum.A", "datum.A.flatness"], 6),
+    ];
+    for (case, kept, count) in cases {
+        let engine = Session::open("bent-bracket.step", &bytes).unwrap();
+        let mut fill = calls.clone();
+        let mut answers = calls.clone();
+        let mut suggested = std::collections::BTreeSet::new();
+        for (id, value) in &suggestions {
+            answers.insert(id.clone(), value.clone());
+            if kept.contains(&id.as_str()) {
+                fill.insert(id.clone(), value.clone());
+            } else {
+                suggested.insert(id.clone());
+            }
+        }
+        let state = |answers: &Map<String, Value>| {
+            serde_json::from_value(json!({"answers": answers})).unwrap()
+        };
+        let before = engine
+            .pmi_scene_suggesting(&state(&answers), &suggested)
+            .unwrap();
+        let planned = numbered(&before);
+        assert_eq!(planned.len(), count, "{case}: {planned:?}");
+        // A suggestion not kept is shown, unnumbered.
+        for datum in datums.iter().filter(|d| !kept.contains(d)) {
+            let letter = &datum["datum.".len()..];
+            let meta = &before["specify"][format!("datum:{letter}")];
+            assert_eq!(meta["question"], *datum, "{case}: {datum} is shown");
+            assert!(
+                meta.get("number").is_none(),
+                "{case}: {datum} has no number"
+            );
+        }
+        let saved = engine.edit(&json!({ "fill": fill }).to_string());
+        assert_eq!(saved["written"], true, "{case}: {saved}");
+        let written: Vec<u8> = serde_json::from_value(saved["bytes"].clone()).unwrap();
+        let file = specify_pmi::pmi_scene::pmi_scene(&written, None).unwrap();
+        assert_eq!(numbered(&file), planned, "{case}: the numbers Save wrote");
+        // After Save, the same suggestions still shown: the same numbers, and none for them.
+        let reopened = Session::open("bent-bracket.specified.step", &written).unwrap();
+        let mut after = answers.clone();
+        if let Some(stored) = reopened.analysis()["resume"]["answers"].as_object() {
+            after.extend(stored.clone());
+        }
+        for id in &calls {
+            after.shift_remove(id.0);
+        }
+        let shown = reopened
+            .pmi_scene_suggesting(&state(&after), &suggested)
+            .unwrap();
+        assert_eq!(numbered(&shown), planned, "{case}: after Save");
+    }
+}
