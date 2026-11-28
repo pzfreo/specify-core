@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { EditOutcome } from '../../engine/save.ts';
 import type { PendingEdits } from '../edits/pending.ts';
 import type { EditList } from '../edits/types.ts';
-import { SpecifyHost, type ReviewPropsFromHost, type SavedElsewhere, type SpecifyHostOptions, type SpecifyHostState } from './specify-host.ts';
+import { SpecifyHost, type HeldEdits, type ReviewPropsFromHost, type SavedElsewhere, type SpecifyHostOptions, type SpecifyHostState } from './specify-host.ts';
 
 export interface UseSpecifyHost {
   /** Spread into SpecifyReview; null until the file's table is read (and while another file is being read). */
@@ -28,6 +28,8 @@ export interface UseSpecifyHost {
   setPending(next: PendingEdits): void;
   /** An answer of the review changed (see SpecifyHost.answered). */
   answered: SpecifyHost['answered'];
+  /** The person's held edits as plain data, to keep across a reload (see SpecifyHostOptions.held). */
+  heldEdits(): HeldEdits;
   /** Drops every held edit. */
   discard(): void;
 }
@@ -46,6 +48,6 @@ export function useSpecifyHost(options: SpecifyHostOptions): UseSpecifyHost {
     reviewProps, saving: state.saving, lastReport: state.lastReport, refused: state.refused, loading: state.loading, error: state.error,
     save: () => host.save(), refresh: () => host.refresh(), compose: () => host.compose(),
     pending, partPending: host.pendingEdits(), setPending: (next) => host.setPending(next),
-    answered: (...args) => host.answered(...args), discard: () => host.discard(),
+    answered: (...args) => host.answered(...args), heldEdits: () => host.heldEdits(), discard: () => host.discard(),
   };
 }

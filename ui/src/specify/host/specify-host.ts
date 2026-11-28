@@ -23,6 +23,17 @@ export interface SavedElsewhere {
   review?: { questions: readonly PmiQuestion[] };
 }
 
+/** The person's held edits as plain JSON (what ``SpecifyHost.heldEdits()`` returns and ``SpecifyHostOptions.held`` takes), so a host can keep
+ * them across a reload. An agent's draft is never in it. ``callOuts`` and ``displaced`` are keyed as the host keeps them (``part:...``). */
+export type HeldEdits = {
+  version: 1;
+  parts: { [part: string]: Pending[] };
+  callOuts: { [at: string]: string };
+  displaced: { [at: string]: Pending };
+};
+
+const SEVERAL_NEEDS_SAVE_VIA = "several parts need saveVia: the engine's edit takes one part's list";
+
 export interface SpecifyHostOptions {
   /** The engine. Optional for a host that supplies ``read`` and ``saveVia`` and calls neither of the engine's. */
   client?: Pick<WorkerClient, 'request' | 'edit' | 'acceptDefaults'>;
@@ -55,8 +66,12 @@ export interface SpecifyHostOptions {
   read?: HostRead | null;
   /** Held edits survive a new file: the host's file changes under it (a save by someone else reopens the part). */
   keepHeld?: boolean;
-  /** The person changed a held edit (kind 'edit'), an answer became one ('answer'), or all were discarded ('discard'). */
-  onHeldChange?: (kind: 'answer' | 'edit' | 'discard', part: number) => void;
+  /** Held edits from an earlier session (``heldEdits()``, kept as JSON): taken once, at construction, and applied to the first file the host
+   * shows (it survives that file even when it is not the one they were held on). Later changes to this option are ignored; an unknown version is none. */
+  held?: HeldEdits;
+  /** The held edits changed, with all of them (``held``) for the host to keep: the person changed one (kind 'edit'), an answer became one
+   * ('answer'), or all were discarded ('discard'). A save that wrote some of them reports kind 'edit' (for the part saved), with what is still held. */
+  onHeldChange?: (kind: 'answer' | 'edit' | 'discard', part: number, held: HeldEdits) => void;
   /** The edit was applied: the outcome, and the file as saved (the host stores its bytes). The hook has already re-read it. */
   onSaved?: (outcome: Edited | SavedElsewhere, saved: EngineFile) => void;
   /** The scene as drawn, for the number shown on each call-out. */
@@ -111,7 +126,35 @@ export class SpecifyHost {
   /** Settles when the file last given has been read. */
   ready: Promise<void> = Promise.resolve();
 
-  constructor(options: SpecifyHostOptions) { this.options = options; }
+  /** The ``held`` option, until the first file takes it. */
+  private initialHeld: HeldEdits | null;
+
+  constructor(options: SpecifyHostOptions) {
+    this.options = options;
+    this.initialHeld = options.held?.version === 1 ? options.held : null;
+  }
+
+  /** The person's held edits as plain data (never the agent's drafts), for the host to keep and give back as ``held``. */
+  heldEdits(): HeldEdits {
+    const parts: HeldEdits['parts'] = {};
+    for (const [part, list] of this.held) if (list.size) parts[String(part)] = list.values();
+    return { version: 1, parts, callOuts: Object.fromEntries(this.callOutKeys), displaced: Object.fromEntries(this.displaced) };
+  }
+
+  private takeInitialHeld() {
+    const initial = this.initialHeld;
+    if (!initial) return;
+    this.initialHeld = null;
+    const held = new Map<number, PendingEdits>();
+    for (const [part, list] of Object.entries(initial.parts ?? {})) {
+      const local = new PendingEdits((list ?? []).filter((edit) => !edit.draft));
+      if (local.size) held.set(Number(part), local);
+    }
+    this.held = held;
+    for (const [at, key] of Object.entries(initial.callOuts ?? {})) this.callOutKeys.set(at, key);
+    for (const [at, edit] of Object.entries(initial.displaced ?? {})) this.displaced.set(at, edit);
+    this.memo = null;
+  }
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.state;
@@ -129,6 +172,7 @@ export class SpecifyHost {
     if (!lineage && !this.options.keepHeld) {
       this.held = new Map(); this.callOutKeys.clear(); this.displaced.clear(); this.memo = null;
     }
+    this.takeInitialHeld();
     const read = this.state.read;
     // The same bytes again (the saved file the host now stores): the table read is still its own.
     if (lineage && read && partOf(read.file) === partOf(file)) this.state = { ...this.state, read: { ...read, file } };
@@ -200,7 +244,7 @@ export class SpecifyHost {
     if (local.size) held.set(part, local); else held.delete(part);
     this.held = held;
     this.set({});
-    this.options.onHeldChange?.('edit', part);
+    this.options.onHeldChange?.('edit', part, this.heldEdits());
   }
 
   /** An answer of the review changed: part ``part``'s row ``id`` is ``value`` (undefined: taken back). With ``at`` (the part shown's table,
@@ -215,14 +259,14 @@ export class SpecifyHost {
     if (next.size) held.set(part, next); else held.delete(part);
     this.held = held;
     this.set({});
-    this.options.onHeldChange?.('answer', part);
+    this.options.onHeldChange?.('answer', part, this.heldEdits());
   }
 
   /** Drops every held edit (Discard). */
   discard() {
     this.held = new Map(); this.callOutKeys.clear(); this.displaced.clear(); this.memo = null;
     this.set({});
-    this.options.onHeldChange?.('discard', this.part());
+    this.options.onHeldChange?.('discard', this.part(), this.heldEdits());
   }
 
   /** SpecifyReview's props from the file's table (null until it is read, or while another file is being read). */
@@ -254,7 +298,8 @@ export class SpecifyHost {
     const file = this.file!;
     const read = this.readOf(file);
     if (!read) return null;
-    const { client, acceptDefaults, bom, beforeSave, several } = this.options;
+    const { client, acceptDefaults, bom, beforeSave, several, saveVia } = this.options;
+    if (several && !saveVia) throw new Error(SEVERAL_NEEDS_SAVE_VIA);
     const engine = () => client ?? noEngine();
     const part = partOf(file);
     const all = this.allPending();
@@ -301,8 +346,10 @@ export class SpecifyHost {
       const sentDisplaced = new Map(this.displaced);
       this.inFlight = during;
       const { client, project, payload, saveVia } = this.options;
+      const one = Array.isArray(plan.edits) ? null : plan.edits;
+      if (!saveVia && !one) throw new Error(SEVERAL_NEEDS_SAVE_VIA);
       const outcome = saveVia ? await saveVia(plan.edits, file)
-        : await (client ?? noEngine()).edit(file, { edits: plan.edits as EditList, ...(project !== undefined ? { project } : {}), ...(payload ? { payload } : {}) });
+        : await (client ?? noEngine()).edit(file, { edits: one!, ...(project !== undefined ? { project } : {}), ...(payload ? { payload } : {}) });
       if (!outcome.written) { this.set({ refused: outcome }); return outcome; }
       // The edits are in the file: the saved file is the one shown from here, read again for its table.
       let saved = file;
@@ -319,6 +366,7 @@ export class SpecifyHost {
       this.file = saved;
       this.memo = null;
       this.set({ read, lastReport: 'report' in outcome ? outcome.report : this.state.lastReport, refused: null });
+      this.options.onHeldChange?.('edit', partOf(file), this.heldEdits());
       this.options.onSaved?.(outcome, saved);
       return outcome;
     } finally { if (this.inFlight === during) this.inFlight = null; this.set({ saving: false }); }

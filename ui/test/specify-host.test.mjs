@@ -281,6 +281,49 @@ test('an answer given while Save ran is rebuilt against the saved file, and one 
   assert.equal(host.pendingEdits().get('part.material').kind, 'remove', 'back to nothing: the saved value is a removal');
 });
 
+test('several parts without saveVia throw before anything is sent', async () => {
+  let sent = 0;
+  const spy = { request: (...a) => client.request(...a), acceptDefaults: (...a) => client.acceptDefaults(...a), edit: async (...a) => { sent++; return client.edit(...a); } };
+  const host = await hostOn(file('plate.step', plate), { client: spy, several: true });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  await assert.rejects(() => host.save(), /several parts need saveVia/);
+  assert.equal(sent, 0);
+  assert.equal(host.getSnapshot().saving, false);
+  assert.equal(host.pendingEdits().size, 1, 'the edit is still held');
+});
+
+test('held edits round-trip through JSON into a fresh host and survive its first file; onHeldChange gets them; a save drops what it sent', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}`, part });
+  const seen = [];
+  const host = await hostOn(at(0), { keepHeld: true, onHeldChange: (kind, part, held) => seen.push({ kind, part, held }) });
+  assert.equal(host.reviewProps().callOutDimension(dimension, '0.1'), true);
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const held = host.heldEdits();
+  assert.deepEqual(seen.at(-1).held, held, 'onHeldChange carries the held edits');
+  assert.equal(held.version, 1);
+  assert.ok(Object.keys(held.callOuts).length >= 1);
+  const revived = JSON.parse(JSON.stringify(held));
+  const fresh = await hostOn(at(0), { held: revived });
+  assert.deepEqual(fresh.heldEdits(), held, 'the same edits, call-out keys and displaced entries');
+  assert.deepEqual(fresh.pendingEdits().values(), host.pendingEdits().values());
+  // A different first file does not drop them either, and a later change of the option is ignored.
+  const other = await hostOn(file('plate.step', plate), { held: revived });
+  assert.deepEqual(other.heldEdits(), held);
+  other.options.held = { version: 1, parts: {}, callOuts: {}, displaced: {} };
+  await other.setFile(file('plate2.step', plate));
+  assert.equal(other.heldEdits().parts['0'], undefined, 'a second, new file drops them as any held edits go');
+  assert.deepEqual((await hostOn(at(0), { held: { ...revived, version: 2 } })).heldEdits().parts, {}, 'an unknown version is none');
+  // Save: what was sent is no longer held, and the host is told.
+  const saved = [];
+  const p = await hostOn(file('plate.step', plate), { held: { version: 1, parts: { 0: [{ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }] }, callOuts: {}, displaced: {} },
+    onHeldChange: (kind, part, h) => saved.push({ kind, part, h }) });
+  assert.equal(p.heldEdits().parts['0'].length, 1);
+  assert.equal((await p.save()).written, true);
+  assert.deepEqual(p.heldEdits().parts, {});
+  assert.deepEqual(saved.at(-1).h.parts, {}, 'the host persisting held edits is told the sent ones are gone');
+});
+
 test('the hook renders: no props until the table is read, with its first snapshot', () => {
   let seen;
   const Probe = () => { seen = useSpecifyHost({ client, file: file('plate.step', plate), answers: {} }); return null; };
