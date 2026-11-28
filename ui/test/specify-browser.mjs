@@ -237,6 +237,8 @@ try {
     assert.ok((await viewBar.locator('button').allTextContents()).every((t) => !/^Plane \d+/.test(t)), 'views are named by direction, not Plane N');
     const overlay = page.locator('#specify-view [data-drawn-graphics]');
     await check.poll(async () => Number(await overlay.getAttribute('data-drawn-graphics'))).toBeGreaterThan(0);
+    // The file's own strokes are counted: the attribute an embedding host's tests read.
+    assert.ok(Number(await overlay.getAttribute('data-drawn-polylines')) > 0, 'data-drawn-polylines counts the drawn file graphics');
     const drawnItems = (await overlay.getAttribute('data-drawn-items')) ?? '';
     assert.ok(drawnItems.includes('#0c36c0'), `drawn callouts render in dark blueprint blue:\n${drawnItems}`);
     // Unpresented M2 thread renders as a fallback callout on the part; no border/card on plain labels.
@@ -275,6 +277,21 @@ try {
     // Restore origin/main's read-only call contract: inspection is reserved for exports.
     assert.ok(!made.some(call => call !== 'preview'), `only previews reach the engine: ${made}`);
     assert.ok(made.includes('preview'), 'the answers given are labelled');
+    await page.close();
+  }
+  // A phone: each Show checkbox and its label is a tall enough target to tap (at least 32px, 44px as drawn).
+  {
+    const page = await openPage(false);
+    await page.setViewportSize({ width: 390, height: 800 });
+    const labels = page.locator('#specify-view .pmi-lab-show-bar label');
+    await check(labels).toHaveCount(5);
+    for (const label of await labels.all()) {
+      const box = await label.boundingBox();
+      const name = (await label.textContent())?.trim();
+      assert.ok(box && box.height >= 44, `Show checkbox "${name}" is a 44px target on a phone, got ${box?.height}`);
+      const input = await label.locator('input').boundingBox();
+      assert.ok(input && input.width >= 20, `Show checkbox "${name}" is drawn at touch size, got ${input?.width}`);
+    }
     await page.close();
   }
   // Many-plane part (CTC04) with General dimensions on in an 800x400 clipped viewer: view buttons

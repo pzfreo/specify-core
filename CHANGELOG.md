@@ -6,6 +6,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **`@draftwright/specify-ui`: the "Show in 3D view" bar on a phone, and the General dimensions toggle across Save**.
+  On a narrow or touch screen each Show checkbox and its label is a 44px-tall target (they were about 18px); the desktop
+  bar is unchanged. A general dimension's ink is governed by "General dimensions" wherever it is drawn: after Save the
+  file's own copy can also be listed under an alias item the engine does not mark general, which made it follow
+  "In the file" instead, so the view differed before and after Save.
+
 - **`@draftwright/specify-ui/host`: the components without the package's own 3D view**. `SpecifyReview`, `StepDiff` and
   `AssemblyDiffView`, with `view` (a `HostView`) required; nothing in this entry reaches `three-cad-viewer`, so a
   host that draws its own view neither installs nor bundles it. `three-cad-viewer` is now an optional peer
