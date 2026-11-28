@@ -15,7 +15,7 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   `edit` (JSON, `bytes: number[]`) is unchanged for small files.
 - **`@draftwright/specify-ui/helpers` loads under plain Node and carries the host's whole non-DOM surface**: the
   xlsx/zip writer, the diff and PMI-diff functions, `WorkerClient`, `createIntentEngine`, `tolerancingMode`,
-  `intentParts`, `editorDefault` (and the `GdtMode` type) and `readCarried`, beside the characteristics and AS9102
+  `intentParts`, `intentPart`, `editorDefault` (and the `GdtMode` and `IntentPart` types) and `readCarried`, beside the characteristics and AS9102
   helpers it had. The root entry imports CSS, which Node cannot load. `test/helpers-node.test.mjs` imports the built
   entry in a fresh Node.
 - **`rematchAnswers` reads schema 1 evidence held outside the STEP** (a saved project's, from the pre-alpha browser
