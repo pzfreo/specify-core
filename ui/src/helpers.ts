@@ -16,5 +16,5 @@ export * from './model/diff-pmi';
 export { xlsx, workbookFiles, zip, type Cell, type Sheet } from './model/xlsx';
 export { WorkerClient } from './engine/rpc';
 export { createIntentEngine } from './engine/intent-engine';
-export { tolerancingMode, intentParts, editorDefault, type GdtMode } from './model/intent';
+export { tolerancingMode, intentParts, intentPart, editorDefault, type GdtMode, type IntentPart } from './model/intent';
 export { readCarried } from './engine/carried';

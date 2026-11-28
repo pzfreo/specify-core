@@ -13,7 +13,7 @@ if (!built && process.env.HELPERS_DIST === 'required') throw new Error('dist/hel
 
 test('dist/helpers.js imports under plain Node and exports the host surface', { skip: !built && 'dist/ not built' }, () => {
   const names = ['as9102', 'xlsx', 'zip', 'workbookFiles', 'diffQuery', 'WorkerClient', 'createIntentEngine',
-    'tolerancingMode', 'intentParts', 'editorDefault', 'readCarried', 'characteristics'];
+    'tolerancingMode', 'intentParts', 'intentPart', 'editorDefault', 'readCarried', 'characteristics'];
   const script = `import(${JSON.stringify(pathToFileURL(entry).href)}).then(m => console.log(JSON.stringify(Object.keys(m))))`;
   // A fresh Node, no loader flags: what a host's own process does.
   const exported = JSON.parse(execFileSync(process.execPath, ['-e', script], { encoding: 'utf8' }));
