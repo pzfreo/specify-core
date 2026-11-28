@@ -25,3 +25,6 @@ export type {
 export type * from './types/pmi';
 export { createIntentEngine } from './engine/intent-engine';
 export { WorkerClient } from './engine/rpc';
+export { useSpecifyHost, type UseSpecifyHost } from './specify/host/use-specify-host';
+export { SpecifyHost, type HeldEdits, type SavedElsewhere, type SpecifyHostOptions, type SpecifyHostState, type ReviewPropsFromHost } from './specify/host/specify-host';
+export { readHost, readAnalysis, type HostRead } from './specify/host/compose';

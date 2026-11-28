@@ -12,27 +12,25 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  as9102, createIntentEngine, SpecifyReview, StepDiff, toCsv, xlsx,
+  as9102, createIntentEngine, SpecifyReview, StepDiff, toCsv, useSpecifyHost, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
-import type { PmiAnalysis, PmiExtra } from '../src/types/pmi';
+import type { PmiAnalysis } from '../src/types/pmi';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
 import { saveFile, type CalledOut } from '../src/specify/SpecifyReview';
-import { describe as describeExtra } from '../src/specify/added';
-import { describeFaces } from '../src/specify/datums';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
-import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, keepAlive, listen, openFile, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
+import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, keepAlive, listen, openFile, type DiffBody, type EditFailure, type Saved, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from '../src/specify/edits/pending';
+import { PendingEdits, rejectedNoneByPart } from '../src/specify/edits/pending';
 import { EditBar } from './EditBar';
-import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from '../src/specify/edits/adapter';
-import { labelStated } from '../src/specify/units';
+import { asEngineTakes, forEngine, forScreens, isDimensionQuestion, type StatedRows } from '../src/specify/edits/adapter';
+import { readAnalysis, type HostRead } from '../src/specify/host/compose';
 import { findStatedOrigin, normalizeDraftingPmi } from '../src/specify/drafting-layout';
 import { readSceneSemanticLabels, reviewDrawnFromScene, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from '../src/specify/one-view';
-import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from '../src/specify/edits/table';
+import type { FeatureTable, PanelModel } from '../src/specify/edits/table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-pmi#readme';
@@ -93,7 +91,7 @@ interface Opened {
   /** The review panel's model: the file's feature table, named. */
   model: PanelModel;
   /** The file's feature table, and its stated rows as the review shows them (adapter.ts). */
-  table: FeatureTable; stated: StatedRows;
+  table: FeatureTable; stated: StatedRows; host: HostRead;
   /** The questions asked of the bare part: every row's question, stated or not. */
   bare: PmiQuestion[];
   /** The general dimensions' questions, as the engine last asked them (not shown: Call Out answers them). */
@@ -119,11 +117,9 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
   const analysis = snapshot.analysis as PmiAnalysis;
-  // Every row named as Specify asks it of the bare part (the table's rows are those questions).
-  const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(analysis), answers: {} });
-  const table = tableOf(analysis);
-  // What the file states: shown as answered rows, kept out of the engine's review (adapter.ts).
-  const stated = statedRows(table, bare.questions, analysis);
+  // The file's table, named as Specify asks it of the bare part, with the stated rows the review shows (host/compose.ts, shared with the package's hook).
+  const host = await readAnalysis(worker, file, analysis);
+  const { bare, table, stated, model } = host;
   // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
   const answers = answersSession.shown(at.part);
   // The general dimensions' questions, from the engine's latest review: what Call Out answers.
@@ -182,21 +178,11 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const read = raw ? reviewDrawnFromScene(raw, analysis) : null;
   const semantic = raw ? readSceneSemanticLabels(raw) : EMPTY_SEMANTIC;
   const drawn = read?.ok ? normalizeDraftingPmi(read.value, raw, analysis, snapshot.mesh, semantic) : null;
-  const model = panelModel(table, bare.questions, analysis.features);
   return {
     ...at, generation, session, review: fileReview, engine, drawn, semantic, sceneKey, bytes, store, shown,
     saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,
-    units: fileLengthUnit(bytes), table, stated, bare: bare.questions, dimensions: () => dimensionQuestions,
+    units: host.units, host, table, stated, bare, dimensions: () => dimensionQuestions,
   };
-}
-
-/** How the bar names row ``id`` of the part ``o`` shows ("Ø1.6 hole position", "Material"). */
-function rowName(o: Opened, id: string): string {
-  const rows = [...(o.model.part?.rows ?? []), ...o.model.features.flatMap((g) => g.rows), ...(o.model.datums?.rows ?? [])];
-  const row = rows.find((r) => r.id === id);
-  if (row) return row.name;
-  const q = o.bare.find((x) => x.id === id);
-  return q?.label ?? q?.prompt ?? id;
 }
 
 const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
@@ -206,7 +192,8 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 interface InspectionStep { path: string; name: string; bytes: Uint8Array }
 const inspectionName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
-const NO_EDITS = new PendingEdits();
+const NO_FILE = { name: '', bytes: new Uint8Array(), sourceId: '' };
+const NO_ANSWERS = {};
 
 /** What the last save wrote, and the questions still open in it, by their short labels. */
 interface SavedLine { path: string; open: string[] | null; byAgent: boolean }
@@ -226,7 +213,6 @@ function App() {
   const [problem, setProblem] = useState<string | null>(null);
   const [openingError, setOpeningError] = useState<string | null>(null);
   const [apiProblem, setApiProblem] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SavedLine | null>(null);
   const [dirty, setDirty] = useState(false);
   // Edits not saved yet, held here or in the session: read by the heartbeat.
@@ -237,7 +223,6 @@ function App() {
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
   // The review panel's edits, held in the page until Save sends them (specify-panel.md decision 3).
-  const [localPending, setPending] = useState(() => new Map<number, PendingEdits>());
   const [draftSnapshot, setDraftSnapshot] = useState<{ rev: number; drafts: Record<string, AnswerDraft> }>({ rev: 0, drafts: {} });
   const [discarding, setDiscarding] = useState(false);
   const [rejectedNone, setRejectedNone] = useState(() => new Map<number, Map<string, string>>());
@@ -286,47 +271,58 @@ function App() {
   const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean; n?: number } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
-  // Answers that landed from an in-flight review while Save ran: rebuilt against the saved file
-  // once it reopens (including an answer back to the pre-save value, which cleared against the old file).
-  const inFlightAnswers = useRef<Map<string, { part: number; id: string; value: unknown }> | null>(null);
-  const buildAnswerEdit = (now: Opened, id: string, value: unknown): Pending | null => {
-    const row = now.table.rows.find((r) => r.id === id);
-    const q = now.bare.find((x) => x.id === id) ?? now.review.questions.find((x) => x.id === id);
-    // "Added by you": named and worded as the review lists it ("Flatness 0.05" on its faces).
-    const added = id.startsWith('extra.') && value && typeof value === 'object' ? value as PmiExtra : null;
-    const name = added ? 'Added by you' : rowName(now, id);
-    const edit = answerEdit(id, value, row, q, name);
-    if (edit?.kind === 'fill' && added) edit.text = describeExtra(added);
-    // Faces by what they are ("bottom face"), never by their numbers.
-    const faces = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'number');
-    if (edit && (edit.kind === 'fill' || edit.kind === 'change') && faces(value)) edit.text = describeFaces(value as number[], now.session.analysis as PmiAnalysis);
-    if (edit?.kind === 'change' && faces(edit.expect)) edit.was = describeFaces(edit.expect as number[], now.session.analysis as PmiAnalysis);
-    return edit;
-  };
-  // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
+  // The review's answers as the page's held edits (host/specify-host.ts, adapter.ts): each changed question is its row's
   // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
   // engine is made once and outlives renders.
   const answeredRef = useRef<(part: number, id: string, value: unknown) => void>(() => {});
-  answeredRef.current = (part, id, value) => {
-    inFlightAnswers.current?.set(`${part}:${id}`, { part, id, value });
-    const now = shownRef.current;
-    if (!now || now.part !== part) return;
-    const edit = buildAnswerEdit(now, id, value);
-    setPending((all) => {
-      const updated = new Map(all);
-      const list = updated.get(part) ?? new PendingEdits();
-      const next = edit ? list.with(edit) : list.without(id);
-      if (next.size) updated.set(part, next); else updated.delete(part);
-      return updated;
-    });
-    setSavedNote(null);
-  };
-  // The "Added by you" key each called-out general dimension is written under, by characteristic.
-  const callOutKeys = useRef(new Map<string, string>());
-  // The edit a bin replaced on an item, by part and item, for its Undo.
-  const displaced = useRef(new Map<string, Pending>());
   // A reset of the review to the file (Discard, or a save that reopened the part).
   const [reviewGeneration, setReviewGeneration] = useState(0);
+  const activeDrawn = opened && liveScene?.sessionId === opened.session.sessionId ? liveScene.drawn : opened?.drawn ?? null;
+  // The page's held edits, their compose and Save are the package's (host/specify-host.ts): this page supplies the
+  // part's table it opened (`read`), the session's drafts, and the transport that sends the edit lists to the command.
+  const savedResult = useRef<Saved | null>(null);
+  const host = useSpecifyHost({
+    file: opened?.host.file ?? NO_FILE, read: opened?.host ?? null, answers: NO_ANSWERS, answerIds: () => Object.keys(opened?.shown.all ?? {}),
+    several: opened?.several ?? false, drafts: draftSnapshot.drafts, keepHeld: true, bom: false, drawn: activeDrawn,
+    onHeldChange: (kind, part) => {
+      if (kind === 'discard') return;
+      setSavedNote(null);
+      if (kind === 'answer') return;
+      setRejectedNone((all) => {
+        if (!all.has(part)) return all;
+        const updated = new Map(all);
+        updated.delete(part);
+        return updated;
+      });
+      setAgent(null);
+    },
+    saveVia: async (edits) => {
+      if (!opened) throw new Error('Nothing is open.');
+      const result = await opened.saver.save(edits, draftSnapshot.rev);
+      savedResult.current = result;
+      // The saved events are ordered by the command. A delayed HTTP reply must not replace a
+      // later save at the same answer revision (for example an agent saving again meanwhile).
+      const saveKey = `${result.rev}:${result.path}`;
+      if (!heardSaves.current.has(saveKey)) {
+        pageSaves.current.add(saveKey);
+        captureSaved.current(result);
+      }
+      for (let active = reopenPromise.current; ; active = reopenPromise.current) {
+        await active;
+        if (active === reopenPromise.current) break;
+      }
+      if (sessionRef.current?.signal.aborted) throw new Error('The page closed.');
+      // The part is open again from the saved file: the held edits are rebased on it.
+      const reopened = shownRef.current && shownRef.current !== opened ? shownRef.current : null;
+      return reopened ? { written: true, file: reopened.host.file, read: reopened.host, review: reopened.review } : { written: true };
+    },
+  });
+  const { pending, partPending } = host;
+  const saving = host.saving;
+  answeredRef.current = (part, id, value) => {
+    const now = shownRef.current;
+    host.answered(part, id, value, now && now.part === part ? { read: now.host, review: now.review } : undefined);
+  };
 
   useEffect(() => {
     let stop = () => {};
@@ -663,70 +659,16 @@ function App() {
   // still open, and says what is.
   const onSave = async () => {
     if (busy || stopped || !opened) return;
-    // Nothing listed: nothing is written (the mock-up's "Nothing to save.").
-    const lists = [...pending].map(([part, list]) => ({ part, edits: list.list() }))
-      .filter(({ edits }) => Object.keys(edits).length > 0);
-    if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
-    const sentParts = new Set(opened.several ? lists.map((entry) => entry.part) : [opened.part]);
-    const sent = new Map<number, PendingEdits>(
-      [...pending].filter(([part]) => sentParts.has(part)),
-    );
-    const sentCallOuts = new Map(callOutKeys.current);
-    const sentDisplaced = new Map(displaced.current);
-    const answeredDuringSave = new Map<string, { part: number; id: string; value: unknown }>();
-    inFlightAnswers.current = answeredDuringSave;
-    setSaving(true); setProblem(null); setRejectedNone(new Map());
     const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
+    setProblem(null); setRejectedNone(new Map());
+    savedResult.current = null;
     try {
-      const result = await opened.saver.save(opened.several ? lists : partPending.list(), draftSnapshot.rev);
-      // The saved events are ordered by the command. A delayed HTTP reply must not replace a
-      // later save at the same answer revision (for example an agent saving again meanwhile).
-      const saveKey = `${result.rev}:${result.path}`;
-      if (!heardSaves.current.has(saveKey)) {
-        pageSaves.current.add(saveKey);
-        captureSaved.current(result);
-      }
-      for (let active = reopenPromise.current; ; active = reopenPromise.current) {
-        await active;
-        if (active === reopenPromise.current) break;
-      }
+      const done = await host.save();
+      // Nothing listed: nothing is written (the mock-up's "Nothing to save.").
+      const result = savedResult.current as Saved | null;
+      if (!done || !result) { setSavedNote('Nothing to save.'); return; }
       if (sessionRef.current?.signal.aborted) return;
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      // The sent edits are in the file now: remove them, and rebuild any made while the save ran
-      // against the saved file (including an in-flight answer back to what the file held before).
-      const reopened = shownRef.current && shownRef.current !== opened ? shownRef.current : null;
-      setPending((all) => {
-        const remaining = withoutSent(all, sent);
-        for (const { part, id, value } of answeredDuringSave.values()) {
-          const savedEdit = sent.get(part)?.get(id);
-          if (!savedEdit || savedEdit.kind === 'refused' || !reopened || reopened.part !== part) continue;
-          const matchesSaved = (savedEdit.kind === 'fill' || savedEdit.kind === 'change')
-            && JSON.stringify(value) === JSON.stringify(savedEdit.value);
-          let rebuilt: Pending | null = null;
-          if (!matchesSaved) {
-            if (value === undefined) {
-              const row = reopened.table.rows.find((r) => r.id === id);
-              const q = reopened.bare.find((x) => x.id === id) ?? reopened.review.questions.find((x) => x.id === id);
-              const name = rowName(reopened, id);
-              if (row?.state === 'stated') rebuilt = removeEdit(row, q, name, reopened.session.analysis as PmiAnalysis);
-              else if (row?.state === 'decided_none') rebuilt = { kind: 'clear', id, name };
-            } else {
-              rebuilt = buildAnswerEdit(reopened, id, value);
-            }
-          }
-          const list = remaining.get(part) ?? new PendingEdits();
-          const next = rebuilt ? list.with(rebuilt) : list.without(id);
-          if (next.size) remaining.set(part, next); else remaining.delete(part);
-        }
-        for (const [at, key] of sentCallOuts) {
-          const part = Number(at.split(':')[0]);
-          if (callOutKeys.current.get(at) === key && !remaining.get(part)?.get(key)) callOutKeys.current.delete(at);
-        }
-        for (const [key, edit] of sentDisplaced) {
-          if (displaced.current.get(key) === edit) displaced.current.delete(key);
-        }
-        return remaining;
-      });
       setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {
@@ -752,9 +694,6 @@ function App() {
         reshow.current();
         setProblem('Not saved: the session changed while you saved (your agent answered). What is now shown is the latest; check it and Save again.');
       } else setProblem(`Not saved: ${message(error)}`);
-    } finally {
-      if (inFlightAnswers.current === answeredDuringSave) inFlightAnswers.current = null;
-      setSaving(false);
     }
   };
 
@@ -773,9 +712,7 @@ function App() {
         session.receive({ ...snapshot, source: 'start' });
       }
       if (!target) {
-        setPending(new Map());
-        callOutKeys.current.clear();
-        displaced.current.clear();
+        host.discard();
         // The review starts again from the file: its answers, and what the page last showed.
         const now = shownRef.current;
         if (now) {
@@ -829,21 +766,14 @@ function App() {
     if (d.question) setFocus({ questionId: d.question, scroll: true, n: Date.now() });
   };
 
+  // The bins, Other PMI and Call Out are the package's props (host/compose.ts); the rest of the review is this page's.
+  const { oneView: _oneView, lengthUnit: _unit, ...editingBlock } = host.reviewProps ?? ({} as Partial<NonNullable<typeof host.reviewProps>>);
+  const hostProps = host.reviewProps;
   const showingChanges = mode === 'diff' && tab === 'changes';
   const saveBlocked = apiProblem ?? (openingError ? 'Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.'
     : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined);
   // The panel edits in specify and diff mode; read-only shows the review's PMI viewer instead.
   const editing = Boolean(config && !config.readOnly);
-  const pending = useMemo(() => {
-    const model = opened?.model;
-    const rows = model ? [...(model.part?.rows ?? []), ...model.features.flatMap((group) => group.rows), ...(model.datums?.rows ?? [])] : [];
-    return withDrafts(localPending, draftSnapshot.drafts, (part, id, value) => {
-      const row = part === opened?.part ? rows.find((row) => row.id === id) : undefined;
-      const words = id.startsWith('part.') ? id.slice(5).replace(/_/g, ' ') : id;
-      return { name: row?.name ?? words.charAt(0).toUpperCase() + words.slice(1), text: valueText(value, row?.question, opened?.session.analysis as PmiAnalysis | undefined) };
-    });
-  }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
-  const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
   // Keep the 3D annotation-plane scene in sync with pending edits so before-Save and after-Save
   // draw identical callout geometry and placements.
   useEffect(() => {
@@ -864,7 +794,6 @@ function App() {
       setLiveScene({ sessionId: sid, key, drawn, semantic });
     }, () => {});
   }, [editing, opened, partPending, opened?.external.answers, liveScene?.sessionId, liveScene?.key]);
-  const activeDrawn = opened && liveScene?.sessionId === opened.session.sessionId ? liveScene.drawn : opened?.drawn ?? null;
   const activeSemantic = opened
     ? (liveScene?.sessionId === opened.session.sessionId ? liveScene.semantic : opened.semantic)
     : EMPTY_SEMANTIC;
@@ -872,33 +801,6 @@ function App() {
     () => (opened ? findStatedOrigin(opened.bytes, opened.session.analysis as PmiAnalysis, activeDrawn) : null),
     [opened, activeDrawn],
   );
-  const oneView = useMemo(() => {
-    if (!opened) return undefined;
-    const bareById = new Map(opened.bare.map((q) => [q.id, q]));
-    const rows: OneViewRow[] = [
-      ...opened.table.rows.map((row): OneViewRow => {
-        const q = bareById.get(row.id);
-        return {
-          id: row.id, state: row.state, open: row.open, faces: row.faces,
-          label: rowName(opened, row.id), ...(q ? { question: q } : {}),
-        };
-      }),
-      ...opened.model.other.map((o): OneViewRow => ({
-        id: o.key, state: 'stated', open: false, faces: o.faces, label: o.label, other: true,
-      })),
-    ];
-    const pendingMap = new Map<string, OneViewPending>();
-    for (const edit of partPending.values()) {
-      pendingMap.set(edit.id, {
-        kind: edit.kind, id: edit.id,
-        ...('value' in edit ? { value: edit.value } : {}),
-        ...('text' in edit ? { text: edit.text } : {}),
-        ...('was' in edit ? { was: edit.was } : {}),
-        ...('targets' in edit ? { targets: edit.targets } : {}),
-      });
-    }
-    return { rows, pending: pendingMap };
-  }, [opened, partPending]);
   // What the review opens on: what the file states, the session's answers (an agent's too) and the
   // page's held changes to stated items, which the engine's answers leave out (adapter.ts).
   const shownSession = useMemo(() => {
@@ -931,24 +833,6 @@ function App() {
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
   }, [unsaved]);
-  const editPending = (next: PendingEdits) => {
-    if (!opened) return;
-    setPending((all) => {
-      const updated = new Map(all);
-      const local = new PendingEdits(next.values().filter((edit) => !edit.draft));
-      if (local.size) updated.set(opened.part, local);
-      else updated.delete(opened.part);
-      return updated;
-    });
-    if (rejectedNone.has(opened.part)) {
-      setRejectedNone((all) => {
-        const updated = new Map(all);
-        updated.delete(opened.part);
-        return updated;
-      });
-    }
-    setSavedNote(null); setAgent(null);
-  };
   const check = async (edits: EditList): Promise<EditFailure[]> => {
     const whole = (reason: string) => [{ entry: '(the whole list)', reason }];
     if (!opened || !worker.current || !config) return whole('The part is not open.');
@@ -1119,87 +1003,14 @@ function App() {
           // held in the bar below until Save writes them together.
           <SpecifyReview
             key={`${opened.session.sessionId}:${reviewGeneration}`}
-            engine={opened.engine} session={shownSession} readOnly={!editing} drawn={activeDrawn} oneView={oneView}
+            engine={opened.engine} session={shownSession} readOnly={!editing} drawn={activeDrawn} oneView={hostProps?.oneView}
             sceneSemantic={activeSemantic} partOrigin={partOrigin} slots={slots}
             inspectionExports={false}
             externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={busy || syncing || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             lengthUnit={opened.units}
-            {...(editing ? {
-              // Called out, by characteristic: from the held edits, so it outlasts a part switch.
-              calledOutDimensions: new Map([...callOutKeys.current].flatMap(([at, key]) => {
-                const [part, ...rest] = at.split(':');
-                const edit = partPending.get(key);
-                const tolerance = edit?.kind === 'fill' ? edit.text.replace(/ mm$/, '') : edit?.kind === 'change' ? String(edit.value) : null;
-                return Number(part) === opened.part && tolerance !== null ? [[rest.join(':'), tolerance.replace(/^±/, '')] as const] : [];
-              })),
-              // The number Save writes for each, called out: the engine's for its call-out's drawn callout.
-              calledOutNumbers: new Map([...callOutKeys.current].flatMap(([at, key]) => {
-                const [part, ...rest] = at.split(':');
-                const number = Object.values(activeDrawn?.links ?? {}).find((l) => l.question === key)?.number;
-                return Number(part) === opened.part && number ? [[rest.join(':'), number] as const] : [];
-              })),
-              // "Added by you" keys already taken (the page's call-outs among them): no two share one.
-              takenKeys: [...partPending.values().map((e) => e.id), ...callOutKeys.current.values()],
-              otherPmi: {
-                // Named as the file names it ("Flatness"), else by its kind.
-                items: opened.model.other.map((o) => {
-                  const item = opened.table.file_pmi.find((r) => (o.number && r.number === o.number) || (o.id && r.id === o.id));
-                  const label = item?.type ? item.type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ') : o.label;
-                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: labelStated(o.value, opened.session.analysis.existing), faces: o.faces,
-                    // With no number and no id the engine has no way to remove it: no bin.
-                    removable: Boolean(o.number || o.id) };
-                }),
-                removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
-                onRemove: (key: string) => {
-                  const o = opened.model.other.find((x) => x.key === key);
-                  if (o) editPending(partPending.with({ kind: 'remove', id: key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value }));
-                },
-                onRestore: (key: string) => editPending(partPending.without(key)),
-              },
-              stated: {
-                values: opened.stated.values, texts: opened.stated.texts, decided: opened.stated.decided,
-                removed: new Set(partPending.values().filter((e) => e.kind === 'remove' || e.kind === 'clear').map((e) => e.id)),
-                onRemove: (id: string) => {
-                  const row = opened.table.rows.find((r) => r.id === id);
-                  if (!row) return;
-                  // The edit the bin replaces (a change, a value for a decision) comes back with Undo.
-                  const before = partPending.get(id);
-                  if (before && before.kind !== 'remove' && before.kind !== 'clear') displaced.current.set(`${opened.part}:${id}`, before);
-                  // A stored "none needed" taken back: the item is open again (clear); a stated one removed.
-                  editPending(partPending.with(row.state === 'decided_none'
-                    ? { kind: 'clear', id, name: rowName(opened, id) }
-                    : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id), opened.session.analysis as PmiAnalysis)));
-                },
-                onRestore: (id: string) => {
-                  const before = displaced.current.get(`${opened.part}:${id}`);
-                  displaced.current.delete(`${opened.part}:${id}`);
-                  editPending(before ? partPending.with(before) : partPending.without(id));
-                },
-              },
-              callOutDimension: (dimension: CalledOut, tolerance: string) => {
-                // One key per dimension called out, kept while the part is shown (the same edit is replaced).
-                const keys = callOutKeys.current;
-                const at = `${opened.part}:${dimension.id}`;
-                // One the file states: its feature-and-kind (the table's row stating that number) is the key.
-                const row = dimension.number === undefined ? undefined
-                  : opened.table.rows.find((r) => r.requirements?.some((q) => q.number === dimension.number));
-                if (dimension.number !== undefined) {
-                  if (!row || typeof row.value !== 'string') return false;
-                  keys.set(at, row.id);
-                  const edit = callOutEdit(dimension, tolerance, row.id, { id: row.id, value: row.value, label: labelStated(row.value, opened.session.analysis.existing) });
-                  editPending(edit ? partPending.with(edit) : partPending.without(row.id));
-                  return true;
-                }
-                const key = keys.get(at) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id),
-                  ...Object.keys(opened.shown.all), ...keys.values()]);
-                keys.set(at, key);
-                const edit = callOutEdit(dimension, tolerance, key);
-                editPending(edit ? partPending.with(edit) : partPending.without(key));
-                return true;
-              },
-            } : {})}
+            {...(editing ? editingBlock : {})}
           />
         )}
       </main>

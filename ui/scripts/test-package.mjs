@@ -184,7 +184,7 @@ async function testHostWithoutViewer(threeVersion) {
   mkdirSync(resolve(bare, 'src'));
   writeFileSync(resolve(bare, 'src/main.tsx'), `import '@draftwright/specify-ui/style.css';
 import { createRoot } from 'react-dom/client';
-import { AssemblyDiffView, SpecifyReview, StepDiff, type HostView } from '@draftwright/specify-ui/host';
+import { AssemblyDiffView, SpecifyReview, StepDiff, useSpecifyHost, type HostView } from '@draftwright/specify-ui/host';
 
 // A view of the host's own: the components draw through it and load no viewer of ours.
 const view = {} as HostView;
@@ -194,7 +194,7 @@ createRoot(document.getElementById('root')!).render(<>
   <StepDiff before={file} after={file} view={view} />
   {/* @ts-expect-error the host entry has no view of its own: \`view\` is required */}
   <StepDiff before={file} after={file} />
-  {typeof AssemblyDiffView === 'function' && typeof SpecifyReview === 'function' && 'imported'}
+  {typeof AssemblyDiffView === 'function' && typeof SpecifyReview === 'function' && typeof useSpecifyHost === 'function' && 'imported'}
 </>);
 `);
   const pick = names => Object.fromEntries(names.map(name => [name, version(name)]));

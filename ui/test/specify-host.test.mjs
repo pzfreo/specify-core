@@ -1,0 +1,351 @@
+// The host composition (useSpecifyHost's core, SpecifyHost): the review props built from the file's table, the one edit
+// list a save composes, the save and the re-read, on the real worker (a fake Worker hands messages to its onmessage).
+import { test, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { requireEngine } from './engine-path.mjs';
+import { IntentEngine } from './engine-fixture.mjs';
+import { WorkerClient } from '../src/engine/rpc.ts';
+import { SpecifyHost } from '../src/specify/host/specify-host.ts';
+import { composeEditList } from '../src/specify/host/compose.ts';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { useSpecifyHost } from '../src/specify/host/use-specify-host.ts';
+import { PendingEdits } from '../src/specify/edits/pending.ts';
+
+const { modulePath, wasmPath } = requireEngine();
+const dir = mkdtempSync(join(tmpdir(), 'specify-host-'));
+let client;
+
+before(async () => {
+  // The engine as the worker loads it from a host's wasmUrl: its glue, started on the .wasm read from disk.
+  const shim = join(dir, 'engine.mjs');
+  const glue = JSON.stringify(pathToFileURL(modulePath).href);
+  writeFileSync(shim, `import init from ${glue};
+import { readFileSync } from 'node:fs';
+export * from ${glue};
+export default () => init({ module_or_path: readFileSync(${JSON.stringify(wasmPath)}) });\n`);
+  const out = join(dir, 'worker.mjs');
+  await build({ entryPoints: [new URL('../src/engine/intent.worker.ts', import.meta.url).pathname], bundle: true, format: 'esm', platform: 'node',
+    outfile: out, external: ['@draftwright/specify-pmi-wasm'], logLevel: 'silent' });
+  const replies = [];
+  globalThis.self = { postMessage: (m) => replies.shift()?.(m) };
+  await import(pathToFileURL(out).href);
+  const worker = {
+    postMessage(data) {
+      if (data.id !== undefined) replies.push((m) => worker.onmessage({ data: m }));
+      globalThis.self.onmessage({ data });
+    },
+    terminate() {}, onmessage: null, onerror: null, onmessageerror: null,
+  };
+  client = new WorkerClient(() => worker);
+  worker.postMessage({ wasmUrl: pathToFileURL(shim).href });
+});
+
+
+const plate = readFileSync(new URL('../../tests/fixtures/parts/plate.step', import.meta.url));
+const pin = readFileSync(new URL('../../tests/fixtures/parts/pin.step', import.meta.url));
+const assembly = readFileSync(new URL('../../tests/fixtures/parts/assembly.step', import.meta.url));
+const file = (name, bytes, sourceId = name, part) => ({ name, bytes: new Uint8Array(bytes), sourceId, ...(part === undefined ? {} : { part }) });
+const rowsOf = (bytes) => {
+  const engine = new IntentEngine('written.step', bytes);
+  try { return Object.fromEntries(JSON.parse(engine.table()).rows.map((r) => [r.id, r])); } finally { engine.free(); }
+};
+/** A host on ``f`` with the options a test names, its table read. */
+async function hostOn(f, options = {}) {
+  const host = new SpecifyHost({ client, file: f, answers: {}, ...options });
+  await host.setFile(f);
+  return host;
+}
+const dimension = { id: 'length:1', what: 'the 40 mm width', kind: 'size', faces: [6], reference: [] };
+
+test('the review props come from the file table: stated rows, unit, one view, taken keys', async () => {
+  const saved = await client.edit(file('plate.step', plate), { edits: { fill: { 'part.material': 'Aluminium 6061' } } });
+  assert.equal(saved.written, true);
+  const stated = await hostOn(file('stated.step', saved.bytes));
+  const props = stated.reviewProps();
+  assert.ok(props, 'props once the table is read');
+  assert.match(String(props.stated.values['part.material']), /Aluminium 6061/);
+  assert.ok(props.stated.texts['part.material']);
+  assert.equal(props.lengthUnit, 'mm');
+  assert.ok(props.oneView.rows.some((r) => r.id === 'part.material' && r.state === 'stated'));
+  assert.deepEqual(props.takenKeys, []);
+  const bare = await hostOn(file('plate.step', plate));
+  assert.deepEqual(bare.reviewProps().stated.values, {}, 'a bare plate states nothing');
+  assert.equal(bare.reviewProps().calledOutDimensions.size, 0);
+});
+
+test('the edit list composes answers, a removal and a call-out; the row\'s last word stands', async () => {
+  const saved = await client.edit(file('plate.step', plate), { edits: { fill: { 'part.material': 'Aluminium 6061' } } });
+  const host = await hostOn(file('stated.step', saved.bytes), { answers: { 'part.general_tolerance': 'ISO 2768-m', 'part.material': 'Aluminium 6061' } });
+  const props = host.reviewProps();
+  props.stated.onRemove('part.material');
+  assert.equal(host.reviewProps().stated.removed.has('part.material'), true);
+  assert.equal(host.reviewProps().callOutDimension(dimension, '0.1'), true);
+  const list = await host.compose();
+  assert.equal(list.fill['part.general_tolerance'], 'ISO 2768-m');
+  assert.ok(list.items.remove.some((t) => typeof t === 'string' || t.id === 'part.material'), 'the bin is a removal');
+  const [key] = Object.keys(list.fill).filter((k) => k.startsWith('extra.'));
+  assert.ok(key, 'the call-out is an Added by you entry');
+  assert.equal(list.fill[key].value, '±0.1');
+  assert.deepEqual([...host.reviewProps().calledOutDimensions], [['length:1', '0.1']]);
+  assert.deepEqual(host.reviewProps().takenKeys.includes(key), true);
+});
+
+test('a call-out reaches the host\'s answers, and taking it back removes it', async () => {
+  let answers = { 'part.material': 'Steel' };
+  const host = await hostOn(file('plate.step', plate), { answers, onAnswers: (a) => { answers = a; } });
+  host.reviewProps().callOutDimension(dimension, '0.1');
+  const key = Object.keys(answers).find((k) => k.startsWith('extra.'));
+  assert.ok(key && answers['part.material'] === 'Steel');
+  host.options.answers = answers;
+  host.reviewProps().callOutDimension(dimension, '');
+  assert.equal(Object.keys(answers).some((k) => k.startsWith('extra.')), false);
+});
+
+test('Save accepting defaults writes what the defaults answer; without it, only what was answered', async () => {
+  const plain = await (await hostOn(file('plate.step', plate), { answers: { 'part.material': 'Steel' } })).compose();
+  const defaulted = await (await hostOn(file('plate.step', plate), { answers: { 'part.material': 'Steel' }, acceptDefaults: true })).compose();
+  assert.deepEqual(Object.keys(plain.fill), ['part.material']);
+  assert.ok(Object.keys(defaulted.fill ?? {}).length > 1 || Object.keys(defaulted).some((k) => k !== 'fill'), 'defaults add entries');
+  assert.equal(defaulted.fill['part.material'], 'Steel');
+});
+
+test('the BOM rule: bom.* entries only when the table has bom.* rows; the host can opt out', async () => {
+  const answers = { 'part.material': 'Steel', 'bom.item': '12' };
+  const ruled = await (await hostOn(file('plate.step', plate), { answers })).compose();
+  assert.equal('bom.item' in ruled.fill, false);
+  assert.equal(ruled.fill['part.material'], 'Steel');
+  const optedOut = await (await hostOn(file('plate.step', plate), { answers, bom: false })).compose();
+  assert.equal(optedOut.fill['bom.item'], '12');
+});
+
+test('beforeSave gets the composed list and returns the one sent: an entry it drops is not in the saved file', async () => {
+  let seen;
+  const answers = { 'part.material': 'Aluminium 6061', 'part.general_tolerance': 'ISO 2768-m' };
+  const host = await hostOn(file('plate.step', plate), { answers, beforeSave: (edits) => {
+    seen = structuredClone(edits);
+    const { 'part.general_tolerance': _, ...fill } = edits.fill;
+    return { ...edits, fill };
+  } });
+  const done = await host.save();
+  assert.equal(done.written, true, done.message);
+  assert.ok('part.general_tolerance' in seen.fill, 'the hook saw the composed list');
+  const rows = rowsOf(done.bytes);
+  assert.equal(rows['part.material'].state, 'stated');
+  assert.notEqual(rows['part.general_tolerance'].state, 'stated', 'the dropped entry is not in the file');
+});
+
+test('Save applies the list, carries project and payload, reads the saved file again and reports', async () => {
+  const saved = [];
+  const host = await hostOn(file('plate.step', plate), { answers: { 'part.material': 'Aluminium 6061' }, payload: { name: 'test-app', value: { n: 1 } }, onSaved: (o, f) => saved.push([o, f]) });
+  assert.deepEqual(host.reviewProps().stated.values, {});
+  const done = await host.save();
+  assert.equal(done.written, true, done.message);
+  assert.equal(saved.length, 1);
+  assert.ok(host.getSnapshot().lastReport);
+  assert.equal(host.getSnapshot().saving, false);
+  assert.match(String(host.reviewProps().stated.values['part.material']), /Aluminium 6061/, 'new table, new props');
+  assert.equal(host.pendingEdits().size, 0);
+  assert.equal(await host.save(), null, 'answers equal to the file leave nothing to apply');
+});
+
+test('Save through a transport of the host\'s own sends the same list; a refusal is reported whole', async () => {
+  let sent;
+  const via = await hostOn(file('plate.step', plate), { answers: { 'part.material': 'Steel' }, saveVia: async (edits, f) => { sent = edits; return client.edit(f, { edits }); } });
+  assert.equal((await via.save()).written, true);
+  assert.equal(sent.fill['part.material'], 'Steel');
+  const refused = await hostOn(file('plate.step', plate), { answers: { 'no.such:row': 'x' } });
+  const outcome = await refused.save();
+  assert.equal(outcome.written, false);
+  assert.ok(refused.getSnapshot().refused.failures.length >= 1);
+});
+
+test('a new file re-reads the table and drops the held edits; the props match the new file', async () => {
+  const saved = await client.edit(file('plate.step', plate), { edits: { fill: { 'part.material': 'Aluminium 6061' } } });
+  const a = file('a.step', saved.bytes);
+  const host = await hostOn(a);
+  host.reviewProps().stated.onRemove('part.material');
+  assert.equal(host.pendingEdits().size, 1);
+  assert.ok(host.reviewProps().stated.values['part.material']);
+  const b = file('b.step', plate);
+  const reading = host.setFile(b);
+  assert.equal(host.reviewProps(), null, 'no props for the old file while the new one is read');
+  await reading;
+  assert.deepEqual(host.reviewProps().stated.values, {}, 'the stated rows are B\'s');
+  assert.equal(host.pendingEdits().size, 0, 'the old file\'s edits are gone');
+});
+
+test('a call-out and a bin outlast a part switch, per part, and still save', async () => {
+  const parts = await client.request('parts', { name: 'assembly.step', bytes: new Uint8Array(assembly) });
+  assert.ok(parts.length >= 2, 'the fixture has two parts');
+  const bytes = new Uint8Array(assembly);
+  const at = (part) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}`, part });
+  const host = await hostOn(at(0));
+  assert.equal(host.reviewProps().callOutDimension(dimension, '0.1'), true);
+  assert.equal(host.pendingEdits().size, 1);
+  await host.setFile(at(1));
+  assert.equal(host.pendingEdits().size, 0, 'part 1 has none of part 0\'s');
+  assert.equal(host.reviewProps().calledOutDimensions.size, 0);
+  await host.setFile(at(0));
+  assert.deepEqual([...host.reviewProps().calledOutDimensions], [['length:1', '0.1']], 'back on part 0 the call-out is still there');
+  const list = await host.compose();
+  assert.ok(Object.keys(list.fill).some((k) => k.startsWith('extra.')), 'and still saves');
+  const done = await host.save();
+  assert.equal(done.written, true, done.message);
+});
+
+test('the BOM rule keeps bom.* entries when the table has bom.* rows', () => {
+  const row = (id) => ({ id, kind: 'bom', feature: 'bom', faces: [], state: 'gap', open: false });
+  const read = (rows) => ({ table: { rows, file_pmi: [], decided_none: [] }, bare: [], model: { part: null, features: [], datums: null, other: [] }, analysis: { existing: [] }, stated: { ids: new Set(), values: {}, questions: [], texts: {}, decided: new Set() } });
+  const answers = { 'bom.make_buy': 'buy', 'part.material': 'Steel' };
+  assert.deepEqual(composeEditList(read([row('bom.make_buy'), row('part.material')]), answers, new PendingEdits()).fill, answers);
+  assert.deepEqual(composeEditList(read([row('part.material')]), answers, new PendingEdits()).fill, { 'part.material': 'Steel' });
+});
+
+test('drafts lie under the held edits and are sent with them; a person\'s edit on the row replaces the draft', async () => {
+  const drafts = { 0: { fill: { 'part.material': 'Brass' }, none: [] } };
+  const host = await hostOn(file('plate.step', plate), { drafts });
+  const all = host.allPending();
+  assert.equal(all.get(0).get('part.material').kind, 'fill');
+  assert.equal(all.get(0).get('part.material').draft, true);
+  assert.equal(host.pendingEdits().get('part.material').draft, true);
+  assert.equal((await host.compose()).fill['part.material'], 'Brass');
+  // The person's own edit on that row: held, replaces the draft, and a draft is never held itself.
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  assert.equal(host.pendingEdits().get('part.material').value, 'Steel');
+  assert.equal(host.pendingEdits().get('part.material').draft, undefined);
+  host.setPending(host.pendingEdits());
+  assert.equal(host.pendingEdits().size, 1);
+  host.options.drafts = {};
+  host.setPending(new PendingEdits());
+  assert.equal(host.pendingEdits().size, 0, 'with the drafts gone and no held edit, nothing is listed');
+});
+
+test('a transport of the host\'s own gets a list per part for several parts, and the held edits are rebased on what was written (an answer given during the save is rebuilt against it)', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part, gen = 0) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}${gen ? `@${gen}` : ''}`, part });
+  const sentTo = [];
+  let host;
+  host = await hostOn(at(0), { several: true, keepHeld: true, drafts: { 1: { fill: { 'part.material': 'Brass' } } },
+    saveVia: async (edits, f) => { sentTo.push(edits);
+      // While the save runs the person answers part 0's material again, and gives the other a note: both are rebuilt against the saved file.
+      host.answered(0, 'part.material', 'Titanium');
+      return client.edit(f, { edits: edits.find((l) => l.part === 0).edits }); } });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const done = await host.save();
+  assert.equal(done.written, true, done.message);
+  assert.deepEqual(sentTo[0].map((l) => l.part), [0, 1], 'a list per part with edits, drafts included');
+  assert.equal(sentTo[0][1].edits.fill['part.material'], 'Brass');
+  // The sent edit is gone; the one made during the save is held again against the saved file (a change of what it wrote).
+  const now = host.allPending().get(0);
+  assert.equal(now.size, 1, 'only the answer given during the save is held');
+  assert.deepEqual([now.get('part.material').kind, now.get('part.material').value, now.get('part.material').expect], ['change', 'Titanium', 'Steel'], 'rebuilt as a change of what was written');
+});
+
+test('an answer given while Save ran is rebuilt against the saved file, and one back to the old value goes', async () => {
+  const f = file('plate.step', plate);
+  const host = await hostOn(f, { keepHeld: true });
+  const read = host.getSnapshot().read;
+  host.answered(0, 'part.material', 'Steel', { read });
+  assert.equal(host.pendingEdits().get('part.material').value, 'Steel');
+  let reopened;
+  host.options.saveVia = async (edits, file) => {
+    // The person changes the answer mid-save.
+    host.answered(0, 'part.material', 'Titanium', { read });
+    const done = await client.edit(file, { edits });
+    reopened = { written: true, file: { ...file, bytes: done.bytes, sourceId: 'plate.step@1' } };
+    return reopened;
+  };
+  const done = await host.save();
+  assert.equal(done.written, true);
+  const edit = host.pendingEdits().get('part.material');
+  assert.equal(edit.kind, 'change', 'a change on the saved value');
+  assert.equal(edit.value, 'Titanium');
+  assert.match(String(edit.expect), /Steel/);
+  // Taking the answer back during a save: the saved value is removed again.
+  host.options.saveVia = async (edits, file) => {
+    host.answered(0, 'part.material', undefined, { read: host.getSnapshot().read });
+    const out = await client.edit(file, { edits });
+    return { written: true, file: { ...file, bytes: out.bytes, sourceId: 'plate.step@2' } };
+  };
+  host.discard();
+  host.answered(0, 'part.material', 'Gold', { read: host.getSnapshot().read });
+  const second = await host.save();
+  assert.equal(second.written, true);
+  assert.equal(host.pendingEdits().get('part.material').kind, 'remove', 'back to nothing: the saved value is a removal');
+});
+
+test('composeAll gives every part\'s list as Save would send it, sends nothing and keeps the held edits', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}`, part });
+  let sent = 0;
+  const spy = { request: (...a) => client.request(...a), acceptDefaults: (...a) => client.acceptDefaults(...a), edit: async (...a) => { sent++; return client.edit(...a); } };
+  const host = await hostOn(at(0), { client: spy, several: true, keepHeld: true, drafts: { 1: { fill: { 'part.material': 'Brass' } } } });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const all = await host.composeAll();
+  assert.deepEqual(all.map((l) => l.part), [0, 1]);
+  assert.equal(all[0].edits.fill['part.material'], 'Steel');
+  assert.equal(all[1].edits.fill['part.material'], 'Brass');
+  assert.equal(sent, 0, 'nothing sent, even without saveVia');
+  assert.equal(host.pendingEdits().size, 1, 'the edit is still held');
+  assert.deepEqual(await host.composeAll(), all, 'the same again');
+});
+
+test('several parts without saveVia throw before anything is sent', async () => {
+  let sent = 0;
+  const spy = { request: (...a) => client.request(...a), acceptDefaults: (...a) => client.acceptDefaults(...a), edit: async (...a) => { sent++; return client.edit(...a); } };
+  const host = await hostOn(file('plate.step', plate), { client: spy, several: true });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  await assert.rejects(() => host.save(), /several parts need saveVia/);
+  assert.equal(sent, 0);
+  assert.equal(host.getSnapshot().saving, false);
+  assert.equal(host.pendingEdits().size, 1, 'the edit is still held');
+});
+
+test('held edits round-trip through JSON into a fresh host and survive its first file; onHeldChange gets them; a save drops what it sent', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}`, part });
+  const seen = [];
+  const host = await hostOn(at(0), { keepHeld: true, onHeldChange: (kind, part, held) => seen.push({ kind, part, held }) });
+  assert.equal(host.reviewProps().callOutDimension(dimension, '0.1'), true);
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const held = host.heldEdits();
+  assert.deepEqual(seen.at(-1).held, held, 'onHeldChange carries the held edits');
+  assert.equal(held.version, 1);
+  assert.ok(Object.keys(held.callOuts).length >= 1);
+  const revived = JSON.parse(JSON.stringify(held));
+  const fresh = await hostOn(at(0), { held: revived });
+  assert.deepEqual(fresh.heldEdits(), held, 'the same edits, call-out keys and displaced entries');
+  assert.deepEqual(fresh.pendingEdits().values(), host.pendingEdits().values());
+  // A different first file does not drop them either, and a later change of the option is ignored.
+  const other = await hostOn(file('plate.step', plate), { held: revived });
+  assert.deepEqual(other.heldEdits(), held);
+  other.options.held = { version: 1, parts: {}, callOuts: {}, displaced: {} };
+  await other.setFile(file('plate2.step', plate));
+  assert.equal(other.heldEdits().parts['0'], undefined, 'a second, new file drops them as any held edits go');
+  assert.deepEqual((await hostOn(at(0), { held: { ...revived, version: 2 } })).heldEdits().parts, {}, 'an unknown version is none');
+  // Save: what was sent is no longer held, and the host is told.
+  const saved = [];
+  const p = await hostOn(file('plate.step', plate), { held: { version: 1, parts: { 0: [{ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }] }, callOuts: {}, displaced: {} },
+    onHeldChange: (kind, part, h) => saved.push({ kind, part, h }) });
+  assert.equal(p.heldEdits().parts['0'].length, 1);
+  assert.equal((await p.save()).written, true);
+  assert.deepEqual(p.heldEdits().parts, {});
+  assert.deepEqual(saved.at(-1).h.parts, {}, 'the host persisting held edits is told the sent ones are gone');
+});
+
+test('the hook renders: no props until the table is read, with its first snapshot', () => {
+  let seen;
+  const Probe = () => { seen = useSpecifyHost({ client, file: file('plate.step', plate), answers: {} }); return null; };
+  renderToString(createElement(Probe));
+  assert.equal(seen.reviewProps, null);
+  assert.equal(seen.saving, false);
+  assert.equal(seen.pending.size, 0);
+  assert.equal(typeof seen.save, 'function');
+});

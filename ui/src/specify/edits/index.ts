@@ -6,3 +6,5 @@ export * from './table';
 export * from './adapter';
 export * from './pending';
 export type * from '../../engine/save';
+export { composeEditList, buildAnswerEdit, rowName, oneViewOf, readHost, type HostRead } from '../host/compose';
+export type { SpecifyHostOptions } from '../host/specify-host';

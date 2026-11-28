@@ -42,3 +42,6 @@ export type * from './types/pmi';
 export type {
   Box, CameraState, FaceIds, FaceRef, FaceStyle, FaceSample, HostCallout, HostPointerEvent, HostView, HostViewInfo, Mat4, MeshOptions, Vec3,
 } from './specify/host-view';
+export { useSpecifyHost, type UseSpecifyHost } from './specify/host/use-specify-host';
+export { SpecifyHost, type HeldEdits, type SavedElsewhere, type SpecifyHostOptions, type SpecifyHostState, type ReviewPropsFromHost } from './specify/host/specify-host';
+export { readHost, readAnalysis, type HostRead } from './specify/host/compose';
