@@ -276,16 +276,34 @@ impl Session {
         project: Option<&str>,
         payload: Option<&Value>,
     ) -> Result<Value, String> {
+        let (mut out, bytes) = self.edit_file(text, project, payload)?;
+        if let Some(bytes) = bytes {
+            out["bytes"] = json!(bytes);
+        }
+        Ok(out)
+    }
+
+    /// [`Session::edit_carrying`] with the new file apart from the JSON: `({written: true,
+    /// report, source_sha256}, Some(bytes))`, or `({written: false, failures, message}, None)`.
+    /// A large file is never a JSON number list.
+    pub fn edit_file(
+        &self,
+        text: &str,
+        project: Option<&str>,
+        payload: Option<&Value>,
+    ) -> Result<(Value, Option<Vec<u8>>), String> {
         let extra = carried_attributes(&self.loaded.bytes, project, payload)?;
         let applied = specify_pmi::edits::read(text)
             .and_then(|list| specify_pmi::writer::apply::apply_with(&self.loaded, &list, &extra));
         Ok(match applied {
-            Ok(applied) => json!({
-                "written": true,
-                "bytes": applied.bytes,
-                "report": applied.to_dict(),
-                "source_sha256": self.loaded.binding.source_sha256,
-            }),
+            Ok(applied) => (
+                json!({
+                    "written": true,
+                    "report": applied.to_dict(),
+                    "source_sha256": self.loaded.binding.source_sha256,
+                }),
+                Some(applied.bytes),
+            ),
             Err(failures) => {
                 let mut message = "Nothing was written. An edit list is applied all or nothing, \
                                    and these entries cannot be applied, so none of it was:"
@@ -293,7 +311,10 @@ impl Session {
                 for f in &failures {
                     message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
                 }
-                json!({"written": false, "failures": failures, "message": message})
+                (
+                    json!({"written": false, "failures": failures, "message": message}),
+                    None,
+                )
             }
         })
     }

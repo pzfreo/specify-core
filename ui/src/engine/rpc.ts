@@ -1,5 +1,6 @@
 import type { EngineFile, EditOutcome, EditRequest, RematchRequest, Rematched } from './save';
 import type { FeatureTable } from '../specify/edits/table';
+import type { PmiAnswers } from '../types/pmi';
 
 export class WorkerClient {
   private worker: Worker;
@@ -51,6 +52,9 @@ export class WorkerClient {
   edit(file: EngineFile, request: EditRequest): Promise<EditOutcome> { return this.request('edit', { ...file, ...request }); }
   /** Answers the host saved outside the STEP, matched to ``file`` (a new revision of the part they were made on). */
   rematch(file: EngineFile, request: RematchRequest): Promise<Rematched> { return this.request('rematch', { ...file, ...request }); }
+  /** ``answers`` with Specify's defaults accepted for ``file`` (the answers its default path gives): hand them to ``edit``
+   * as a 0.2 answers file, `edit(file, { edits: await acceptDefaults(file, answers) })`. Reads only. */
+  acceptDefaults(file: EngineFile, answers: PmiAnswers): Promise<PmiAnswers> { return this.request('accept-defaults', { ...file, answers }); }
   /** The feature table of ``file``: each row's state, value and suggestion; row ids are the ids an edit list names. */
   table(file: EngineFile): Promise<FeatureTable> { return this.request('table', file); }
 

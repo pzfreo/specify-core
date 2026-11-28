@@ -166,7 +166,9 @@ calling yours, and `preview` passes through; use it for your own read-only code 
 `AssemblyDiffView` change nothing and are view-only already.
 
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
-exported too; see `src/index.ts`.
+exported too; see `src/index.ts`. A host's Node code and tests import the DOM-free helpers (those, the xlsx/zip
+writer, `WorkerClient`, `createIntentEngine`, `tolerancingMode`, `intentParts`, `editorDefault`, `GdtMode` and
+`readCarried`) from `@draftwright/specify-ui/helpers`, which loads no CSS or three.
 
 ## Embedding and saving
 

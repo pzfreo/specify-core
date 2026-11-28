@@ -22,7 +22,7 @@ interface IntentModule {
 }
 interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string;
     evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string; checkEdits(edits: string): string;
-    edit(edits: string, project?: string | null, payload?: string | null): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string; table(): string }
+    editFile(edits: string, project?: string | null, payload?: string | null): { json: string; bytes(): Uint8Array; free(): void }; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string; table(): string }
 
 let engine: IntentInstance | undefined;
 // The open engine's analysis as JSON, for the free acceptDefaults (made once per engine).
@@ -106,7 +106,7 @@ self.onmessage = ({ data }) => {
           const { analysis } = JSON.parse(file.snapshot());
           result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
         } finally { file.free(); }
-      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits' || operation === 'edit' || operation === 'rematch' || operation === 'table') {
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits' || operation === 'edit' || operation === 'rematch' || operation === 'table' || operation === 'accept-defaults') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined; analysisJson = undefined; stepOrigin = null;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -141,12 +141,19 @@ self.onmessage = ({ data }) => {
           result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
         } else if (operation === 'edit') {
           // An edit list (0.3) or a 0.2 answers file applied to the file in memory, all or nothing.
-          const done = JSON.parse(engine.edit(JSON.stringify(args.edits), args.project ?? null, args.payload === undefined ? null : JSON.stringify(args.payload)));
-          result = done.written ? { written: true, bytes: new Uint8Array(done.bytes), report: done.report, source_sha256: done.source_sha256 } : done;
+          // The new file comes back as bytes apart from the outcome's JSON (a file of tens of MB is no number list).
+          const done = engine.editFile(JSON.stringify(args.edits), args.project ?? null, args.payload === undefined ? null : JSON.stringify(args.payload));
+          try {
+            const outcome = JSON.parse(done.json);
+            result = outcome.written ? { ...outcome, bytes: done.bytes() } : outcome;
+          } finally { done.free(); }
         } else if (operation === 'rematch') {
           // Saved answers held outside the STEP matched to this file (reads only).
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence === undefined ? null : JSON.stringify(args.evidence),
             args.automatic === undefined ? null : JSON.stringify(args.automatic)));
+        } else if (operation === 'accept-defaults') {
+          // The answers with Specify's defaults accepted for this file (the free acceptDefaults on its analysis).
+          result = JSON.parse(accepted(args.answers));
         } else if (operation === 'table') {
           result = JSON.parse(engine.table());
         } else if (operation === 'open') {
@@ -183,7 +190,9 @@ self.onmessage = ({ data }) => {
           JSON.stringify(args.analysis), JSON.stringify(args.answers), args.question, args.text,
         ));
       }
-      self.postMessage({ id, ok: true, result });
+      // The edited file's bytes move to the page, not copied.
+      const bytes = operation === 'edit' ? (result as { bytes?: unknown }).bytes : undefined;
+      self.postMessage({ id, ok: true, result }, { transfer: bytes instanceof Uint8Array ? [bytes.buffer] : [] });
     } catch (error) {
       const fatal = error instanceof WebAssembly.RuntimeError;
       self.postMessage({ id, ok: false, error: error instanceof Error ? error.message : String(error), code: fatal ? 'panic' : undefined, fatal });

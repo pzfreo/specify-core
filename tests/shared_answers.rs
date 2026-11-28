@@ -813,3 +813,26 @@ fn editor_rematching_keeps_embedded_evidence_and_carry_blocks() {
     .unwrap();
     assert!(!state.answers.contains_key("part.locating"));
 }
+
+// A saved project (answers held outside the STEP) keeps the schema 1 evidence of the pre-alpha
+// browser writer: not reproduced under this kernel, it is read as the file's own copy is, answers
+// matched by feature ID with the reason given, not left open as another part's would be.
+#[test]
+fn schema_1_evidence_held_outside_the_file_matches_answers_by_id() {
+    let loaded = part::load(&fixture("legacy-schema1/legacy_specify.step"), None).unwrap();
+    let stored = resume::stored(&loaded.bytes).remove(&0).unwrap();
+    let evidence =
+        json!({"schema": 1, "face_count": stored["face_count"], "faces": stored["faces"]});
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = object(json!({"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}));
+    let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, Some(&evidence), None)
+        .unwrap();
+    assert_eq!(out.answers, answers);
+    assert!(out.unresolved.is_empty(), "{:?}", out.unresolved);
+    assert!(out.unverified.unwrap().contains("schema 1"));
+    // Another part's evidence (a different face count) still holds feature answers open.
+    let other = json!({"schema": 1, "face_count": 1, "faces": stored["faces"]});
+    let held = resume::rematch_answers(&loaded, &features(&analysis), &answers, Some(&other), None)
+        .unwrap();
+    assert!(!held.unresolved.is_empty());
+}

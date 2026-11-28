@@ -1334,7 +1334,8 @@ fn match_geometry(
 /// follow the same per-face mapping.
 ///
 /// With schema 1/2 `evidence` ([`evidence`] of the part when the answers were saved, or a stored
-/// payload) whose face count and fingerprint match this part, feature answers move to a
+/// payload; schema 1's fingerprint, when not reproduced on the same face count, is read as
+/// no evidence: answers by ID, `unverified` says why) whose face count and fingerprint match this part, feature answers move to a
 /// unique same-family feature containing their saved faces ([`rematch`]). Without evidence
 /// (a project saved before it kept evidence), the answers are trusted by ID: a feature answer
 /// is kept when this part has a feature with that ID, a datum when its faces exist; the rest
@@ -1384,9 +1385,13 @@ pub fn rematch_answers(
                     }
                 }
             } else {
-                match check(loaded, payload, false).map_err(RematchError::Faces)? {
+                // Schema 1 evidence kept outside the file (a saved project's) is read as one in the
+                // file is: its hash keeps the signs of zero and may not be reproduced, which is no
+                // evidence against the part, so its answers are matched by feature ID, said so.
+                match check(loaded, payload, true).map_err(RematchError::Faces)? {
                     Check::Verified => rematch(answers, features),
-                    _ => open(answers, MISMATCH),
+                    Check::Legacy => by_id(answers, features, loaded, LEGACY),
+                    Check::Mismatch => open(answers, MISMATCH),
                 }
             }
         }

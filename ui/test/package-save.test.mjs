@@ -91,3 +91,72 @@ test('rematch carries saved answers to a revision of the part', async () => {
   const matched = await client.rematch(file('part.step', next, 'new'), { answers: { 'part.material': 'Steel' }, evidence });
   assert.equal(matched.answers['part.material'], 'Steel');
 });
+
+// Evidence an older engine stored: schemas 1 and 2 (`faces` a SHA-256 of the part's faces) are read as they were,
+// so a host never drops what it stored. The evidence is the payload FTC-10's file carries (written by alpha.6).
+const storedEvidence = (bytes) => {
+  const text = Buffer.from(bytes).toString('latin1');
+  const payload = JSON.parse(Buffer.from(/pmi-assist answers','([A-Za-z0-9+/=]+)'/.exec(text)[1], 'base64').toString());
+  return { schema: payload.schema, face_count: payload.face_count, faces: payload.faces };
+};
+
+test('rematch accepts schema 2 evidence stored by an older engine, and says nothing is unverified', async () => {
+  const step = gunzipSync(readFileSync(new URL('../../tests/fixtures/resume-alpha6/ftc10-reid.step.gz', import.meta.url)));
+  const answers = JSON.parse(readFileSync(new URL('../../tests/fixtures/resume-alpha6/ftc10-reid.json', import.meta.url), 'utf8')).answers;
+  const evidence = storedEvidence(step);
+  assert.equal(evidence.schema, 2);
+  const withOld = await client.rematch(file('ftc10.step', step, 'ftc10'), { answers, evidence });
+  assert.equal(withOld.answers['part.material'], 'steel');
+  assert.equal(withOld.unverified, undefined, 'the old evidence verifies the part');
+  const { evidence: current } = await client.request('open', file('ftc10.step', step, 'ftc10'));
+  assert.equal(current.schema, 3);
+  const withCurrent = await client.rematch(file('ftc10.step', step, 'ftc10'), { answers, evidence: current });
+  assert.deepEqual(withOld.answers, withCurrent.answers, 'old and current evidence carry the answers alike');
+});
+
+test('rematch with schema 2 evidence that is another part\'s holds feature answers open instead of applying them', async () => {
+  const step = gunzipSync(readFileSync(new URL('../../tests/fixtures/resume-alpha6/ftc10-reid.step.gz', import.meta.url)));
+  const answers = JSON.parse(readFileSync(new URL('../../tests/fixtures/resume-alpha6/ftc10-reid.json', import.meta.url), 'utf8')).answers;
+  const evidence = { ...storedEvidence(step), faces: '0'.repeat(64) };
+  const held = await client.rematch(file('ftc10.step', step, 'ftc10'), { answers, evidence });
+  assert.ok(held.unresolved?.length > 0 && typeof held.unverified === 'string');
+});
+
+test('rematch with schema 1 evidence (the pre-alpha browser writer\'s, its hash not reproducible) matches by feature id, saying so', async () => {
+  const step = readFileSync(new URL('../../tests/fixtures/legacy-schema1/legacy_specify.step', import.meta.url));
+  const evidence = storedEvidence(step);
+  assert.equal(evidence.schema, 1);
+  const answers = { 'part.material': '6082-T6', 'hole.function:holes:9': 'fit:H7' };
+  const matched = await client.rematch(file('legacy.step', step, 'legacy'), { answers, evidence });
+  assert.deepEqual(matched.answers, answers);
+  assert.equal(matched.unresolved, undefined);
+  assert.match(matched.unverified, /schema 1/);
+});
+
+test('a multi-MB STEP edits to a Uint8Array of the whole file (no JSON number list), which opens again', async () => {
+  const big = gunzipSync(readFileSync(new URL('../../tests/fixtures/resume_alpha7/cgb217.step.gz', import.meta.url)));
+  assert.ok(big.length > 2_000_000, `fixture is ${big.length} bytes`);
+  const done = await client.edit(file('cgb217.step', big), { edits: { fill: { 'part.material': 'Steel' } } });
+  assert.equal(done.written, true, done.message);
+  assert.ok(done.bytes instanceof Uint8Array && !Array.isArray(done.bytes));
+  assert.ok(done.bytes.length > 2_000_000, `written file is ${done.bytes.length} bytes`);
+  assert.equal(rowsOf(done.bytes)['part.material'].state, 'stated');
+});
+
+test('acceptDefaults gives the answers Specify\'s default path gives; saved through edit they write the same PMI as accepting them by hand', async () => {
+  const source = file('plate.step', plate);
+  const answers = { 'part.material': 'Aluminium 6061' };
+  const accepted = await client.acceptDefaults(source, answers);
+  assert.equal(accepted['part.material'], 'Aluminium 6061', 'an answer given is kept');
+  assert.ok(Object.keys(accepted).length > Object.keys(answers).length, 'defaults were added');
+  const done = await client.edit(source, { edits: accepted });
+  assert.equal(done.written, true, done.message);
+  const rows = rowsOf(done.bytes);
+  assert.equal(rows['part.material'].state, 'stated');
+  const table = await client.table(source);
+  for (const id of ['part.general_tolerance', 'part.surface_finish']) {
+    assert.ok(id in accepted && table.rows.some((r) => r.id === id), `${id} is a default`);
+    assert.equal(rows[id].state, 'stated', `${id} written`);
+  }
+  assert.ok(Object.values(rows).some((r) => r.state === 'stated' && /hole|⌀|Ø/i.test(JSON.stringify(r.value ?? r.requirements))), 'the plate\'s holes are stated');
+});

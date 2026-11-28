@@ -1,8 +1,15 @@
+/** `editFile`'s result: the outcome as JSON (`EditResult` without `bytes`) and the new file apart from it. */
+export class EditedFile {
+  free(): void;
+  bytes(): Uint8Array;
+  readonly json: string;
+}
 export class IntentEngine {
   [Symbol.dispose](): void;
   checkEdits(edits: string): string;
   constructor(name: string, bytes: Uint8Array);
   edit(edits: string, project?: string | null, payload?: string | null): string;
+  editFile(edits: string, project?: string | null, payload?: string | null): EditedFile;
   evidence(): string;
   free(): void;
   original(): Uint8Array | undefined;
@@ -247,6 +254,7 @@ export interface WriteReport {
 }
 
 export type EditResult = | { written: true; bytes: number[]; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
+export type EditFileResult = | { written: true; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

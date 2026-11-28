@@ -9,3 +9,12 @@ export * from './specify/as9102';
 export * from './specify/drawn';
 export * from './specify/hints';
 export * from './specify/cad-highlight';
+// The editor's Node code and tests also read the save side and the engine client from here; none of
+// these touches the DOM at import (the worker is made only when the engine is created).
+export * from './model/diff';
+export * from './model/diff-pmi';
+export { xlsx, workbookFiles, zip, type Cell, type Sheet } from './model/xlsx';
+export { WorkerClient } from './engine/rpc';
+export { createIntentEngine } from './engine/intent-engine';
+export { tolerancingMode, intentParts, editorDefault, type GdtMode } from './model/intent';
+export { readCarried } from './engine/carried';
