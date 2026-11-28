@@ -40,15 +40,17 @@ const ISSUES = 'https://github.com/pzfreo/specify-pmi/issues';
 const EMPTY_SEMANTIC: ReadonlyMap<string, SceneSemanticLabel> = new Map();
 
 /** Builds the exact scene review state passed to `engine.pmiScene`, keeping un-asked general
- * length/location defaults out of stacking so before-Save and after-Save layouts match. */
+ * length/location defaults out of stacking so before-Save and after-Save layouts match. The
+ * defaults shown are suggestions Save does not write (`suggested`): the engine numbers none of
+ * them, so every number shown is the one Save writes. */
 function sceneStateFor(
   answers: PmiAnswers,
   questions: readonly PmiQuestion[],
   statedIds: ReadonlySet<string>,
   readOnly: boolean,
   pending?: PendingEdits,
-): { answers: PmiAnswers; auto: string[] } {
-  if (readOnly) return { answers, auto: [] };
+): { answers: PmiAnswers; auto: string[]; suggested: string[] } {
+  if (readOnly) return { answers, auto: [], suggested: [] };
   const given: Record<string, unknown> = { ...answers };
   if (pending) {
     for (const edit of pending.values()) {
@@ -67,7 +69,7 @@ function sceneStateFor(
     sceneAnswers[q.id] = q.default;
     auto.push(q.id);
   }
-  return { answers: sceneAnswers, auto };
+  return { answers: sceneAnswers, auto, suggested: auto };
 }
 /** A part of the file, as the engine's `parts` lists them; the session keeps answers by its index.
  * ``written``: the file stores Specify's answers for it. */
@@ -1131,6 +1133,12 @@ function App() {
                 const edit = partPending.get(key);
                 const tolerance = edit?.kind === 'fill' ? edit.text.replace(/ mm$/, '') : edit?.kind === 'change' ? String(edit.value) : null;
                 return Number(part) === opened.part && tolerance !== null ? [[rest.join(':'), tolerance.replace(/^±/, '')] as const] : [];
+              })),
+              // The number Save writes for each, called out: the engine's for its call-out's drawn callout.
+              calledOutNumbers: new Map([...callOutKeys.current].flatMap(([at, key]) => {
+                const [part, ...rest] = at.split(':');
+                const number = Object.values(activeDrawn?.links ?? {}).find((l) => l.question === key)?.number;
+                return Number(part) === opened.part && number ? [[rest.join(':'), number] as const] : [];
               })),
               // "Added by you" keys already taken (the page's call-outs among them): no two share one.
               takenKeys: [...partPending.values().map((e) => e.id), ...callOutKeys.current.values()],

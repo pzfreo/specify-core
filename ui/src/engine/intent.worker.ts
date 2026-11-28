@@ -44,8 +44,11 @@ function reviewed(answers: Record<string, unknown>) {
   const full = accepted(answers);
   const review = markDefaults(JSON.parse(engine!.review(full)), answers) as IntentReview;
   // Numbers as the writer will allocate them, asked of the engine (docs/characteristic-numbers.md):
-  // an unsaved requirement shows the number Save will write.
-  const scene = JSON.parse(engine!.pmiScene(JSON.stringify({ answers: JSON.parse(full) }))) as NumberScene;
+  // an unsaved requirement shows the number Save will write. The defaults accepted here are
+  // suggestions, not answers Save writes: they take no number.
+  const all = JSON.parse(full) as Record<string, unknown>;
+  const suggested = Object.keys(all).filter((id) => !(id in answers));
+  const scene = JSON.parse(engine!.pmiScene(JSON.stringify({ answers: all, suggested }))) as NumberScene;
   return { ...review, intent: withCharacteristicNumbers(review.intent, scene), open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
 }
 function inspectionReview(answers: Record<string, unknown>): IntentReview {
