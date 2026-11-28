@@ -730,7 +730,7 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
 }
 
 #[test]
-fn schema_three_recovers_within_centroid_tolerance_and_across_version_bump() {
+fn schema_three_recovers_across_version_bump_by_quiddity_verdict() {
     let dir = temp("schema3-tolerance");
     let given = json!({
         "part.material": "steel",
@@ -743,34 +743,46 @@ fn schema_three_recovers_within_centroid_tolerance_and_across_version_bump() {
     let base_payload = Value::Object(stored(&raw).remove(&0).unwrap());
     assert_eq!(base_payload["schema"], json!(3));
 
-    for version in [
-        quiddity::correspondence::FINGERPRINT_VERSION,
-        "quiddity-rust/fingerprint/4",
-    ] {
-        let mut payload = base_payload.clone();
-        payload["geometry"]["fingerprint_version"] = json!(version);
-        let x = payload["geometry"]["faces"][0]["centroid"][0]
-            .as_f64()
-            .unwrap();
-        // Shift centroid by 0.005 mm (within 0.01 mm recovery tolerance).
-        payload["geometry"]["faces"][0]["centroid"][0] = json!(x + 0.005);
-        let path = dir.join(format!("tol-{}.step", version.replace('/', "_")));
-        std::fs::write(&path, with_payload_bytes(&raw, &payload)).unwrap();
-        let loaded = load(&path, None).unwrap();
-        assert_eq!(answers_for(&loaded).unwrap().as_ref(), Some(&expected));
-        let (a, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
-        assert_eq!(a["resume"]["answers"], json!(expected));
-        assert!(a.get("resume_warning").is_none());
-        assert!(warnings.is_empty(), "{warnings:?}");
-        let review = specify_pmi::api::review(&a, &expected).unwrap();
-        assert!(
-            !review["problems"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|p| p["code"] == "saved_answers_not_reused")
-        );
+    // The same part, its fingerprints labelled as an earlier format's: quiddity reads them and
+    // rules the part unchanged (a face's centroid moving a hair between versions is no change).
+    let mut payload = base_payload.clone();
+    payload["geometry"]["fingerprint_version"] = json!("quiddity-rust/fingerprint/4");
+    let x = payload["geometry"]["faces"][0]["centroid"][0]
+        .as_f64()
+        .unwrap();
+    payload["geometry"]["faces"][0]["centroid"][0] = json!(x + 0.005);
+    let path = dir.join("tol-fingerprint_4.step");
+    std::fs::write(&path, with_payload_bytes(&raw, &payload)).unwrap();
+    let loaded = load(&path, None).unwrap();
+    assert_eq!(answers_for(&loaded).unwrap().as_ref(), Some(&expected));
+    let (a, warnings) = specify_pmi::api::analyse_reporting(&loaded).unwrap();
+    assert_eq!(a["resume"]["answers"], json!(expected));
+    assert!(a.get("resume_warning").is_none());
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// Specify #271: cgb217's fingerprints as quiddity 0.5.5 wrote them (/4), against this
+/// quiddity's (/5) of the same file, are an unchanged part: its saved answers rebind.
+#[test]
+fn cgb217_fingerprint_4_is_unchanged_against_the_current_fingerprints() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let path = corpus.join("cadgenbench_inputs/cgb217.step.gz");
+    if !path.is_file() {
+        return;
     }
+    let loaded = load(&path, None).unwrap();
+    let old = common::read_json_gz(&common::fixtures().join("resume_fp4/cgb217.fingerprint4.json.gz"));
+    let corr = quiddity::correspondence::correspond(
+        &serde_json::from_value(old.clone()).unwrap(),
+        &loaded.recognition().fingerprints,
+    )
+    .unwrap();
+    assert_eq!(corr.verdict, quiddity::correspondence::Verdict::Unchanged);
+    let mut evidence = resume::evidence(&loaded).unwrap();
+    evidence["geometry"] = old;
+    assert!(resume::evidence_matches(&loaded, &evidence).unwrap());
 }
 
 #[test]

@@ -52,11 +52,6 @@ pub const SCHEMA: i64 = 3;
 /// authored-name 3.
 pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
 
-/// Tolerance (mm) for recovering saved answers when face count and surface kinds match in order
-/// and every centroid agrees within this distance (e.g. across a Quiddity fingerprint version
-/// bump or small integration accuracy improvement).
-pub const CENTROID_TOLERANCE_MM: f64 = 0.01;
-
 /// User-facing notice emitted when a STEP file carries saved answers for this part whose
 /// fingerprint does not match and could not be recovered. Never drop saved answers silently.
 pub const NOT_REUSED_MESSAGE: &str =
@@ -1013,12 +1008,10 @@ pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, R
         return Ok(false);
     }
     if payload.get("geometry").is_some() {
-        let old = parse_geometry(payload, loaded.binding.face_count)?;
-        let new = &loaded.recognition().fingerprints;
-        return Ok(
-            (old.fingerprint_version == new.fingerprint_version && old.faces == new.faces)
-                || tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM),
-        );
+        return Ok(matches!(
+            match_geometry(loaded, payload)?,
+            GeometryMatch::SameOrder
+        ));
     }
     if payload.get("faces").is_some() {
         return Ok(check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified);
@@ -1029,7 +1022,7 @@ pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, R
 
 /// Result of matching a schema 3 payload's Quiddity `geometry` fingerprints against `loaded`.
 enum GeometryMatch {
-    /// Exact match or tolerant same-order recovery (face indices unchanged).
+    /// Exact match, or an unchanged verdict mapping every face to its own index.
     SameOrder,
     /// Rebound through `quiddity::correspondence::correspond` on an unchanged part whose faces
     /// all carried 1-to-1 (possibly reordered).
@@ -1059,231 +1052,6 @@ fn parse_geometry(
     Ok(old)
 }
 
-fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    let dz = a[2] - b[2];
-    (dx * dx + dy * dy + dz * dz).sqrt()
-}
-
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn same_area(a: Option<f64>, b: Option<f64>) -> bool {
-    match (a, b) {
-        (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()).max(1.0),
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn same_direction(a: Option<[f64; 3]>, b: Option<[f64; 3]>, line: bool) -> bool {
-    match (a, b) {
-        (Some(x), Some(y)) => {
-            let c = dot3(x, y);
-            (if line { c.abs() } else { c }) >= 1.0 - 1e-4
-        }
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn same_parameters(a: &BTreeMap<String, f64>, b: &BTreeMap<String, f64>, tol_mm: f64) -> bool {
-    a.len() == b.len()
-        && a.iter()
-            .all(|(k, &av)| b.get(k).is_some_and(|&bv| (av - bv).abs() <= tol_mm))
-}
-
-/// Tolerant recovery when two Quiddity `Fingerprints` describe the same ordered part:
-/// same face count, every face's surface kind, area, orientation, intrinsic parameters,
-/// adjacency and neighbour indices match in order, and every centroid agrees within `tol_mm`
-/// (0.01 mm). Requiring area, orientation and neighbours prevents coplanar faces with
-/// coincident centroids (such as concentric annular lands) from passing when swapped.
-fn tolerant_faces_match(
-    old: &quiddity::correspondence::Fingerprints,
-    new: &quiddity::correspondence::Fingerprints,
-    tol_mm: f64,
-) -> bool {
-    if old.faces.len() != new.faces.len() {
-        return false;
-    }
-    old.faces
-        .iter()
-        .zip(&new.faces)
-        .enumerate()
-        .all(|(i, (a, b))| {
-            a.index == i
-                && b.index == i
-                && a.surface == b.surface
-                && dist3(a.centroid, b.centroid) <= tol_mm
-                && same_area(a.area, b.area)
-                && same_direction(a.normal, b.normal, false)
-                && same_direction(a.axis, b.axis, a.surface != "plane")
-                && same_parameters(&a.parameters, &b.parameters, tol_mm)
-                && a.adjacency == b.adjacency
-                && a.neighbours == b.neighbours
-        })
-}
-
-/// Whether an axisymmetric part's faces are ambiguous under a symmetry about or flipping
-/// its axis `[o, d]`: either a 180° end-for-end flip maps every face onto a matching face
-/// while swapping at least two distinct faces, or two distinct faces share the same
-/// axisymmetric invariants so rotation about `d` cannot tell them apart.
-fn axisymmetric_ambiguous(
-    prints: &quiddity::correspondence::Fingerprints,
-    [o, d]: [[f64; 3]; 2],
-) -> bool {
-    let tol = (prints.scale * 1e-3).max(CENTROID_TOLERANCE_MM);
-    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let norm = |v: [f64; 3]| dot3(v, v).sqrt();
-    let axial = |p: [f64; 3]| -> (f64, f64) {
-        let v = sub(p, o);
-        let s = dot3(v, d);
-        let r = norm([v[0] - s * d[0], v[1] - s * d[1], v[2] - s * d[2]]);
-        (s, r)
-    };
-    let coords: Vec<(f64, f64)> = prints.faces.iter().map(|f| axial(f.centroid)).collect();
-    let (Some(min_s), Some(max_s)) = (
-        coords.iter().map(|(s, _)| *s).reduce(f64::min),
-        coords.iter().map(|(s, _)| *s).reduce(f64::max),
-    ) else {
-        return false;
-    };
-    let mid_s = 0.5 * (min_s + max_s);
-    let same_scalar = |a: Option<f64>, b: Option<f64>| match (a, b) {
-        (Some(x), Some(y)) => (x - y).abs() <= 1e-3,
-        (None, None) => true,
-        _ => false,
-    };
-    let face_matches = |i: usize, j: usize, flip: bool| -> bool {
-        let (a, b) = (&prints.faces[i], &prints.faces[j]);
-        if a.surface != b.surface
-            || !same_area(a.area, b.area)
-            || !same_parameters(&a.parameters, &b.parameters, tol)
-            || a.adjacency != b.adjacency
-        {
-            return false;
-        }
-        let ((sa, ra), (sb, rb)) = (coords[i], coords[j]);
-        let expected_s = if flip { 2.0 * mid_s - sa } else { sa };
-        if (expected_s - sb).abs() > tol || (ra - rb).abs() > tol {
-            return false;
-        }
-        let sign = if flip { -1.0 } else { 1.0 };
-        let na = a.normal.map(|n| sign * dot3(n, d));
-        let nb = b.normal.map(|n| dot3(n, d));
-        if !same_scalar(na, nb) {
-            return false;
-        }
-        let aa = a.axis.map(|v| {
-            let c = dot3(v, d);
-            if a.surface == "plane" {
-                sign * c
-            } else {
-                c.abs()
-            }
-        });
-        let ab = b.axis.map(|v| {
-            let c = dot3(v, d);
-            if b.surface == "plane" { c } else { c.abs() }
-        });
-        same_scalar(aa, ab)
-    };
-    let n = prints.faces.len();
-    // Two distinct faces indistinguishable under rotation about the axis.
-    for i in 0..n {
-        for j in (i + 1)..n {
-            if face_matches(i, j, false) {
-                return true;
-            }
-        }
-    }
-    // 180° end-for-end flip maps every face onto a matching face and swaps at least two faces.
-    let mut swaps_distinct = false;
-    for i in 0..n {
-        let mut any = false;
-        for j in 0..n {
-            if face_matches(i, j, true) {
-                any = true;
-                if j != i {
-                    swaps_distinct = true;
-                }
-            }
-        }
-        if !any {
-            return false;
-        }
-    }
-    swaps_distinct
-}
-
-/// What [`unchanged_correspondence_map`] concluded.
-enum Unchanged {
-    /// A unique, unambiguous face bijection `old -> Ok(new)`.
-    Map(BTreeMap<usize, Result<usize, String>>),
-    /// The part is unchanged but symmetric: which face is which cannot be told apart.
-    Symmetric,
-    /// Not proven unchanged.
-    Changed,
-}
-
-/// Whether `correspond` proved an unchanged part with a unique, unambiguous face bijection
-/// (alignment found, no face-swapping symmetry, all faces and features carried 1-to-1,
-/// nothing added, adapted, ambiguous or orphaned). A symmetric part is accepted only when the
-/// motion is a pure translation that leaves every face where it was numbered.
-fn unchanged_correspondence_map(
-    corr: &quiddity::correspondence::Correspondence,
-    old: &quiddity::correspondence::Fingerprints,
-    new: &quiddity::correspondence::Fingerprints,
-) -> Unchanged {
-    use quiddity::correspondence::Class;
-    if !corr.alignment.found
-        || old.faces.len() != new.faces.len()
-        || !corr.new_faces.is_empty()
-        || !corr.new_features.is_empty()
-        || corr.faces.len() != old.faces.len()
-        || corr.features.iter().any(|f| f.class != Class::Carried)
-    {
-        return Unchanged::Changed;
-    }
-    let mut symmetric = false;
-    if corr.alignment.axisymmetric {
-        let Some(axis) = corr.alignment.axis else {
-            return Unchanged::Changed;
-        };
-        if axisymmetric_ambiguous(new, axis) {
-            return Unchanged::Symmetric;
-        }
-    } else if corr.alignment.symmetric {
-        symmetric = true;
-    }
-    let mut map = BTreeMap::new();
-    let mut seen = BTreeSet::new();
-    for face in &corr.faces {
-        let Some(target) = face.new else {
-            return Unchanged::Changed;
-        };
-        if face.class != Class::Carried || target >= new.faces.len() || !seen.insert(target) {
-            return Unchanged::Changed;
-        }
-        map.insert(face.old, Ok(target));
-    }
-    if map.len() != old.faces.len() {
-        return Unchanged::Changed;
-    }
-    if symmetric {
-        let identity_motion = (0..3).all(|i| {
-            (0..3)
-                .all(|j| (corr.alignment.rotation[i][j] - f64::from(u8::from(i == j))).abs() < 1e-6)
-        });
-        if !identity_motion || map.iter().any(|(&k, v)| v.as_ref().ok() != Some(&k)) {
-            return Unchanged::Symmetric;
-        }
-    }
-    Unchanged::Map(map)
-}
-
 fn match_geometry(
     loaded: &LoadedPart,
     payload: &Map<String, Value>,
@@ -1298,28 +1066,28 @@ fn match_geometry(
     if old.fingerprint_version == new.fingerprint_version && old.faces == new.faces {
         return Ok(GeometryMatch::SameOrder);
     }
-    let mut symmetric = false;
-    if old.fingerprint_version == new.fingerprint_version
-        && let Ok(corr) = quiddity::correspondence::correspond(&old, new)
-    {
-        match unchanged_correspondence_map(&corr, &old, new) {
-            Unchanged::Map(map) => {
-                if map.iter().all(|(&k, v)| v.as_ref().ok() == Some(&k)) {
-                    return Ok(GeometryMatch::SameOrder);
+    use quiddity::correspondence::Verdict;
+    let Ok(corr) = quiddity::correspondence::correspond(&old, new) else {
+        return Ok(GeometryMatch::Mismatch);
+    };
+    Ok(match corr.verdict {
+        Verdict::Unchanged => {
+            let map: Option<BTreeMap<usize, Result<usize, String>>> = corr
+                .face_map()
+                .into_iter()
+                .enumerate()
+                .map(|(old, new)| new.map(|new| (old, Ok(new))))
+                .collect();
+            match map {
+                Some(map) if map.iter().all(|(&k, v)| v.as_ref().ok() == Some(&k)) => {
+                    GeometryMatch::SameOrder
                 }
-                return Ok(GeometryMatch::Mapped(map));
+                Some(map) => GeometryMatch::Mapped(map),
+                None => GeometryMatch::Mismatch,
             }
-            Unchanged::Symmetric => symmetric = true,
-            Unchanged::Changed => {}
         }
-    }
-    if tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM) {
-        return Ok(GeometryMatch::SameOrder);
-    }
-    Ok(if symmetric {
-        GeometryMatch::Symmetric
-    } else {
-        GeometryMatch::Mismatch
+        Verdict::Symmetric => GeometryMatch::Symmetric,
+        _ => GeometryMatch::Mismatch,
     })
 }
 
@@ -1329,8 +1097,7 @@ fn match_geometry(
 /// Schema 3 with authored `face_names` resolves stored names exactly first, refusing
 /// missing/duplicate names without geometric fallback; stored nulls use verified indices or
 /// saved Quiddity geometric correspondence. Schema 3 without `face_names` checks Quiddity's
-/// `geometry` fingerprints (exact match, `correspond` rebind on an unchanged part, or tolerant
-/// same-order recovery within 0.01 mm). Datum lists and extras (including distance references)
+/// `geometry` fingerprints (exact match, or `correspond`'s verdict: rebind on an unchanged part). Datum lists and extras (including distance references)
 /// follow the same per-face mapping.
 ///
 /// With schema 1/2 `evidence` ([`evidence`] of the part when the answers were saved, or a stored
@@ -1482,14 +1249,6 @@ fn rematch_named(
                     faces.insert(face.old, binding);
                 }
             }
-        } else if tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM) {
-            faces.extend(
-                old_names
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, name)| name.is_none())
-                    .map(|(i, _)| (i, Ok(i))),
-            );
         }
         // A future incompatible fingerprint format on a changed part leaves unnamed faces open.
         // Names remain usable independently of the geometry format and kernel version.
