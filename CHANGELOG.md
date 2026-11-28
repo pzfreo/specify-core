@@ -11,7 +11,7 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   (`Unchanged` rebinds through `face_map()`, `Symmetric` holds face answers back as the axisymmetric
   case did, `Changed` takes the changed-geometry path). Fingerprints saved by an earlier quiddity
   (`quiddity-rust/fingerprint/4`) now rebind. quiddity and haecceity are pinned to `release/0.7.0` at
-  rev 300e929d (bump the rev as the branch moves). Deleted from `src/resume.rs`: `tolerant_faces_match`,
+  rev eef71c6b (bump the rev as the branch moves). Deleted from `src/resume.rs`: `tolerant_faces_match`,
   `axisymmetric_ambiguous`, `unchanged_correspondence_map` (with `Unchanged`), the same-version
   fingerprint gate, the 0.01 mm `CENTROID_TOLERANCE_MM` and its helpers.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D

@@ -18,7 +18,8 @@ SIBLING = "pzfreo/draftwright"
 KERNEL = "pzfreo/quiddity"
 # Its name before the 2026-11-03 rename; GitHub redirects it, and released siblings still use it.
 FORMER_KERNEL = "pzfreo/quiddity-rust"
-REQUIRED_TAG = "v0.6.0"
+# The reviewed kernel: the release/0.7.0 branch at this rev, until 0.7.0 is tagged.
+REQUIRED_PIN = ("rev", "eef71c6bf05554a9f9abd60fdf848c5502640c92")
 
 
 def api(path):
@@ -117,8 +118,8 @@ def main():
     args = parser.parse_args()
     try:
         local = pins(tomllib.loads(args.manifest.read_text()))
-        if any(pin != ("tag", REQUIRED_TAG) for pin in local.values()):
-            warning(f"Expected both kernel crates pinned to {REQUIRED_TAG}: {describe(local)}")
+        if any(pin != REQUIRED_PIN for pin in local.values()):
+            warning(f"Expected both kernel crates pinned to {REQUIRED_PIN}: {describe(local)}")
         if args.manifest.resolve() == (ROOT / "Cargo.toml").resolve():
             check_wasm_pin(local)
         tag = latest_release(SIBLING)

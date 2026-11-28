@@ -845,13 +845,13 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
     let raw = std::fs::read(&out).unwrap();
     let base_payload = Value::Object(stored(&raw).remove(&0).unwrap());
 
-    // 1. Centroid moved beyond 0.01 mm tolerance (0.05 mm) -> rejected and reported.
+    // 1. One face's centroid moved 5 mm (a real change of that face, not a rigid move of the
+    // whole part, which quiddity calls unchanged) -> rejected and reported.
     let mut moved = base_payload.clone();
     let x = moved["geometry"]["faces"][0]["centroid"][0]
         .as_f64()
         .unwrap();
-    moved["geometry"]["faces"][0]["centroid"][0] = json!(x + 0.05);
-    moved["geometry"]["fingerprint_version"] = json!("quiddity-rust/fingerprint/4");
+    moved["geometry"]["faces"][0]["centroid"][0] = json!(x + 5.0);
 
     // 2. Hole radius changed with identical centroid -> rejected and reported.
     let mut resized = base_payload.clone();
@@ -889,7 +889,7 @@ fn real_part_change_is_rejected_and_reported_across_api_cli_and_mcp() {
     };
 
     let mut cases = vec![
-        ("centroid-moved.step", with_payload_bytes(&raw, &moved)),
+        ("face-moved.step", with_payload_bytes(&raw, &moved)),
         ("radius-resized.step", with_payload_bytes(&raw, &resized)),
         ("plate-thickened.step", new_written),
     ];
