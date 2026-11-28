@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { requireEngine } from './engine-path.mjs';
-import { drawnBalloons, readSceneSemanticLabels, reviewDrawnFromScene } from '../src/specify/one-view.ts';
+import { drawnBalloons, oneViewFile, oneViewLabels, readSceneSemanticLabels, reviewDrawnFromScene, scenePendingState } from '../src/specify/one-view.ts';
 import { normalizeDraftingPmi } from '../src/specify/drafting-layout.ts';
 
 const { modulePath, wasmPath } = requireEngine();
@@ -87,37 +87,100 @@ test('the layout keeps a fixed balloon slot on every callout Specify lays out, w
   } finally { eng.free?.(); }
 });
 
-test('every callout is drawn identically before and after Save, as the same Specify layout', () => {
+// What the editor shows before Save when ``kept`` of the datum frame's suggestions are kept (Save writes
+// them and the call-outs); the rest are shown as suggestions Save does not write.
+const datumFrame = ['part.general_tolerance', 'part.edges', 'part.process', 'datum.A', 'datum.B', 'datum.C', 'datum.A.flatness', 'datum.B.control', 'datum.C.control'];
+const calls = Object.fromEntries(Object.entries(answers).filter(([id]) => id.startsWith('extra.')));
+const flow = (kept) => {
+  const suggested = datumFrame.filter((id) => !kept.includes(id));
+  return { suggested, fill: Object.fromEntries(Object.entries(answers).filter(([id]) => !suggested.includes(id))) };
+};
+
+for (const [name, kept, count] of [['kept', datumFrame, 8], ['not kept', [], 5]]) {
+  test(`every callout is drawn identically before and after Save, as the same Specify layout (suggestions ${name})`, () => {
+    const eng = new wasm.IntentEngine('bent-bracket.step', bytes);
+    const lay = (scene, analysis, mesh) => {
+      const read = reviewDrawnFromScene(scene, analysis);
+      assert.ok(read.ok, read.reason);
+      return normalizeDraftingPmi(read.value, scene, analysis, mesh, readSceneSemanticLabels(scene));
+    };
+    const round = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === 'number' ? Math.round(x * 1e6) / 1e6 : x)));
+    // What a callout is drawn as: its strokes, fills, text and balloon slot, whatever it is named.
+    const drawing = (pmi) => new Map(Object.entries(pmi.presentation.items).flatMap(([item, gs]) => {
+      const number = pmi.links[item]?.number;
+      return number ? [[number, round(gs.map(({ polylines, polylineRoles, triangles, text, textPlacements, balloonSlot }) => (
+        { polylines, polylineRoles, triangles, text, textPlacements, balloonSlot })))]] : [];
+    }));
+    const { suggested, fill } = flow(kept);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const before = lay(JSON.parse(eng.pmiScene(JSON.stringify({ answers, auto: suggested, suggested }))), analysis, mesh);
+      const saved = JSON.parse(eng.edit(JSON.stringify({ fill })));
+      assert.ok(saved.written);
+      const eng2 = new wasm.IntentEngine('bent-bracket.specified.step', new Uint8Array(saved.bytes));
+      try {
+        const snap = JSON.parse(eng2.snapshot());
+        // The suggestions not kept are still shown after Save, as suggestions.
+        const shown = { ...Object.fromEntries(suggested.map((id) => [id, answers[id]])), ...snap.analysis.resume?.answers ?? {} };
+        const raw = JSON.parse(eng2.pmiScene(JSON.stringify({ answers: shown, auto: suggested, suggested })));
+        const after = lay(raw, snap.analysis, snap.mesh);
+        const [was, now] = [drawing(before), drawing(after)];
+        assert.deepEqual([...now.keys()].sort((a, b) => a - b), [...was.keys()].sort((a, b) => a - b), 'the same numbered callouts');
+        assert.deepEqual([...was.keys()].sort((a, b) => a - b), Array.from({ length: count }, (_, i) => i + 1));
+        for (const [number, geometry] of was) assert.deepEqual(now.get(number), geometry, `callout ${number} is drawn the same`);
+        // Specify wrote them, and the file says so.
+        for (const item of Object.keys(after.presentation.items)) {
+          if (after.links[item]?.number) assert.equal(after.links[item].written, true, `${item} is marked as written by Specify`);
+        }
+        // A suggestion not kept is drawn, before and after Save, with no number and so no balloon.
+        for (const pmi of [before, after]) {
+          for (const id of suggested.filter((q) => /^datum\.[A-Z]$/.test(q))) {
+            const item = `datum:${id.slice('datum.'.length)}`;
+            assert.ok(pmi.presentation.items[item], `${item} is drawn`);
+            assert.equal(pmi.links[item]?.number, undefined, `${item} has no number`);
+            assert.equal(drawnBalloons(pmi).has(item), false, `${item} has no balloon`);
+          }
+        }
+      } finally { eng2.free?.(); }
+    } finally { eng.free?.(); }
+  });
+}
+
+test('the numbers shown for the call-outs, the suggestions not kept, are the numbers Save writes', () => {
   const eng = new wasm.IntentEngine('bent-bracket.step', bytes);
-  const lay = (scene, analysis, mesh) => {
+  try {
+    const { suggested, fill } = flow([]);
+    const planned = JSON.parse(eng.pmiScene(JSON.stringify({ answers, auto: suggested, suggested })));
+    assert.deepEqual(numbers(planned), [1, 2, 3, 4, 5]);
+    for (const letter of ['A', 'B', 'C']) assert.equal(planned.specify[`datum:${letter}`].number, undefined);
+    const saved = JSON.parse(eng.edit(JSON.stringify({ fill })));
+    const file = JSON.parse(wasm.pmiScene(new Uint8Array(saved.bytes), undefined));
+    // Item by item: each call-out's number, by its faces, is the one written.
+    const byFaces = (scene) => Object.fromEntries((scene.pmi.pmi.dimensions ?? []).map((row) => [JSON.stringify(row.value.kind), scene.specify[row.id]?.number]));
+    assert.deepEqual(byFaces(file), byFaces(planned));
+  } finally { eng.free?.(); }
+});
+
+test('a called-out dimension drawn before Save covers its fallback label (no second, undrawn mark)', () => {
+  const eng = new wasm.IntentEngine('bent-bracket.step', bytes);
+  try {
+    const { analysis } = JSON.parse(eng.snapshot());
+    const { suggested } = flow([]);
+    const scene = JSON.parse(eng.pmiScene(JSON.stringify({ answers, auto: suggested, suggested })));
     const read = reviewDrawnFromScene(scene, analysis);
     assert.ok(read.ok, read.reason);
-    return normalizeDraftingPmi(read.value, scene, analysis, mesh, readSceneSemanticLabels(scene));
-  };
-  const round = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === 'number' ? Math.round(x * 1e6) / 1e6 : x)));
-  // What a callout is drawn as: its strokes, fills, text and balloon slot, whatever it is named.
-  const drawing = (pmi) => new Map(Object.entries(pmi.presentation.items).flatMap(([item, gs]) => {
-    const number = pmi.links[item]?.number;
-    return number ? [[number, round(gs.map(({ polylines, polylineRoles, triangles, text, textPlacements, balloonSlot }) => (
-      { polylines, polylineRoles, triangles, text, textPlacements, balloonSlot })))]] : [];
-  }));
-  try {
-    const { analysis, mesh } = JSON.parse(eng.snapshot());
-    const before = lay(JSON.parse(eng.pmiScene(JSON.stringify({ answers, auto: [] }))), analysis, mesh);
-    const saved = JSON.parse(eng.edit(JSON.stringify({ fill: answers })));
-    const eng2 = new wasm.IntentEngine('bent-bracket.specified.step', new Uint8Array(saved.bytes));
-    try {
-      const snap = JSON.parse(eng2.snapshot());
-      const raw = JSON.parse(eng2.pmiScene(JSON.stringify({ answers: snap.analysis.resume?.answers ?? {}, auto: [] })));
-      const after = lay(raw, snap.analysis, snap.mesh);
-      const [was, now] = [drawing(before), drawing(after)];
-      assert.deepEqual([...now.keys()].sort(), [...was.keys()].sort(), 'the same numbered callouts');
-      assert.equal(was.size, 8);
-      for (const [number, geometry] of was) assert.deepEqual(now.get(number), geometry, `callout ${number} is drawn the same`);
-      // Specify wrote them, and the file says so.
-      for (const item of Object.keys(after.presentation.items)) {
-        if (after.links[item]?.number) assert.equal(after.links[item].written, true, `${item} is marked as written by Specify`);
-      }
-    } finally { eng2.free?.(); }
+    const pending = new Map(Object.entries(calls).map(([id, value]) => [id, { kind: 'fill', id, value, text: value.value }]));
+    const file = oneViewFile(read.value, analysis, [], pending);
+    const { coveredQuestions, unsavedItems } = scenePendingState(file, pending);
+    const labels = oneViewLabels(null, analysis, [], file, pending, answers, new Set(), false).labels;
+    for (const id of Object.keys(calls)) {
+      const item = Object.keys(file.drawn.presentation.items).find((i) => file.drawn.links[i]?.question === id);
+      assert.ok(item, `${id} is drawn, and its drawn item answers ${id}`);
+      assert.ok(unsavedItems.has(item), `${id}'s callout is drawn as unsaved`);
+      assert.ok(coveredQuestions.has(id), `${id} is covered by its drawn callout`);
+      // The fallback label stands for the same question, so the panel's coverage leaves it out.
+      assert.ok(labels.some((l) => l.id === `pending:${id}` && l.question === id));
+      assert.equal(file.extras.has(`drawing:${item}`), false, `${id} is not listed as a drawing annotation`);
+    }
   } finally { eng.free?.(); }
 });

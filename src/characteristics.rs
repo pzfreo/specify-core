@@ -1176,7 +1176,16 @@ pub(crate) fn allocate(
 
 /// Numbers allocated by the same history/inspection walk as the STEP writer.
 pub(crate) fn planned_numbers(p: &PartPmi) -> Result<Vec<Option<u64>>, String> {
-    let h = history(p)?.unwrap_or_default();
+    planned_numbers_by(p, p)
+}
+
+/// [`planned_numbers`] of `p`'s requirements by the numbers allocated to `numbered`: a
+/// requirement of `p` that `numbered` does not have gets none.
+pub(crate) fn planned_numbers_by(
+    p: &PartPmi,
+    numbered: &PartPmi,
+) -> Result<Vec<Option<u64>>, String> {
+    let h = history(numbered)?.unwrap_or_default();
     let mut used = BTreeSet::new();
     Ok(items(p, None, None)
         .iter()

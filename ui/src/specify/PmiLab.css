@@ -225,6 +225,7 @@
   vertical-align: middle; }
 /* A number Save has not written yet is marked as an unsaved callout is. */
 .pmi-lab .pmi-lab-table td.planned .bal { border-color: #b84a00; color: #b84a00; -webkit-text-fill-color: #1a1d21; }
+.pmi-lab .pmi-lab-dim .bal.planned { border-color: #b84a00; color: #b84a00; }
 /* On the part, the ring takes the label's colour; the number stays dark. */
 .pmi-lab .pmi .bal { color: inherit; }
 .pmi-lab .pmi .bal { -webkit-text-fill-color: #1a1d21; }

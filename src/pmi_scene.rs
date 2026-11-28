@@ -1,6 +1,6 @@
 //! Haecceity's semantic/presentation documents with Specify's interview metadata.
 //! `Scene` caches the parsed source; answering never reloads STEP or geometry.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::{
     json::{self as wire, Semantic, presentation},
@@ -108,7 +108,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, analysis, answers, false, None)
+        self.scene_mode(loaded, analysis, answers, false, None, &BTreeSet::new())
     }
 
     // Revision comparisons need current semantic notation, never stale As Drawn text.
@@ -118,7 +118,14 @@ impl Scene {
         analysis: &Value,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), answers, true, None)
+        self.scene_mode(
+            loaded,
+            Some(analysis),
+            answers,
+            true,
+            None,
+            &BTreeSet::new(),
+        )
     }
 
     fn plans_add(&self) -> bool {
@@ -133,6 +140,7 @@ impl Scene {
         answers: Option<&Map<String, Value>>,
         comparison: bool,
         prepared: Option<(PlannedScene, &Value)>,
+        suggested: &BTreeSet<String>,
     ) -> Result<Value, String> {
         let before = &self.read.parts[self.index];
         let foreign = self.plans_add();
@@ -151,7 +159,10 @@ impl Scene {
             }
             let ((semantic, metadata, counts), file) = match prepared {
                 Some((plan, file)) => (plan, Some(file)),
-                None => (self.planned(loaded, analysis, answers, foreign)?, None),
+                None => (
+                    self.planned(loaded, analysis, answers, foreign, suggested)?,
+                    None,
+                ),
             };
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
@@ -197,7 +208,9 @@ impl Scene {
                 // when the source also contains saved interview answers.
                 let mut file = match file {
                     Some(file) => file.clone(),
-                    None => self.scene_mode(loaded, Some(analysis), None, true, None)?,
+                    None => {
+                        self.scene_mode(loaded, Some(analysis), None, true, None, &BTreeSet::new())?
+                    }
                 };
                 let existing: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
@@ -293,7 +306,7 @@ impl Scene {
             );
             // A plan that cannot be made names nothing: the file's own ids stand.
             let mut planned = self
-                .planned(loaded, &bare, &answers, false)
+                .planned(loaded, &bare, &answers, false, &BTreeSet::new())
                 .map_or_else(|_| Map::new(), |plan| plan.1);
             table_questions(&mut planned, analysis);
             Some(planned)
@@ -314,12 +327,34 @@ impl Scene {
         self.scene(loaded, analysis, Some(&state.answers))
     }
 
+    /// [`Scene::scene_with_state`], where the answers to `suggested` questions are shown as
+    /// suggestions Save does not write. Their requirements take no characteristic number, and
+    /// the others are numbered as the writer numbers the answers without them
+    /// (docs/characteristic-numbers.md), so every number shown is the one Save writes.
+    pub fn scene_with_suggestions(
+        &self,
+        loaded: &LoadedPart,
+        analysis: Option<&Value>,
+        state: &crate::tolerancing::State,
+        suggested: &BTreeSet<String>,
+    ) -> Result<Value, String> {
+        self.scene_mode(
+            loaded,
+            analysis,
+            Some(&state.answers),
+            false,
+            None,
+            suggested,
+        )
+    }
+
     fn planned(
         &self,
         loaded: &LoadedPart,
         analysis: &Value,
         answers: &Map<String, Value>,
         foreign: bool,
+        suggested: &BTreeSet<String>,
     ) -> Result<PlannedScene, String> {
         let intent = api::preview(analysis, answers).map_err(|e| e.to_string())?;
         let mut bindings = Bindings::new();
@@ -383,32 +418,46 @@ impl Scene {
         };
         let (baseline_doc, baseline_read) = (&self.doc, &self.read);
         let before = &baseline_read.parts[self.index];
-        let mut p = writer::scene_model(
-            loaded,
-            &intent,
-            before,
-            if foreign {
-                pmi::write::Mode::Add
-            } else {
-                pmi::write::Mode::Replace
-            },
-            &mut observe,
-        )
-        .map_err(|e| e.to_string())?;
-        characteristics::allocate(
-            loaded,
-            &mut p,
-            &self.read.parts[self.index],
-            &self.read.provenance.parts[self.index],
-            &self.doc,
-            Some(answers),
-            if foreign {
-                characteristics::Allocation::Add
-            } else {
-                characteristics::Allocation::Replace
-            },
-        )?;
-        let numbers = characteristics::planned_numbers(&p)?;
+        let mode = if foreign {
+            pmi::write::Mode::Add
+        } else {
+            pmi::write::Mode::Replace
+        };
+        // The one allocation the writer makes, of the requirements `answers` write.
+        let numbered = |p: &mut PartPmi, answers: &Map<String, Value>| {
+            characteristics::allocate(
+                loaded,
+                p,
+                &self.read.parts[self.index],
+                &self.read.provenance.parts[self.index],
+                &self.doc,
+                Some(answers),
+                if foreign {
+                    characteristics::Allocation::Add
+                } else {
+                    characteristics::Allocation::Replace
+                },
+            )
+        };
+        let mut p = writer::scene_model(loaded, &intent, before, mode, &mut observe)
+            .map_err(|e| e.to_string())?;
+        numbered(&mut p, answers)?;
+        let numbers = if answers.keys().any(|q| suggested.contains(q)) {
+            // Save writes the answers less the suggestions: the numbers are those of that plan,
+            // and a requirement only a suggestion makes has none.
+            let written: Map<String, Value> = answers
+                .iter()
+                .filter(|(q, _)| !suggested.contains(*q))
+                .map(|(q, v)| (q.clone(), v.clone()))
+                .collect();
+            let intent = api::preview(analysis, &written).map_err(|e| e.to_string())?;
+            let mut w = writer::scene_model(loaded, &intent, before, mode, &mut |_, _, _| {})
+                .map_err(|e| e.to_string())?;
+            numbered(&mut w, &written)?;
+            characteristics::planned_numbers_by(&p, &w)?
+        } else {
+            characteristics::planned_numbers(&p)?
+        };
         let mut semantic = wire::identify(p, None).map_err(|e| e.to_string())?;
         let mut metadata = Map::new();
         let mut counts = BTreeMap::new();

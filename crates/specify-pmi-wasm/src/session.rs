@@ -202,9 +202,20 @@ impl Session {
     }
 
     pub fn pmi_scene_state(&self, state: &tolerancing::State) -> Result<Value, String> {
+        self.pmi_scene_suggesting(state, &Default::default())
+    }
+
+    /// [`Session::pmi_scene_state`], the answers to `suggested` shown as suggestions Save does
+    /// not write: they take no characteristic number, and every number shown is the one Save
+    /// writes (`Scene::scene_with_suggestions`).
+    pub fn pmi_scene_suggesting(
+        &self,
+        state: &tolerancing::State,
+        suggested: &std::collections::BTreeSet<String>,
+    ) -> Result<Value, String> {
         input::answers(&self.analysis, &state.answers).map_err(|e| e.to_string())?;
         self.scene
-            .scene_with_state(&self.loaded, Some(&self.analysis), state)
+            .scene_with_suggestions(&self.loaded, Some(&self.analysis), state, suggested)
     }
 
     pub fn snapshot(&self) -> Value {

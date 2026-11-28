@@ -418,8 +418,10 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm', planned,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm', planned, calledOutNumbers,
 }: {
+  /** The number Save writes for a general dimension called out, by characteristic (the engine's). */
+  calledOutNumbers?: ReadonlyMap<string, number>;
   /** Numbers not yet in the saved file, as Save will write them (the engine's): marked as unsaved callouts are. */
   planned?: ReadonlySet<number>;
   /** The file's length unit, for the features' names (units.ts). */
@@ -466,6 +468,8 @@ export function CharacteristicsTable({
     const out = keys.every((k) => skipped.has(k));
     const edit = balloon ? onEdit(r) : null;
     const callOut = balloon && !edit ? onCallOut(r) : null;
+    const number = r.n || calledOutNumbers?.get(r.id);
+    const unsaved = Boolean(number && planned?.has(number));
     return (
     <tr
       key={key} className={`${key === selected ? 'on' : ''}${r.sub && !toggle ? ' sub' : ''}${out ? ' skip' : ''}`} tabIndex={0}
@@ -482,7 +486,7 @@ export function CharacteristicsTable({
           )}
         </td>
       )}
-      <td className={r.n && planned?.has(r.n) ? 'planned' : undefined} title={r.n && planned?.has(r.n) ? 'Not saved yet: Save writes this number' : undefined}>{cells.bal}</td>
+      <td className={unsaved ? 'planned' : undefined} title={unsaved ? 'Not saved yet: Save writes this number' : undefined}>{cells.bal}</td>
       <td>{typeof cells.feature === 'string' ? labelName(cells.feature, file) : cells.feature}</td>
       <td className="text">{labelRow(r)}</td>
       <td>{n(r.nominal)}{r.nominal !== null && mm(r)}</td>
@@ -573,7 +577,7 @@ export function CharacteristicsTable({
   }
 
   function balloonRows(g: readonly Characteristic[], head: Characteristic) {
-    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.n ? head.id : '—'}</span>, feature: head.feature }, head.faces, undefined, g)];
+    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.n ? head.id : calledOutNumbers?.get(head.id) ?? '—'}</span>, feature: head.feature }, head.faces, undefined, g)];
     const isOpen = open.has(head.n);
     // What the rows share is said once; a run of basic dimensions is counted.
     const same = g.every((r) => r.text === head.text);
