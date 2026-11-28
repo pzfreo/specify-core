@@ -137,6 +137,26 @@ export function drawnGroup(link: Pick<DrawnLink, 'status' | 'general'> | undefin
   return ({ stated: 'existing', gap: 'answered', decided_none: 'default' } as const)[link.status];
 }
 
+const generalInk = new WeakMap<DrawnPmi, ReadonlySet<string>>();
+
+/**
+ * The group a graphic is drawn and shown as. It is its item's ([`drawnGroup`]), except that the ink of
+ * a general dimension is the general dimension's whichever item it is drawn under: after Save the file's
+ * own copy of it can be listed under a second item (an alias) that is not marked general, and the
+ * "General dimensions" toggle must govern it as it did before Save.
+ */
+export function drawnGroupOf(pmi: DrawnPmi, item: string | null, graphic: DrawnGraphic): LabelGroup | undefined {
+  const group = item === null ? undefined : drawnGroup(pmi.links[item]);
+  if (group === 'general' || graphic.id === undefined) return group;
+  let ids = generalInk.get(pmi);
+  if (!ids) {
+    ids = new Set(Object.entries(pmi.presentation.items).flatMap(([id, gs]) => (
+      pmi.links[id]?.general ? gs.flatMap((g) => (g.id === undefined ? [] : [g.id])) : [])));
+    generalInk.set(pmi, ids);
+  }
+  return ids.has(graphic.id) ? 'general' : group;
+}
+
 /** Structured label contents parsed directly from `haecceity.pmi/1` in a PMI scene. */
 export interface SceneSemanticLabel {
   readonly kind: PmiLabel['kind'];
