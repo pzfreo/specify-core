@@ -1579,3 +1579,42 @@ fn part_answers_stand_when_face_answers_are_held_back_and_a_later_edit_keeps_bot
         "{warnings:?}"
     );
 }
+
+// R9: answers saved under a schema newer than this version reads are not silently dropped.
+#[test]
+fn answers_of_a_newer_schema_are_a_problem_and_refuse_the_write() {
+    let dir = temp("newer-schema");
+    let given = json!({"part.material": "steel", "part.coating": "None (as machined)"});
+    let (out, _) = written_plate(&dir, &given);
+    let loaded = load(&out, None).unwrap();
+    let mut payload = Value::Object(stored(&loaded.bytes).remove(&0).unwrap());
+
+    // The current schema: no problem, and a write goes through.
+    let a = specify_pmi::api::analyse_file(&out, None).unwrap();
+    let codes = |a: &Value| -> Vec<String> {
+        specify_pmi::problems::problems(a, &Map::new())
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["code"].as_str().map(String::from))
+            .collect()
+    };
+    assert!(!codes(&a).contains(&"saved_answers_newer_schema".to_string()));
+    let intent = apply(&analysis("parts/plate"), given.clone());
+    let plate = load(&fixture("plate"), None).unwrap();
+    write(&plate, &intent, &dir.join("again.step"), given.as_object()).unwrap();
+
+    // One schema ahead: reported on analysis, and every write of the file is refused.
+    payload["schema"] = json!(resume::SCHEMA + 1);
+    let newer = dir.join("newer.step");
+    std::fs::write(&newer, with_payload_bytes(&loaded.bytes, &payload)).unwrap();
+    let a = specify_pmi::api::analyse_file(&newer, None).unwrap();
+    assert!(codes(&a).contains(&"saved_answers_newer_schema".to_string()));
+    let loaded = load(&newer, None).unwrap();
+    for to in [newer.clone(), dir.join("elsewhere.step")] {
+        let before = std::fs::read(&newer).unwrap();
+        let err = write(&loaded, &intent, &to, given.as_object()).unwrap_err();
+        assert!(err.to_string().contains("newer than the schema"), "{err}");
+        assert_eq!(std::fs::read(&newer).unwrap(), before);
+        assert!(!dir.join("elsewhere.step").exists());
+    }
+}
