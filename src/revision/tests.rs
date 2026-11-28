@@ -28,26 +28,31 @@ fn report() -> Revised {
         new_unstated: Vec::new(),
         faces: BTreeMap::new(),
         gone: vec![],
-        correspondence: Some(Correspondence {
-            fingerprint_version: String::new(),
-            alignment: qc::Alignment {
-                found: true,
-                rotation: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
-                translation: [0.; 3],
-                anchors: 0,
-                inliers: 0,
-                symmetric: false,
-                axisymmetric: false,
-                axis: None,
-                fold: None,
-                rms: 0.,
-            },
-            features: vec![],
-            new_features: vec![],
-            faces: vec![],
-            new_faces: vec![],
-            questions: vec![],
-        }),
+        // `Correspondence` is `#[non_exhaustive]` (quiddity 0.7.0): read one rather than build it.
+        correspondence: Some(
+            serde_json::from_value(json!({
+                "fingerprint_version": "",
+                "verdict": "unchanged",
+                "alignment": {
+                    "found": true,
+                    "rotation": [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+                    "translation": [0., 0., 0.],
+                    "anchors": 0,
+                    "inliers": 0,
+                    "symmetric": false,
+                    "axisymmetric": false,
+                    "axis": null,
+                    "fold": null,
+                    "rms": 0.,
+                },
+                "features": [],
+                "new_features": [],
+                "faces": [],
+                "new_faces": [],
+                "questions": [],
+            }))
+            .unwrap(),
+        ),
         still: true,
     }
 }
