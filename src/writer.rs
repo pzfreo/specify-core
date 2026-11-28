@@ -150,6 +150,20 @@ struct KernelWriteReport {
     saved_view_findings: Vec<SavedViewFinding>,
 }
 
+/// An answer given in an edit that is not written yet because it waits on another answer
+/// (a hole left to the general tolerance before the part states one; a position before its
+/// datums exist). It stays open; a later save with the prerequisite writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Waiting {
+    /// The edit entry (`fill["hole.function:holes:9"]`).
+    pub entry: String,
+    /// The question id.
+    pub id: String,
+    /// The question ids to answer first.
+    pub waits_for: Vec<String>,
+    pub message: String,
+}
+
 /// What a write did (Python's `WriteReport`; `to_dict`'s keys and order).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct WriteReport {
@@ -160,6 +174,9 @@ pub struct WriteReport {
     /// Intent that has no place in the file yet, each saying what and why; it must reach the
     /// drawing another way.
     pub not_written: Vec<String>,
+    /// Answers that only wait on another answer: not written, still open, the rest saved.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<Waiting>,
     pub warnings: Vec<String>,
     /// Actual private endpoint additions; omitted when none were needed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -185,6 +202,9 @@ impl WriteReport {
             "not_written": self.not_written,
             "warnings": self.warnings,
         });
+        if !self.waiting.is_empty() {
+            report["waiting"] = json!(self.waiting);
+        }
         if !self.geometry_carrier_exemptions.is_empty() {
             report["geometry_carrier_exemptions"] = json!(self.geometry_carrier_exemptions);
         }
@@ -1142,6 +1162,7 @@ struct Planned<'a> {
 struct Lines {
     written: Vec<String>,
     not_written: Vec<String>,
+    waiting: Vec<Waiting>,
     warnings: Vec<String>,
     conveyed_depth_spans: Vec<(DepthPlane, DepthPlane, f64)>,
     datum_sizes: BTreeSet<String>,
@@ -1690,6 +1711,7 @@ fn write_verified(
         output: first.path.clone(),
         written: Vec::new(),
         not_written: Vec::new(),
+        waiting: Vec::new(),
         warnings: Vec::new(),
         geometry_carrier_exemptions: kernel_report.geometry_carrier_exemptions,
         presentation_warnings: kernel_report.presentation_warnings,

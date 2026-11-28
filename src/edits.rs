@@ -549,6 +549,9 @@ pub struct Outcome {
     pub unchanged: Vec<String>,
     /// Every entry that cannot be applied, and why.
     pub failures: Vec<Failure>,
+    /// Entries that only wait on another answer: not written, still open, the rest saves.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<crate::writer::Waiting>,
 }
 
 impl Outcome {
@@ -586,7 +589,14 @@ impl Outcome {
             0 => String::new(),
             n => format!(" {n} of them change nothing: the file already says the same."),
         };
-        format!("All {} entries can be applied.{unchanged}", self.entries)
+        let mut out = format!("All {} entries can be applied.{unchanged}", self.entries);
+        for w in &self.waiting {
+            out.push_str(&format!("\n- {}", w.message));
+        }
+        if !self.waiting.is_empty() {
+            out.push_str("\nThese stay open; a later save writes them once that is answered.");
+        }
+        out
     }
 
     /// The outcome as JSON, with its message.
@@ -605,6 +615,7 @@ impl Outcome {
             entries: 0,
             unchanged: Vec::new(),
             failures,
+            waiting: Vec::new(),
         }
     }
 }
@@ -631,6 +642,7 @@ pub fn validate_alone(list: &EditList) -> Outcome {
         entries: list.len(),
         unchanged: Vec::new(),
         failures,
+        waiting: Vec::new(),
     }
 }
 
@@ -881,6 +893,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         entries: list.len(),
         unchanged,
         failures,
+        waiting: Vec::new(),
     }
 }
 

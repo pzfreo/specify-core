@@ -27,6 +27,9 @@ class WriteReport:
     retired: list[int] = field(default_factory=list)
     #: An edit list's write: nothing changed, the file's own bytes were written.
     unchanged: bool = False
+    #: Answers that only wait on another answer: not written, still open, the rest saved
+    #: ({entry, id, waits_for, message}).
+    waiting: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -45,6 +48,8 @@ class WriteReport:
             result["retained_shared"] = self.retained_shared
         if self.saved_view_findings:
             result["saved_view_findings"] = self.saved_view_findings
+        if self.waiting:
+            result["waiting"] = self.waiting
         if self.retired:
             result["retired"] = self.retired
         if self.unchanged:
@@ -65,6 +70,7 @@ class WriteReport:
             data.get("saved_view_findings", []),
             data.get("retired", []),
             data.get("unchanged", False),
+            data.get("waiting", []),
         )
 
 

@@ -564,11 +564,14 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
     outcome.unchanged.extend(bom.unchanged);
     outcome.entries = list.len();
     outcome.applicable = outcome.failures.is_empty();
-    if outcome.failures.is_empty()
-        && let Err(failures) = apply(loaded, &list)
-    {
-        outcome.failures = failures;
-        outcome.applicable = false;
+    if outcome.failures.is_empty() {
+        match apply(loaded, &list) {
+            Ok(applied) => outcome.waiting = applied.report.waiting,
+            Err(failures) => {
+                outcome.failures = failures;
+                outcome.applicable = false;
+            }
+        }
     }
     outcome
 }
@@ -1412,6 +1415,50 @@ fn applied_with(
 
 /// Explain which prerequisites can be filled alongside an edit that wrote no requirement.
 #[cold]
+/// What an unwritten answer waits for, when that is another answer the file lacks: the general
+/// tolerance (a hole left to it), or the datums a hole's position or frame would cite. The
+/// ids to fill, and the same in words.
+fn waits_for(
+    table: &FeatureTable,
+    given: &BTreeMap<String, Json>,
+    id: &str,
+) -> Option<(Vec<String>, String)> {
+    if given[id] == "general"
+        && let Some(row) = table.row("part.general_tolerance")
+        && row.state != State::Stated
+        && !given.contains_key(&row.id)
+    {
+        return Some((vec![row.id.clone()], "the general tolerance".into()));
+    }
+    if !(id.starts_with("hole.position:") || id.starts_with("hole.frame:")) {
+        return None;
+    }
+    let datums: Vec<&str> = table
+        .rows
+        .iter()
+        .filter(|row| {
+            row.state != State::Stated
+                && !given.contains_key(&row.id)
+                && row
+                    .kind
+                    .strip_prefix("datum.")
+                    .is_some_and(|letter| !letter.contains('.'))
+        })
+        .map(|row| row.id.as_str())
+        .collect();
+    if datums.is_empty() {
+        return None;
+    }
+    let letters: Vec<&str> = datums
+        .iter()
+        .filter_map(|d| d.strip_prefix("datum."))
+        .collect();
+    Some((
+        datums.iter().map(|d| d.to_string()).collect(),
+        format!("the datums it cites ({})", letters.join(", ")),
+    ))
+}
+
 fn prerequisite_guidance(table: &FeatureTable, given: &BTreeMap<String, Json>, id: &str) -> String {
     let general = table.row("part.general_tolerance").filter(|row| {
         given[id] == "general" && row.state != State::Stated && !given.contains_key(&row.id)
@@ -1517,7 +1564,9 @@ fn applied_pmi(
     // A value that writes nothing ("none"; "general", a hole left to the general tolerance)
     // is a decision, stored as given.
     given.retain(|id, value| {
-        let nothing = crate::feature_table::leaves_nothing(value);
+        // A hole's location left to the general tolerance writes no ± of its own: decided.
+        let nothing = crate::feature_table::leaves_nothing(value)
+            || crate::feature_table::is_general_location(id, value);
         if nothing {
             let stored = if crate::feature_table::is_none_value(value) {
                 none_answer(&table, id)
@@ -1999,7 +2048,7 @@ fn applied_pmi(
                 }
             }
         }
-        let failing: Vec<Failure> = given
+        let unwritten_ids: Vec<&String> = given
             .keys()
             .filter(|id| {
                 let written = general_approvals.contains(*id) || intent
@@ -2031,24 +2080,36 @@ fn applied_pmi(
                     && given[*id] == "general";
                 !(written || deferred_diameter || lines.datum_sizes.contains(*id))
             })
-            .map(|id| {
-                let section = if list.change.contains_key(id) {
-                    "change"
-                } else if list.fill.contains_key(id) {
-                    "fill"
-                } else {
-                    "accept_suggestions"
-                };
-                let why = prerequisite_guidance(&table, &given, id);
-                entry_failure(
-                    edits::key(section, id),
-                    format!(
-                        "{id} with {} writes no requirement on this part as it is{why}",
-                        given[id]
-                    ),
-                )
-            })
             .collect();
+        let mut failing: Vec<Failure> = Vec::new();
+        for id in unwritten_ids {
+            let section = if list.change.contains_key(id) {
+                "change"
+            } else if list.fill.contains_key(id) {
+                "fill"
+            } else {
+                "accept_suggestions"
+            };
+            // An answer that only waits on another answer is not an error: the rest saves,
+            // this one stays open and is reported.
+            if let Some((waits_for, what)) = waits_for(&table, &given, id) {
+                lines.waiting.push(super::Waiting {
+                    entry: edits::key(section, id),
+                    id: id.clone(),
+                    message: format!("{id}: waits for {what}"),
+                    waits_for,
+                });
+                continue;
+            }
+            let why = prerequisite_guidance(&table, &given, id);
+            failing.push(entry_failure(
+                edits::key(section, id),
+                format!(
+                    "{id} with {} writes no requirement on this part as it is{why}",
+                    given[id]
+                ),
+            ));
+        }
         if !failing.is_empty() {
             return Err(failing);
         }
@@ -2108,8 +2169,10 @@ fn applied_pmi(
         )
         .map_err(|e| whole(e.to_string()))?;
         let datum_sizes = std::mem::take(&mut lines.datum_sizes);
+        let waiting = std::mem::take(&mut lines.waiting);
         lines = planned;
         lines.datum_sizes.extend(datum_sizes);
+        lines.waiting = waiting;
         keep_untouched(&mut pmi, before, &changed_items, &nominals)
             .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
@@ -2160,6 +2223,7 @@ fn applied_pmi(
         lines.not_written.extend(held);
         let approved: Map<_, _> = given
             .iter()
+            .filter(|(id, _)| !lines.waiting.iter().any(|w| &w.id == *id))
             .map(|(id, value)| (id.clone(), value.clone()))
             .collect();
         for id in super::unwritten_approvals(
@@ -2369,6 +2433,7 @@ fn report(
         output: loaded.path.clone(),
         written: lines.written,
         not_written: lines.not_written,
+        waiting: lines.waiting,
         warnings: lines.warnings,
         geometry_carrier_exemptions: kernel.geometry_carrier_exemptions,
         presentation_warnings: kernel.presentation_warnings,

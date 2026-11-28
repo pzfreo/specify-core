@@ -122,9 +122,10 @@ fn restore_blocks(
             if answers
                 .get(id)
                 .is_some_and(|v| crate::feature_table::is_datum_size_approval(id, v))
-                && datum_sizes
-                    .get_or_insert_with(|| datum_size_features(loaded))
-                    .contains(crate::feature_table::kind_and_feature(id).1.as_str())
+                && (id.starts_with("hole.location:")
+                    || datum_sizes
+                        .get_or_insert_with(|| datum_size_features(loaded))
+                        .contains(crate::feature_table::kind_and_feature(id).1.as_str()))
             {
                 return true;
             }

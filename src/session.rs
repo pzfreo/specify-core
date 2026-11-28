@@ -1366,21 +1366,25 @@ fn check_with_drafts(
         entries: lists.values().map(EditList::len).sum(),
         unchanged: Vec::new(),
         failures: Vec::new(),
+        waiting: Vec::new(),
     };
     let result = include_drafts(lists, drafts, &step, "mcp").and_then(|lists| {
         outcome.checked_against_file = true;
         outcome.entries = lists.values().map(EditList::len).sum();
         if let Some(loaded) = loaded.filter(|_| lists.len() == 1) {
             crate::writer::apply::apply(loaded, &lists[&loaded.binding.part])
-                .map(|applied| applied.outcome.unchanged)
+                .map(|applied| (applied.outcome.unchanged, applied.report.waiting))
                 .map_err(SaveError::Edits)
         } else {
-            stage_assembly_edits(step, &lists).map(|staged| staged.unchanged_entries)
+            stage_assembly_edits(step, &lists).map(|staged| (staged.unchanged_entries, Vec::new()))
         }
     });
     let mut part_failures = Vec::new();
     match result {
-        Ok(unchanged) => outcome.unchanged = unchanged,
+        Ok((unchanged, waiting)) => {
+            outcome.unchanged = unchanged;
+            outcome.waiting = waiting;
+        }
         Err(SaveError::Edits(failures)) => outcome.failures = failures,
         Err(SaveError::PartEdits(failures)) => {
             outcome.failures = failures.iter().map(PartFailure::plain).collect();

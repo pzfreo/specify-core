@@ -581,19 +581,17 @@ try {
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await check(allListed(page)).toHaveCount(0);
     await answerPart(page, 'part.material', 'Aluminium 6082-T6');
-    // The bar is not checked edit by edit; Save checks the whole list, all or nothing: a hole's
-    // position before the datum it cites is refused at Save, saying so, and nothing is written.
+    // The bar is not checked edit by edit; Save checks the whole list, all or nothing. A hole's
+    // position before the datum it cites only waits (rule C: not a refusal, see tests/waiting_answers.rs);
+    // a genuine error still refuses the whole list, writes nothing, and is the only entry named.
     await keep(page, 'hole.position:holes:13');
-    const beforeEarly = problems.length;
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await check(page.getByRole('alert').first()).toContainText('nothing was written');
-    await check(page.getByRole('alert').first()).toContainText('fill["hole.position:holes:13"]');
-    await check(page.getByRole('alert').first()).toContainText('fill datum.A');
+    const { rev: waitRev } = await (await fetch(`${server.url}answers`)).json();
+    const early = await post(server, { rev: waitRev, edits: { fill: { 'part.material': 'Aluminium 6082-T6', 'nope.unknown': 1 } } });
+    assert.equal(early.status, 422);
+    assert.deepEqual((await early.json()).failures.map(f => f.entry), ['fill["nope.unknown"]'], 'only the genuine error refuses');
     await check(allListed(page)).toHaveCount(2);
     assert.deepEqual(readFileSync(specified), readFileSync(plainSave), 'a refused list writes nothing');
     assert.equal((server.output().match(/Saved /g) ?? []).length, 1);
-    problems.splice(beforeEarly, problems.length - beforeEarly,
-      ...problems.slice(beforeEarly).filter(p => !/^console: .*422/.test(p)));
     await keep(page, 'datum.A');
     await keep(page, 'hole.position:holes:14.15');
     // A choice with no none option offers none: the process's list has no such entry.

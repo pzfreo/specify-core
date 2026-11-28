@@ -50,3 +50,24 @@ export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session
     },
   };
 }
+
+/** An answer the save did not write because it waits on another answer: it stays open (and pending). */
+export interface WaitingAnswer { part: number; id: string; waits_for: string[]; message: string }
+
+/** The answers a save's report says are waiting: ``report.waiting`` for one part, or each of
+ * ``report.parts[].report.waiting`` for several. */
+export function waitingOf(report: unknown, part: number): WaitingAnswer[] {
+  const found: WaitingAnswer[] = [];
+  const read = (r: unknown, at: number) => {
+    const list = (r as { waiting?: unknown } | null)?.waiting;
+    if (!Array.isArray(list)) return;
+    for (const w of list as { id?: unknown; waits_for?: unknown; message?: unknown }[]) {
+      if (typeof w.id === 'string') found.push({ part: at, id: w.id, waits_for: Array.isArray(w.waits_for) ? w.waits_for.filter((x): x is string => typeof x === 'string') : [], message: typeof w.message === 'string' ? w.message : `${w.id}: waits for another answer` });
+    }
+  };
+  const parts = (report as { parts?: unknown } | null)?.parts;
+  if (Array.isArray(parts)) {
+    for (const p of parts as { part?: unknown; report?: unknown }[]) read(p.report, typeof p.part === 'number' ? p.part : part);
+  } else read(report, part);
+  return found;
+}

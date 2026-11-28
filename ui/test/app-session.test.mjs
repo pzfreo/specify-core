@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
-import { EditsRefused, editsSaver, FileChanged, NotShown, Stale } from '../app/save.ts';
+import { waitingHint } from '../src/specify/hints.ts';
+import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, waitingOf } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-pmi docs/open.md, session API 2):
 // the review panel's edits stay in the page until Save sends them as an edit list (`POST save {rev,
 // edits}`); events from others (an agent's answers) land in the session.
@@ -304,4 +305,27 @@ test('Save at the displayed draft revision refuses a newer answer on another par
   });
   await assert.rejects(saver.save({ none: ['part.coating'] }, 1), NotShown);
   assert.equal(wrote, false);
+});
+
+test('a save report lists the answers that wait on another answer, for one part or several', () => {
+  const waiting = [{ entry: 'fill["hole.function:holes:9"]', id: 'hole.function:holes:9', waits_for: ['part.general_tolerance'], message: 'hole.function:holes:9: waits for the general tolerance' }];
+  assert.deepEqual(waitingOf({ written: [], waiting }, 0), [{ part: 0, id: 'hole.function:holes:9', waits_for: ['part.general_tolerance'], message: waiting[0].message }]);
+  assert.deepEqual(waitingOf({ parts: [{ part: 2, report: { waiting } }, { part: 3, report: {} }] }, 0).map((w) => w.part), [2]);
+  assert.deepEqual(waitingOf({ written: [] }, 0), []);
+  assert.deepEqual(waitingOf(undefined, 0), []);
+});
+
+test('a waiting answer shows what it waits for, until it is written or that is answered', () => {
+  const waiting = [
+    { id: 'hole.function:holes:9', waits_for: ['part.general_tolerance'] },
+    { id: 'hole.position:holes:12', waits_for: ['datum.A', 'datum.B', 'datum.C'] },
+  ];
+  const none = () => false;
+  assert.equal(waitingHint(waiting, 'hole.function:holes:9', false, none), 'Waits for the general tolerance');
+  assert.equal(waitingHint(waiting, 'hole.position:holes:12', false, none), 'Waits for datums A, B, C');
+  assert.equal(waitingHint(waiting, 'hole.position:holes:12', false, (id) => id === 'datum.B'), 'Waits for datums A, C');
+  assert.equal(waitingHint(waiting, 'hole.function:holes:9', true, none), null, 'written');
+  assert.equal(waitingHint(waiting, 'hole.function:holes:9', false, (id) => id === 'part.general_tolerance'), null, 'prerequisite answered');
+  assert.equal(waitingHint(waiting, 'part.material', false, none), null);
+  assert.equal(waitingHint(undefined, 'hole.function:holes:9', false, none), null);
 });

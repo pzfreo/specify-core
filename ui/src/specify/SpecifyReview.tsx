@@ -9,7 +9,7 @@ import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
 import { bestDrawnView, drawnGroupOf, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
-import { optionHint } from './hints';
+import { optionHint, waitingHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
 import { xlsx } from '../model/xlsx';
@@ -57,7 +57,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, calledOutNumbers, takenKeys }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, calledOutNumbers, takenKeys, waiting }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -99,6 +99,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   readOnly?: boolean;
   /** Feature-table rows and pending edits for the single PMI view. */
   oneView?: { readonly rows: readonly OneViewRow[]; readonly pending: ReadonlyMap<string, OneViewPending> };
+  /** Answers the last save left unwritten because each waits on another answer (the write report's
+   * ``waiting``): shown on the question and its row ("Waits for the general tolerance"), and gone once
+   * the answer is written or what it waits for is answered. */
+  waiting?: readonly { id: string; waits_for: string[]; message?: string }[];
   /** Structured semantic labels parsed from the active PMI scene. */
   sceneSemantic?: ReadonlyMap<string, SceneSemanticLabel>;
   /** Explicit coordinate system or datum origin stated by the file, rendered as an x/y/z triad. */
@@ -1151,8 +1155,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     }
     return questionItemOf(q, g, titled);
   };
+  // What a question is waiting for, while it is: not once it is stated, or what it waits for is answered.
+  const waitingOn = (id: string): string | null => waitingHint(waiting, id, !!statedOf(id) || id in answers, (p) => p in answers || statedRows?.values[p] !== undefined);
   const questionItemOf = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
-    <QuestionItem titled={titled}
+    <QuestionItem titled={titled} waiting={waitingOn(q.id)}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
       locked={readOnly} onSpec={(text) => spec(q, text)} resettable={!statedOf(q.id)}
@@ -1220,6 +1226,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <span className="sum">{typeof sum === 'string' ? withUnits(sum, 'mm') : sum ?? statedSummary(g) ?? withUnits(summary(g, answers), 'mm')}</span>
         </button>
         {rowProblems}
+        {g.questions.map((q) => { const w = waitingOn(q.id); return w && <div key={`waits:${q.id}`} className="hint pmi-lab-waiting" role="status" data-waiting={q.id}><b>{labelName(q.label ?? q.prompt, lengthUnit)}</b> {w}</div>; })}
         {extra}
         {cards.length > 0 && <div className="pmi-lab-cards">{cards.map(card)}</div>}
         {/* Not twice: the current question shown in its queue row is answered there. */}
@@ -2017,8 +2024,10 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, locked = false, resettable = true, file = 'mm', selected,
+  onDefaultSelection, titled = true, locked = false, resettable = true, file = 'mm', selected, waiting = null,
 }: {
+  /** What the last save left this question waiting for, if anything. */
+  waiting?: string | null;
   /** The file's length unit, for its prompt (units.ts). */
   file?: LengthUnit;
   /** "Reset to default" offered: not on what the file states, which has its pencil and bin instead. */
@@ -2059,6 +2068,7 @@ function QuestionItem({
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
       </div>
+      {waiting && <div className="hint pmi-lab-waiting" role="status">{waiting}</div>}
       {q.reason && need === 'check' && (
         <div className="reason">
           {q.reason}{' '}

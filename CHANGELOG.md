@@ -6,6 +6,20 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **A hole's location left to the general tolerance saves.** `hole.location:<feature> = "general"` (the
+  question's default under `part.locating` "± dimensions", so what the editor's accept-defaults sends) was
+  refused by `edit` and `write` as writing no requirement. It is now a decided answer, like a size left to
+  the general tolerance: no ± is written, the row reads back decided (not an open gap), in edit lists and
+  0.2 answers files. A tighter value (`±0.1`) still writes its requirement.
+- **An answer that only waits on another answer no longer refuses the save.** A hole left to the
+  `general` tolerance before the part states one, and a hole's position or frame before its datums exist,
+  are not written: the rest of the list is, the answer stays open, and the write report lists it in a new
+  `waiting` field (`[{entry, id, waits_for, message}]`; `write --check`, `checkEdits`, Python's
+  `WriteReport.waiting`, the MCP and session `save` report show it; `SpecifyReview` takes an optional
+  `waiting` prop and shows "Waits for the general tolerance" / "Waits for datums A, B, C" on the question and
+  its row until it is written or answered; the app passes its last save's and keeps the answer pending). A later save with the prerequisite writes it. Edit lists and 0.2 answers files
+  follow the one rule; an unknown id, an invalid value, an answer the file contradicts and a malformed
+  entry still refuse the whole save.
 - **`WorkerClient.acceptDefaults(file, answers)`** returns `answers` with Specify's defaults accepted for the file
   (the worker's `accept-defaults` op, the engine's free `acceptDefaults` on its analysis); a host saves them with
   `edit(file, { edits: accepted })`. Reads only.
@@ -84,6 +98,10 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ### WASM API
 
+- **`WriteReport` gains optional `waiting: WaitingAnswer[]`** (new `WaitingAnswer { entry, id, waits_for, message }`).
+  An answer that only waits on another answer (a hole's position or frame before its datums exist, a hole's
+  location before the part states a general tolerance) no longer refuses `edit`/`write`: it is skipped, stays
+  open, and is listed here. Unknown ids, invalid values and contradictions still refuse the whole save.
 - `IntentEngine.editFile(editsJson, project?, payload?)`: as `edit`, but returns an `EditedFile` whose `json`
   is the outcome without `bytes` (`EditFileResult`) and whose `bytes()` gives the new file as a `Uint8Array`.
   Free it (or `using`) when done. `edit` is unchanged.

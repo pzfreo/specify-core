@@ -26,7 +26,8 @@ report = api.write("plate.step", {
 Ids are the feature table's (`api.analyse(step)["table"]["rows"]`), or a choice with no row
 such as `part.locating` (stored, as it writes no PMI), or an added requirement `extra.<name>`;
 items are characteristic numbers. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
-read as a list of fills. A list is all or nothing: if any entry cannot be applied nothing is
+read as a list of fills. A list is all or nothing (except an answer that only waits on another answer, which stays open and is
+reported in the report's `waiting`: [answers.md](answers.md)): if any entry cannot be applied nothing is
 written and `specify_pmi.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
 every failing entry and why. The report (`WriteReport`) adds `retired`, the characteristic
 numbers the save retired, and `unchanged`. `api.check_edits(step, edits)` checks a list exactly

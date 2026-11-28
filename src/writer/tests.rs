@@ -157,6 +157,7 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
         output: "out.step".into(),
         written: vec![],
         not_written: vec![],
+        waiting: vec![],
         warnings: vec![],
         geometry_carrier_exemptions: vec![],
         presentation_warnings: vec![],
