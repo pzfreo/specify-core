@@ -125,6 +125,26 @@ are not refused on reopening: the unknown ID is left out of the resumed answers,
 `resume.unresolved` with its value, and named in an analysis warning
 (`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
+### A location left to the general tolerance
+
+`hole.location:<feature>` = `general` (the question's default under `part.locating` "± dimensions")
+writes no ± of its own. It is a decided answer, stored in the file like a size left to the general
+tolerance: the row reads `decided_none`, never an open gap, and the save does not refuse it.
+
+### An answer that waits on another answer
+
+An edit list (or a 0.2 answers file: one rule) is applied all or nothing, **except** an answer
+that only waits on another answer the file does not have yet. That answer is neither refused nor
+dropped: the rest of the list is written, the answer is not, it stays open, and the write report
+lists it in `waiting`: `[{entry, id, waits_for, message}]` (`write --check` and `checkEdits` report
+the same list beside `applicable: true`). The waiting kinds are a hole left to the `general`
+tolerance while the part states no general tolerance (waits for `part.general_tolerance`), and a
+hole's position or frame whose datums the file does not state (waits for `datum.A`, `datum.B`, ...).
+A later save, once the prerequisite is stated or given in that list, writes it. A host keeps the
+answer as its own pending edit and sends it again. Genuine errors still refuse the whole list: an
+unknown question or row id, an invalid value, an answer contradicting what the file states, a
+malformed entry.
+
 ## Reopening a file: the file is the only copy
 
 [ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):

@@ -273,10 +273,18 @@ pub fn is_requirement(id: &str) -> bool {
 pub const NO_PMI: &str = "no_pmi";
 
 /// The only nonempty requirement approval that can deliberately leave no PMI.
+///
+/// A hole's location left to the general tolerance (`hole.location` "general", the question's
+/// default) is the same kind of decision: no ± is written, the general tolerance governs.
 pub(crate) fn is_datum_size_approval(id: &str, value: &Value) -> bool {
-    id.split_once(':')
-        .is_some_and(|(kind, _)| matches!(kind, "diameter.fit" | "hole.function"))
-        && value == "general"
+    id.split_once(':').is_some_and(|(kind, _)| {
+        matches!(kind, "diameter.fit" | "hole.function" | "hole.location")
+    }) && value == "general"
+}
+
+/// A hole's location left to the general tolerance: decided, and nothing of its own to write.
+pub(crate) fn is_general_location(id: &str, value: &Value) -> bool {
+    id.starts_with("hole.location:") && value == "general"
 }
 
 /// The answers listed under [`NO_PMI`] in `answers`' metadata.

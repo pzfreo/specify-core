@@ -6,6 +6,19 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **A hole's location left to the general tolerance saves.** `hole.location:<feature> = "general"` (the
+  question's default under `part.locating` "± dimensions", so what the editor's accept-defaults sends) was
+  refused by `edit` and `write` as writing no requirement. It is now a decided answer, like a size left to
+  the general tolerance: no ± is written, the row reads back decided (not an open gap), in edit lists and
+  0.2 answers files. A tighter value (`±0.1`) still writes its requirement.
+- **An answer that only waits on another answer no longer refuses the save.** A hole left to the
+  `general` tolerance before the part states one, and a hole's position or frame before its datums exist,
+  are not written: the rest of the list is, the answer stays open, and the write report lists it in a new
+  `waiting` field (`[{entry, id, waits_for, message}]`; `write --check`, `checkEdits`, Python's
+  `WriteReport.waiting`, the MCP and session `save` report, and the app's save line show it; the app keeps
+  the answer pending). A later save with the prerequisite writes it. Edit lists and 0.2 answers files
+  follow the one rule; an unknown id, an invalid value, an answer the file contradicts and a malformed
+  entry still refuse the whole save.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
   PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
   had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a

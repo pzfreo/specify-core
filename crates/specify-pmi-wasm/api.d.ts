@@ -232,6 +232,13 @@ export interface SavedViewFinding {
   part?: number;
 }
 
+export interface WaitingAnswer {
+  entry: string;
+  id: string;
+  message: string;
+  waits_for: string[];
+}
+
 export interface WriteReport {
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
   not_written: string[];
@@ -242,6 +249,7 @@ export interface WriteReport {
   retired: number[];
   saved_view_findings?: SavedViewFinding[];
   unchanged: boolean;
+  waiting?: WaitingAnswer[];
   warnings: string[];
   written: string[];
 }
