@@ -496,6 +496,17 @@ fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteErro
 
 /// What [`write_parts`] and [`write_parts_bytes`] refuse before writing anything: no jobs, parts
 /// of different files, a part twice, an intent not made for its part.
+/// Answers saved by a newer version cannot be read here, so any write of the part would drop
+/// them: refused.
+pub(crate) fn check_newer_schema(loaded: &LoadedPart) -> Result<(), WriteError> {
+    if let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.to_vec())
+        && let Some(schema) = crate::resume::newer_schema_in(&doc, loaded.binding.part)
+    {
+        return invalid(crate::resume::newer_schema_message(schema));
+    }
+    Ok(())
+}
+
 fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
     let Some(&(first, _, _)) = jobs.first() else {
         return invalid("nothing to write");
@@ -508,6 +519,7 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
         return invalid("a part is written once");
     }
     for (loaded, intent, answers) in jobs {
+        check_newer_schema(loaded)?;
         check_binding(loaded, intent)?;
         if let Some(answers) = answers {
             crate::answer_file::check(loaded, answers).map_err(WriteError::Invalid)?;

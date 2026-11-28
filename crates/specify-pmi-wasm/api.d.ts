@@ -1,9 +1,11 @@
-/** `editFile`'s result: the outcome as JSON (`EditResult` without `bytes`) and the new file apart from it. */
 export class EditedFile {
-  free(): void;
+  [Symbol.dispose](): void;
   bytes(): Uint8Array;
+  free(): void;
+  private constructor();
   readonly json: string;
 }
+
 export class IntentEngine {
   [Symbol.dispose](): void;
   checkEdits(edits: string): string;
@@ -92,6 +94,7 @@ export interface GeometryCarrierExemption {
 
 export interface InitOutput {
   readonly __externref_table_dealloc: (a: number) => void;
+  readonly __wbg_editedfile_free: (a: number, b: number) => void;
   readonly __wbg_intentengine_free: (a: number, b: number) => void;
   readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
@@ -101,9 +104,12 @@ export interface InitOutput {
   readonly acceptDefaults: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
+  readonly editedfile_bytes: (a: number) => [number, number];
+  readonly editedfile_json: (a: number) => [number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_checkEdits: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_edit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
+  readonly intentengine_editFile: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
@@ -253,8 +259,9 @@ export interface WriteReport {
   written: string[];
 }
 
-export type EditResult = | { written: true; bytes: number[]; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
 export type EditFileResult = | { written: true; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
+
+export type EditResult = | { written: true; bytes: number[]; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

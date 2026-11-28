@@ -40,6 +40,14 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   `.pmi-lab-pane` now fills its positioned container in the package's own CSS, and StepDiff's page-level
   `html body` rule applies only to a page that holds a diff. The datum-removal confirmation is in the panel
   row, no longer a native dialog. README: "Embedding and saving".
+- **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
+  than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
+  reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),
+  and every write of that part is refused with a message saying so, to this file or another. Older and
+  current schemas behave as before.
+- **A panic in the Python bindings is a `specify_pmi.SpecifyError`** (an `Exception`), as quiddity-py does,
+  not pyo3's `PanicException`, which `except Exception` does not catch. Every off-GIL binding call is
+  guarded. `SpecifyError` is new.
 - **`@draftwright/specify-ui/host`: the components without the package's own 3D view**. `SpecifyReview`, `StepDiff` and
   `AssemblyDiffView`, with `view` (a `HostView`) required; nothing in this entry reaches `three-cad-viewer`, so a
   host that draws its own view neither installs nor bundles it. `three-cad-viewer` is now an optional peer
@@ -77,6 +85,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   written by Specify (`specify-core:written:v1`). The UI lays such a callout out as Specify lays out an
   unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
   some). Optional; `DrawnLink.written` carries it.
+
+### WASM API
+
+- `IntentEngine.editFile(editsJson, project?, payload?)`: as `edit`, but returns an `EditedFile` whose `json`
+  is the outcome without `bytes` (`EditFileResult`) and whose `bytes()` gives the new file as a `Uint8Array`.
+  Free it (or `using`) when done. `edit` is unchanged.
 
 ## 0.3.0 (2026-11-27)
 
