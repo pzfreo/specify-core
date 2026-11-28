@@ -355,53 +355,51 @@ fn check_edits(py: Python<'_>, step: &Bound<'_, PyAny>, edits: &str) -> PyResult
     }))
 }
 
-/// Write several parts of `step` (a path, or any part of the file, loaded) together: each
-/// `(intent, answers)` (JSON; answers may be None) on the part its intent was made for. The
-/// report, as JSON (`api.write_parts`).
+/// Apply an edit list to each of several parts of `step` (a path, or any part of the file,
+/// loaded) and write the result to `output` once. `edits` is `(part, edit list JSON)` pairs (an
+/// edit list, or a 0.2 answers file, as `write` takes). JSON: `{applied: true, parts: [{part,
+/// report}]}`, or `{applied: false, failures, message}` when any entry cannot be applied
+/// (nothing is written).
 #[pyfunction]
 fn write_parts(
     py: Python<'_>,
     step: &Bound<'_, PyAny>,
-    intents: Vec<(String, Option<String>)>,
+    edits: Vec<(usize, String)>,
     output: PathBuf,
 ) -> PyResult<String> {
-    let mut jobs = Vec::with_capacity(intents.len());
-    for (intent, answers) in &intents {
-        jobs.push((
-            intent_of(intent)?,
-            answers.as_deref().map(answers_of).transpose()?,
-        ));
-    }
-    let report = match loaded(step, None)? {
-        Some(handle) => py.detach(|| write_parts_of(&handle.file, &jobs, &output)),
-        None => {
-            let path: PathBuf = step.extract()?;
-            py.detach(|| api::write_parts(&path, &jobs, &output))
+    let refused = |failures: Vec<specify_pmi::edits::Failure>| {
+        json!({"applied": false, "message": specify_pmi::session::edits_refused(&failures),
+               "failures": failures})
+    };
+    let mut lists = std::collections::BTreeMap::new();
+    for (k, text) in &edits {
+        match specify_pmi::edits::read(text) {
+            Ok(list) => {
+                if lists.insert(*k, list).is_some() {
+                    return Err(PyValueError::new_err(format!("part {k} is given twice")));
+                }
+            }
+            Err(failures) => return Ok(refused(failures).to_string()),
         }
     }
-    .map_err(raised)?;
-    Ok(report.to_dict().to_string())
-}
-
-/// `api::write_parts` on a file already read.
-fn write_parts_of(
-    file: &part::File,
-    jobs: &[(rules::Intent, Option<Map<String, Value>>)],
-    output: &std::path::Path,
-) -> api::Result<specify_pmi::writer::WriteReport> {
-    let parts = file.load_all()?;
-    let mut writes = Vec::with_capacity(jobs.len());
-    for (intent, answers) in jobs {
-        let k = api::intent_part(intent)?;
-        let Some(part) = parts.get(k) else {
-            return Err(Error::Write(WriteError::Invalid(format!(
-                "{} has no part {k}",
-                file.path().display()
-            ))));
-        };
-        writes.push((part, intent, answers.as_ref()));
-    }
-    Ok(specify_pmi::writer::write_parts(&writes, output)?)
+    let read;
+    let file = match loaded(step, None)? {
+        Some(handle) => &handle.file,
+        None => {
+            let path: PathBuf = step.extract()?;
+            read = py.detach(|| part::File::read(&path)).map_err(|e| raised(Error::Load(e)))?;
+            &read
+        }
+    };
+    let out = py.detach(
+        || match specify_pmi::writer::apply::apply_parts_to(file, &lists, &output) {
+            Ok(done) => json!({"applied": true, "parts": done.iter().map(|(k, applied)| {
+                json!({"part": k, "report": applied.to_dict()})
+            }).collect::<Vec<_>>()}),
+            Err(failures) => refused(failures),
+        },
+    );
+    Ok(out.to_string())
 }
 
 /// The semantic PMI the file states on the part (a handle, or the `part`-th part of a path):

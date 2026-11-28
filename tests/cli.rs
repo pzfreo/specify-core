@@ -2779,3 +2779,25 @@ fn specify_core_alias_prints_a_notice_on_stderr_only() {
         assert!(bad.stdout.is_empty() && String::from_utf8_lossy(&bad.stderr).starts_with(notice));
     }
 }
+
+/// `questions` refuses an analysis file of a newer schema, naming the range, and reads the
+/// current one.
+#[test]
+fn questions_refuses_an_analysis_of_a_newer_schema() {
+    let dir = scratch("newer-schema");
+    let part = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    let mut analysis = api::analyse_file(&part, None).unwrap();
+    let current = dir.join("current.json");
+    std::fs::write(&current, analysis.to_string()).unwrap();
+    assert_eq!(run(&["questions", &s(&current)]).code, 0);
+    analysis["schema"] = json!(api::ANALYSIS_SCHEMA + 1);
+    let newer = dir.join("newer.json");
+    std::fs::write(&newer, analysis.to_string()).unwrap();
+    let refused = run(&["questions", &s(&newer)]);
+    assert_ne!(refused.code, 0);
+    assert!(
+        refused.stderr.contains("newer than") && refused.stderr.contains("oldest it accepts"),
+        "{}",
+        refused.stderr
+    );
+}

@@ -20,7 +20,7 @@ pub fn stored(
     let all = rules::with_all_defaults(analysis, given).unwrap();
     let intent = api::apply(analysis, given, true).unwrap();
     let file = part::File::read(input).unwrap();
-    let bytes = api::write_bytes(
+    let bytes = super::whole_intent::write_bytes(
         file.bytes().as_ref().clone(),
         &[(intent, Some(given.clone()))],
     )

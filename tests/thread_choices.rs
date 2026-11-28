@@ -72,7 +72,7 @@ fn written_threads(analysis: &Value, qid: &str, answer: &str, name: &str) -> Vec
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join(format!("{name}.step"));
     let loaded = load(&spindle(), None).unwrap();
-    let report = api::write(&loaded, &intent, &out, None).expect("written");
+    let report = common::whole_intent::write(&loaded, &intent, &out, None).expect("written");
     assert!(
         report
             .written

@@ -100,7 +100,7 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             pairs.push(bpath);
             jobs.push((intent, Some(answers)));
         }
-        let bytes = api::write_bytes(file.bytes().as_ref().clone(), &jobs)
+        let bytes = common::whole_intent::write_bytes(file.bytes().as_ref().clone(), &jobs)
             .unwrap()
             .0;
         assert!(

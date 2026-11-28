@@ -39,7 +39,7 @@ fn answers(flatness: &str) -> Map<String, Value> {
 fn written(given: &Map<String, Value>) -> Vec<u8> {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, given, true).unwrap();
-    api::write_bytes(
+    common::whole_intent::write_bytes(
         std::fs::read(plate()).unwrap(),
         &[(intent, Some(given.clone()))],
     )

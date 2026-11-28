@@ -6,6 +6,8 @@
 //! nothing (as `specify-pmi write STEP EDITS.json`), and never overwrite (unless
 //! `--in-place`, which keeps a `.bak`); `closed` stops the server.
 
+mod common;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -2429,7 +2431,7 @@ fn a_part_with_only_metadata_answers_keeps_its_pmi() {
     assert!(!stored.is_empty());
     let intent = specify_pmi::api::apply(&analysis, &given, true).unwrap();
     let old = scratch.path("work/old.step");
-    specify_pmi::api::write_file(&plate, &intent, &old, Some(&stored)).unwrap();
+    common::whole_intent::write_file(&plate, &intent, &old, Some(&stored)).unwrap();
     let before = pmi_counts(&old);
     assert!(
         before.iter().sum::<usize>() > 0,

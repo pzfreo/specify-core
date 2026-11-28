@@ -6,6 +6,12 @@ module are built on it.
 - `part::File::{read, of_bytes, load, load_all}` reads a file once and loads its parts;
   `part::load_bytes` loads a single-part STEP held in memory.
 - `api::{analyse, preview, review}` analyses a loaded part, turns answers into its bound intent, and composes a front end review.
+- Saving is by edit list: `writer::apply::{apply, apply_to, apply_parts_to, apply_bytes}` apply an
+  edit list (or a 0.2 answers file) all or nothing, as the CLI's `write` does. 0.4.0 removed the
+  whole-intent `api::{write, write_file, write_parts, write_bytes}`.
+- An analysis read back (`api::questions`, `review`, `apply`, `preview`, the rules) must have a
+  `schema` this build reads: `api::OLDEST_ANALYSIS_SCHEMA` to `api::ANALYSIS_SCHEMA`; a newer one is
+  refused, naming the range.
 - `writer::{write, write_parts}` writes verified PMI and stored answers to a destination;
   `writer::{write_bytes, write_parts_bytes}` returns the same verified STEP bytes in memory.
 - `writer::{write_bytes_with, write_parts_bytes_with}` adds `extra: &[haecceity::pmi::AttributeSet]`

@@ -276,8 +276,8 @@ fn parts_written_alone_in_memory_keep_each_others_answers() {
         let intent = api::apply(&analysis, &answers(k), true).unwrap();
         let datums = json!(intent.datums.len());
         let (out, report) =
-            api::write_bytes(bytes.to_vec(), &[(intent, Some(answers(k)))]).unwrap();
-        assert_eq!(report.output, PathBuf::from(api::IN_MEMORY));
+            common::whole_intent::write_bytes(bytes.to_vec(), &[(intent, Some(answers(k)))]).unwrap();
+        assert_eq!(report.output, PathBuf::from(common::whole_intent::IN_MEMORY));
         assert!(!report.written.is_empty());
         (out, datums)
     };
@@ -332,7 +332,7 @@ fn parts_written_alone_in_memory_keep_each_others_answers() {
     let analysis = api::analyse_file(&start, Some(PLATE)).unwrap();
     let intent = api::apply(&analysis, &answers(PLATE), true).unwrap();
     let out = dir.join("out.step");
-    api::write_parts(&start, &[(intent, Some(answers(PLATE)))], &out).unwrap();
+    common::whole_intent::write_parts(&start, &[(intent, Some(answers(PLATE)))], &out).unwrap();
     assert_eq!(std::fs::read(&out).unwrap(), after_plate);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -357,9 +357,9 @@ fn an_assembly_with_no_part_chosen_is_refused_naming_its_parts() {
     let analysis = api::analyse(&file.load(Some(PIN)).unwrap()).unwrap();
     let mut intent = api::apply(&analysis, &answers(PIN), true).unwrap();
     intent.binding["part"] = json!(5);
-    match api::write_bytes(bytes, &[(intent, Some(answers(PIN)))]) {
+    match common::whole_intent::write_bytes(bytes, &[(intent, Some(answers(PIN)))]) {
         Err(api::Error::Write(WriteError::Invalid(m))) => {
-            assert_eq!(m, format!("{} has no part 5", api::IN_MEMORY))
+            assert_eq!(m, format!("{} has no part 5", common::whole_intent::IN_MEMORY))
         }
         other => panic!("not refused: {other:?}"),
     }

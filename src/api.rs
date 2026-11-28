@@ -1,18 +1,17 @@
 //! The steps: parts, analyse, mesh, questions, apply, preview, write (port of `api.py`).
 //!
 //! A file of several parts is specified a part at a time: [`parts`] lists them, [`analyse`] and
-//! [`mesh`] take the one to work on, and [`write_parts`] writes any number of them into the
-//! assembly together. The command line (`main.rs`) and `serve` are thin layers over these.
+//! [`mesh`] take the one to work on. Saving is by edit list ([`crate::writer::apply`],
+//! [`crate::session`]), which writes any number of parts into the assembly together. The command line (`main.rs`) and `serve` are thin layers over these.
 //!
 //! Each step that reads a file has two forms, as Python's take a path or a `LoadedPart`: one on
-//! a part already loaded ([`analyse`], [`mesh`], [`write`]) and one on a path
-//! ([`analyse_file`], [`mesh_file`], [`write_file`]), which loads the part first.
+//! a part already loaded ([`analyse`], [`mesh`]) and one on a path
+//! ([`analyse_file`], [`mesh_file`]), which loads the part first.
 //!
 //! **In memory** (for a caller with no filesystem, the editor's browser build): a file's bytes
 //! are read with [`part::File::of_bytes`] (any part, [`part::File::load`]) or
 //! [`part::load_bytes`] (a file of one part); [`analyse`] and [`mesh`] take the part so loaded,
-//! and [`write_bytes`] writes any of the file's parts and returns the bytes written with the
-//! report. Nothing in these reads a path.
+//! (a save is [`crate::writer::apply::apply_bytes`]). Nothing in these reads a path.
 //!
 //! The analysis, answers and intent are JSON values, as in Python: an analysis is a stored
 //! snapshot that may come from either engine or an older version, and the rules read it as
@@ -33,10 +32,40 @@ use crate::mesh as meshing;
 use crate::part::{self, LoadError, LoadedPart};
 use crate::resume;
 use crate::rules::{self, IncompleteError, Intent, Question};
-use crate::writer::{self, WriteError, WriteReport};
+use crate::writer::WriteError;
 
 /// The analysis format's version (Python's `ANALYSIS_SCHEMA`).
 pub const ANALYSIS_SCHEMA: i64 = 1;
+
+/// The oldest analysis schema still read (every one from here to [`ANALYSIS_SCHEMA`] parses).
+pub const OLDEST_ANALYSIS_SCHEMA: i64 = 1;
+
+/// Whether this build reads `analysis`, by its `schema`: the current one and any back to
+/// [`OLDEST_ANALYSIS_SCHEMA`]. A newer one, an older one than that, or one that is not a whole
+/// number is refused, naming what is supported. An analysis with no `schema` (written by hand,
+/// or by a test) is taken as the current one.
+pub fn check_analysis_schema(analysis: &Value) -> std::result::Result<(), String> {
+    let Some(schema) = analysis.get("schema") else {
+        return Ok(());
+    };
+    let supported = format!(
+        "this specify-pmi reads analysis schemas {OLDEST_ANALYSIS_SCHEMA} to {ANALYSIS_SCHEMA} \
+         (the oldest it accepts is {OLDEST_ANALYSIS_SCHEMA})"
+    );
+    match schema.as_i64() {
+        Some(n) if n > ANALYSIS_SCHEMA => Err(format!(
+            "the analysis is schema {n}, newer than {supported}: use a newer specify-pmi, or \
+             analyse the part again with this one"
+        )),
+        Some(n) if n < OLDEST_ANALYSIS_SCHEMA => Err(format!(
+            "the analysis is schema {n}, older than {supported}: analyse the part again"
+        )),
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "the analysis's schema is {schema}, not a whole number; {supported}"
+        )),
+    }
+}
 
 /// Why a step failed. The command line and `serve` map each kind to specify-pmi's exit code
 /// and error code (see `main.rs`, `serve.rs`).
@@ -707,19 +736,6 @@ pub fn stored_with_defaults(
     Ok(out)
 }
 
-/// The accepted defaults for a write. Pass every approval through so the
-/// writer can distinguish deliberate omissions from unfulfilled measurements.
-pub(crate) fn defaults_for_write(
-    analysis: &Value,
-    answers: &Map<String, Value>,
-) -> Result<Map<String, Value>> {
-    let mut approved = rules::with_all_defaults(analysis, answers)?;
-    if !answers.contains_key(crate::process::QUESTION) {
-        approved.shift_remove(crate::process::QUESTION);
-    }
-    Ok(approved)
-}
-
 /// Approved defaults by part (ADR P9): each question id with the default value the person saw.
 pub type Approved = std::collections::BTreeMap<usize, Map<String, Value>>;
 
@@ -827,88 +843,6 @@ pub fn intent_part(intent: &Intent) -> Result<usize> {
             )))
         }),
     }
-}
-
-/// Write `intent` into `loaded`'s file at `output`, verified by reading back. Given the
-/// `answers` it came from, they are stored in the file too, so that opening it again resumes
-/// them.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn write(
-    loaded: &LoadedPart,
-    intent: &Intent,
-    output: &Path,
-    answers: Option<&Map<String, Value>>,
-) -> Result<WriteReport> {
-    Ok(writer::write(loaded, intent, output, answers)?)
-}
-
-/// [`write`] on `step`, loading the part the intent was made for.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn write_file(
-    step: &Path,
-    intent: &Intent,
-    output: &Path,
-    answers: Option<&Map<String, Value>>,
-) -> Result<WriteReport> {
-    let loaded = part::load(step, Some(intent_part(intent)?))?;
-    write(&loaded, intent, output, answers)
-}
-
-/// Write several parts of the assembly `step` together: each intent on the part it was made
-/// for, with the answers it came from (or none).
-#[cfg(not(target_arch = "wasm32"))]
-pub fn write_parts(
-    step: &Path,
-    intents: &[(Intent, Option<Map<String, Value>>)],
-    output: &Path,
-) -> Result<WriteReport> {
-    let loaded = part::load_all(step)?;
-    let mut jobs = Vec::with_capacity(intents.len());
-    for (intent, answers) in intents {
-        let k = intent_part(intent)?;
-        let Some(part) = loaded.get(k) else {
-            return Err(Error::Write(WriteError::Invalid(format!(
-                "{} has no part {k}",
-                step.display()
-            ))));
-        };
-        jobs.push((part, intent, answers.as_ref()));
-    }
-    Ok(writer::write_parts(&jobs, output)?)
-}
-
-/// The name standing for the file's path in what [`write_bytes`] loads and reports (its
-/// report's `output`, its errors), there being no path.
-pub const IN_MEMORY: &str = "<in memory>";
-
-/// Write parts of the file whose bytes are `bytes`, in memory (the editor's browser build): each
-/// intent on the part it was made for (its binding's `part`), with the answers it came from (or
-/// none), all in one edit verified by reading back, as [`write_parts`] writes a file. Returns
-/// the bytes written and the report (its `output` is [`IN_MEMORY`]). The file's other parts,
-/// which the writer consults (answers stored for them), are loaded from `bytes`, never from a
-/// path. One part of an assembly may be written alone: the other parts, their PMI and their
-/// stored answers are left as they are (decision D3).
-pub fn write_bytes(
-    bytes: Vec<u8>,
-    jobs: &[(Intent, Option<Map<String, Value>>)],
-) -> Result<(Vec<u8>, WriteReport)> {
-    let file = part::File::of_bytes(Path::new(IN_MEMORY), bytes)?;
-    let mut loaded = Vec::with_capacity(jobs.len());
-    for (intent, _) in jobs {
-        let k = intent_part(intent)?;
-        if k >= file.definitions().len() {
-            return Err(Error::Write(WriteError::Invalid(format!(
-                "{IN_MEMORY} has no part {k}"
-            ))));
-        }
-        loaded.push(file.load(Some(k))?);
-    }
-    let writes: Vec<writer::Job<'_>> = loaded
-        .iter()
-        .zip(jobs)
-        .map(|(l, (intent, answers))| (l, intent, answers.as_ref()))
-        .collect();
-    Ok(writer::write_parts_bytes(&writes)?)
 }
 
 /// Triangles of `loaded` ranged by the face indices its analysis uses, in the part's own frame

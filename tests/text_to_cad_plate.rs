@@ -1,5 +1,7 @@
 //! Shared text-to-cad PMI plate; pinned cadgen exports, never synthetic face names.
 //! See fixtures/text-to-cad/pmi_plate/PROVENANCE.md and docs/face-names.md.
+mod common;
+
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
 use specify_pmi::{api, features, part, resume, rules};
@@ -44,7 +46,7 @@ fn specified(p: &part::LoadedPart, answers: &Map<String, Value>, name: &str) -> 
         .join("target/text-to-cad/pmi_plate")
         .join(format!("{name}.specified.step"));
     std::fs::create_dir_all(output.parent().unwrap()).unwrap();
-    api::write(
+    common::whole_intent::write(
         p,
         &api::apply(&api::analyse(p).unwrap(), answers, false).unwrap(),
         &output,

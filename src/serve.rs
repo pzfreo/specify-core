@@ -19,15 +19,11 @@
 //! -> the intent, with "anchors" for its labels when the step is given
 //! {"id": 5, "op": "interpret", "analysis": ..., "answers": ..., "question": id, "text": "M6"}
 //! -> {"id": 5, "ok": true, "result": {"value": "clearance:M6", "code": ..., "callout": ...}}
-//! {"id": 4, "op": "write", "step": ..., "analysis": ..., "answers": ...,
-//!  "output": "/path/out.step", "accept_defaults": true}
-//! -> the report and the intent; the answers are stored in the file
-//! -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
-//!
-//! {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
-//!  "parts": [{"analysis": ..., "answers": ...}, ...]}
-//! -> parts of an assembly, written together (one part may be written alone: the others and
-//!    their stored answers are left as they are)
+//! {"id": 4, "op": "write", "step": ..., "edits": {...}, "output": "/path/out.step", "part": 0}
+//! -> {"id": 4, "ok": true, "result": {"report": {...}}}: an edit list (or a 0.2 answers file),
+//!    applied all or nothing as the command line's `write STEP EDITS.json -o OUT --part K`
+//!    does; an edit list that cannot be applied is `invalid`, naming every failing entry, and
+//!    writes nothing. (Before 0.4.0 `write` took an analysis and answers; that is refused.)
 //! ```
 //!
 //! Errors are `{code, message}`: `incomplete` (with `missing`, and `part` in an assembly),
@@ -251,7 +247,7 @@ impl Server {
                 }
                 return Ok(Value::Object(result));
             }
-            Some("write") if request.contains_key("parts") => return write_parts(request),
+            Some("write") => return write_edits(request),
             // Only in this module's unit tests: a request that panics.
             #[cfg(test)]
             Some("panic for a test") => panic!("a panic for a test"),
@@ -289,24 +285,6 @@ impl Server {
                     intent["anchors"] = Value::Object(anchors);
                 }
                 Ok(json!({ "intent": intent }))
-            }
-            Some("write") => {
-                let defaults = request.get("accept_defaults").is_some_and(truthy);
-                let mut intent = api::apply(analysis, &answers, defaults)?;
-                if request.get("bom").is_some_and(truthy) {
-                    crate::bom::accept_suggestions(analysis, &answers, &mut intent)
-                        .map_err(Failure::Invalid)?;
-                }
-                // The writer stores approved defaults that leave no PMI (ADR P11).
-                let step = path(request, "step")?;
-                let output = path(request, "output")?;
-                let answers = if defaults {
-                    api::defaults_for_write(analysis, &answers)?
-                } else {
-                    answers
-                };
-                let report = api::write_file(&step, &intent, &output, Some(&answers))?;
-                Ok(json!({"report": report.to_dict(), "intent": intent.to_dict()}))
             }
             _ => Err(Failure::Invalid(format!("unknown op {}", repr(op)))),
         }
@@ -403,50 +381,35 @@ impl Server {
     }
 }
 
-/// `write` with `parts`: several parts of an assembly, each applied with its answers (a
-/// refusal naming the part), then written together.
-fn write_parts(request: &Map<String, Value>) -> Handled {
-    let defaults = request.get("accept_defaults").is_some_and(truthy);
-    let Some(parts) = field(request, "parts")?.as_array() else {
-        return Err(Failure::Invalid("'parts' is not a list".into()));
-    };
-    let mut written = Vec::with_capacity(parts.len());
-    for p in parts {
-        let analysis = field_of(p, "analysis")?;
-        let part = analysis
-            .get("binding")
-            .and_then(|b| b.get("part"))
-            .unwrap_or(&json!(0))
-            .clone();
-        let answers = api::with_stored(analysis, &answers(p.get("answers"))?);
-        let mut intent = api::apply(analysis, &answers, defaults).map_err(|e| match e {
-            Error::Rules(rules::Error::Incomplete(mut e)) => {
-                e.part = Some(part.as_u64().unwrap_or(0) as usize);
-                Failure::Incomplete(e)
-            }
-            Error::Rules(rules::Error::Invalid(m)) => {
-                Failure::Invalid(format!("part {}: {m}", python_str(&part)))
-            }
-            other => Failure::from(other),
-        })?;
-        if request.get("bom").is_some_and(truthy) {
-            crate::bom::accept_suggestions(analysis, &answers, &mut intent)
-                .map_err(Failure::Invalid)?;
-        }
-        let answers = if defaults {
-            api::defaults_for_write(analysis, &answers)?
-        } else {
-            answers
-        };
-        written.push((intent, Some(answers)));
+/// `write`: an edit list (or a 0.2 answers file) applied to a part of the file, all or nothing,
+/// and written to `output`, as the command line's `write STEP EDITS.json -o OUT [--part K]`.
+fn write_edits(request: &Map<String, Value>) -> Handled {
+    if request.contains_key("analysis") || request.contains_key("parts") {
+        return Err(Failure::Invalid(
+            "a write of an analysis and answers was removed in 0.4.0: send \
+             {\"op\": \"write\", \"step\", \"edits\", \"output\", \"part\"?} \
+             (an edit list, or a 0.2 answers file)"
+                .into(),
+        ));
     }
     let step = path(request, "step")?;
     let output = path(request, "output")?;
-    let report = api::write_parts(&step, &written, &output)?;
-    Ok(json!({
-        "report": report.to_dict(),
-        "intents": written.iter().map(|(i, _)| i.to_dict()).collect::<Vec<_>>(),
-    }))
+    let part = match request.get("part") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(index(v, "part")?),
+    };
+    let text = match field(request, "edits")? {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    let refused = |failures: Vec<crate::edits::Failure>| {
+        Failure::Invalid(crate::session::edits_refused(&failures))
+    };
+    let list = crate::edits::read(&text).map_err(refused)?;
+    let loaded = part::load(&step, part).map_err(Error::Load)?;
+    let applied =
+        crate::writer::apply::apply_to(&loaded, &list, &output).map_err(refused)?;
+    Ok(json!({"report": applied.to_dict()}))
 }
 
 /// What someone typed for a question, read as the answer it means.

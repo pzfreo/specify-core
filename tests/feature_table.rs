@@ -719,7 +719,7 @@ fn shape(table: &Value) -> (Vec<(String, String, Value)>, Vec<String>) {
 fn write(loaded: &LoadedPart, answers: &Map<String, Value>, stored: bool) -> Vec<u8> {
     let analysis = api::analyse(loaded).unwrap();
     let intent = api::apply(&analysis, answers, true).unwrap();
-    api::write_bytes(
+    common::whole_intent::write_bytes(
         loaded.bytes.to_vec(),
         &[(intent, stored.then(|| answers.clone()))],
     )
@@ -868,7 +868,7 @@ fn a_0_2_files_repeats_are_ignored_on_read_and_dropped_at_save() {
     // requirement.
     let intent = api::apply(&analysis, resumed, false).unwrap();
     let (saved, _) =
-        api::write_bytes(old.bytes.to_vec(), &[(intent, Some(resumed.clone()))]).unwrap();
+        common::whole_intent::write_bytes(old.bytes.to_vec(), &[(intent, Some(resumed.clone()))]).unwrap();
     let now = &resume::stored(&saved)[&0]["answers"];
     assert_eq!(now, &Value::Object(resumed.clone()));
     let reopened = load_bytes("spindle.step", saved).unwrap();
@@ -915,7 +915,7 @@ fn a_stored_answer_whose_pmi_was_deleted_is_a_gap_again_mentioned_once() {
     // requires) does not bring it back, and the next opening says nothing.
     let answers = analysis["resume"]["answers"].as_object().unwrap().clone();
     let intent = api::apply(&analysis, &answers, true).unwrap();
-    let (saved, _) = api::write_bytes(edited.bytes.to_vec(), &[(intent, Some(answers))]).unwrap();
+    let (saved, _) = common::whole_intent::write_bytes(edited.bytes.to_vec(), &[(intent, Some(answers))]).unwrap();
     let (t, warnings) = table(&load_bytes("plate.step", saved).unwrap());
     assert_eq!(row(&t, "datum.A.flatness")["state"], "gap");
     assert!(
@@ -1054,7 +1054,7 @@ fn a_hole_with_its_position_stated_is_still_asked_its_thread() {
     intent
         .requirements
         .retain(|r| r.get("question") != Some(&json!("hole.function:holes:12")));
-    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(intent, Some(answers))])
+    let bytes = common::whole_intent::write_bytes(plate.bytes.to_vec(), &[(intent, Some(answers))])
         .unwrap()
         .0;
     let reopened = api::analyse(&load_bytes("plate.step", bytes).unwrap()).unwrap();
@@ -1109,7 +1109,7 @@ fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
     let analysis = api::analyse(&plate).unwrap();
     let answers = map(json!({"part.material": "6082-T6", "hole.function:holes:9": "general"}));
     let intent = specify_pmi::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
-    let bytes = api::write_bytes(
+    let bytes = common::whole_intent::write_bytes(
         plate.bytes.to_vec(),
         &[(intent.clone(), Some(answers.clone()))],
     )
@@ -1127,7 +1127,7 @@ fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
     without.requirements.retain(|r| !on_nine(r));
     let mut kept = answers;
     kept.shift_remove("hole.function:holes:9");
-    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(without, Some(kept))])
+    let bytes = common::whole_intent::write_bytes(plate.bytes.to_vec(), &[(without, Some(kept))])
         .unwrap()
         .0;
     let (t, _) = table(&load_bytes("plate.step", bytes).unwrap());
@@ -1150,7 +1150,7 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     intent.requirements.push(map(
         json!({"kind":"location", "faces":[9], "reference":[0], "distance":50., "basic":true}),
     ));
-    let first = api::write_bytes(p.bytes.to_vec(), &[(intent.clone(), None)])
+    let first = common::whole_intent::write_bytes(p.bytes.to_vec(), &[(intent.clone(), None)])
         .unwrap()
         .0;
     let first = load_bytes("plate.step", first).unwrap();
@@ -1168,7 +1168,7 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     other.requirements.push(map(
         json!({"kind":"location", "faces":[9], "reference":[5], "distance":50., "basic":true}),
     ));
-    let (bytes, report) = api::write_bytes(first.bytes.to_vec(), &[(other, None)]).unwrap();
+    let (bytes, report) = common::whole_intent::write_bytes(first.bytes.to_vec(), &[(other, None)]).unwrap();
     assert_eq!(locations(&load_bytes("plate.step", bytes).unwrap()), 1);
     assert!(
         report
@@ -1201,7 +1201,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
         "kind": "location", "faces": [12], "reference": [1],
         "distance": 30., "upper": 0.1, "lower": -0.1,
     })));
-    let bytes = api::write_bytes(p.bytes.to_vec(), &[(intent, None)])
+    let bytes = common::whole_intent::write_bytes(p.bytes.to_vec(), &[(intent, None)])
         .unwrap()
         .0;
     let located = load_bytes("plate.step", bytes).unwrap();
@@ -1225,7 +1225,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
         save.requirements
     );
     let (saved, report) =
-        api::write_bytes(located.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
+        common::whole_intent::write_bytes(located.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
     let positions = specify_pmi::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
         .unwrap()
         .into_iter()
@@ -1248,7 +1248,7 @@ fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
         "kind": "location", "faces": [16], "reference": [7], "distance": 3.5,
         "upper": 0.1, "lower": -0.1,
     })));
-    let bytes = api::write_bytes(shaft.bytes.to_vec(), &[(intent, None)])
+    let bytes = common::whole_intent::write_bytes(shaft.bytes.to_vec(), &[(intent, None)])
         .unwrap()
         .0;
     let written = load_bytes("shaft.step", bytes).unwrap();
@@ -1271,7 +1271,7 @@ fn a_size_on_a_hole_floor_is_not_a_bore_size() {
     intent.requirements.push(map(json!({
         "kind":"size", "size_kind":"size", "faces":[16], "nominal":3.5, "general":true
     })));
-    let (bytes, _) = api::write_bytes(shaft.bytes.to_vec(), &[(intent, None)]).unwrap();
+    let (bytes, _) = common::whole_intent::write_bytes(shaft.bytes.to_vec(), &[(intent, None)]).unwrap();
     let saved = load_bytes("shaft.step", bytes).unwrap();
     let (table, _) = table(&saved);
     let hole = row(&table, "hole.function:holes:15.16");
@@ -1408,7 +1408,7 @@ fn located_plate(
         })));
     }
     let answers = map(json!({"part.locating": locating}));
-    let bytes = api::write_bytes(p.bytes.to_vec(), &[(intent, Some(answers))])
+    let bytes = common::whole_intent::write_bytes(p.bytes.to_vec(), &[(intent, Some(answers))])
         .unwrap()
         .0;
     load_bytes("plate.step", bytes).unwrap()
@@ -1463,7 +1463,7 @@ fn one_dimension_locates_every_hole_on_its_line() {
     let answers = map(json!({"part.material": "6082-T6", "part.locating": "± dimensions"}));
     let intent = api::apply(&analysis, &answers, true).unwrap();
     let (saved, report) =
-        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))]).unwrap();
+        common::whole_intent::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))]).unwrap();
     let saved = load_bytes("plate.step", saved).unwrap();
     let on_the_line = [6, 7, 8, 9, 10, 11, 13];
     // Measured along x: from the end faces 0 and 5, or between two holes at the same y.
@@ -1548,7 +1548,7 @@ fn a_hole_located_in_x_only_is_asked_y_only() {
     let answers = map(json!({"part.material": "6082-T6", "part.locating": "position tolerances"}));
     let save = api::apply(&analysis, &answers, true).unwrap();
     let (saved, report) =
-        api::write_bytes(loaded.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
+        common::whole_intent::write_bytes(loaded.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
     let saved = load_bytes("plate.step", saved).unwrap();
     let on_twelve: Vec<_> = locations(&saved)
         .into_iter()

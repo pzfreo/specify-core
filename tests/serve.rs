@@ -19,19 +19,17 @@ fn part(stem: &str) -> PathBuf {
 }
 
 #[test]
-fn multipart_serve_write_keeps_a_stored_decision_when_taking_defaults() {
-    let dir = std::env::temp_dir().join(format!("serve-resume-parts-{}", std::process::id()));
+fn serve_write_applies_an_edit_list_and_keeps_a_stored_decision() {
+    let dir = std::env::temp_dir().join(format!("serve-write-edits-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let input = dir.join("decided.step");
     let output = dir.join("written.step");
     let source = specify_pmi::part::load(&part("assembly"), Some(0)).unwrap();
     let saved = common::apply_edits(&source, json!({"none": ["part.general_tolerance"]}));
     std::fs::write(&input, saved.bytes).unwrap();
-    let analysis = specify_pmi::api::analyse_file(&input, Some(0)).unwrap();
     let result = Server::default().reply(&json!({
-        "id": 1, "op": "write", "step": input, "output": output,
-        "accept_defaults": true,
-        "parts": [{"analysis": analysis, "answers": {"part.material": "steel"}}],
+        "id": 1, "op": "write", "step": input, "output": output, "part": 0,
+        "edits": {"fill": {"part.material": "steel"}},
     }));
     assert_eq!(result["ok"], true, "{result}");
     let reopened = specify_pmi::api::analyse_file(&output, Some(0)).unwrap();
@@ -40,8 +38,17 @@ fn multipart_serve_write_keeps_a_stored_decision_when_taking_defaults() {
             .as_array()
             .unwrap()
             .contains(&json!("part.general_tolerance")),
-        "multipart serve replaced the saved general-tolerance decision"
+        "serve write replaced the saved general-tolerance decision"
     );
+    // An edit list that cannot be applied writes nothing and names the entry.
+    let refused_output = dir.join("refused.step");
+    let refused = Server::default().reply(&json!({
+        "id": 2, "op": "write", "step": input, "output": refused_output,
+        "edits": {"fill": {"no.such.id": "x"}},
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error"]["code"], "invalid", "{refused}");
+    assert!(!refused_output.exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -159,8 +166,7 @@ fn a_session_over_the_pipe() {
 
     let out = dir.join("plate-pmi.step");
     let written = child.ask(&json!({
-        "id": 5, "op": "write", "step": part("plate"), "analysis": analysis,
-        "answers": answers, "output": out, "accept_defaults": true,
+        "id": 5, "op": "write", "step": part("plate"), "edits": answers, "output": out,
     }));
     assert_eq!(written["ok"], json!(true), "{written}");
     assert!(
@@ -168,10 +174,6 @@ fn a_session_over_the_pipe() {
             .as_array()
             .unwrap()
             .contains(&json!("material 6082-T6"))
-    );
-    assert_eq!(
-        written["result"]["intent"]["part"]["material"],
-        json!("6082-T6")
     );
     assert!(
         std::fs::read_to_string(&out)
@@ -200,23 +202,16 @@ fn errors_are_structured_and_the_child_survives() {
     child.finish();
 }
 
-/// test_serve.py::test_unanswered_questions_are_listed
+/// A write of an analysis and answers (before 0.4.0) is refused, saying what to send.
 #[test]
-fn unanswered_questions_are_listed() {
-    let out = Server::default().reply(&json!({
-        "id": 8, "op": "write", "step": "x",
-        "analysis": {"binding": {}, "faces": [], "features": [], "existing": []},
-        "answers": {}, "output": "y",
-    }));
-    assert_eq!(out["error"]["code"], json!("incomplete"));
-    assert!(
-        out["error"]["missing"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("part.material"))
-    );
-    // A single part's refusal names no part.
-    assert!(out["error"].get("part").is_none());
+fn a_whole_intent_write_is_refused() {
+    for extra in [json!({"analysis": {}, "answers": {}}), json!({"parts": []})] {
+        let mut request = json!({"id": 8, "op": "write", "step": "x", "output": "y"});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let out = Server::default().reply(&request);
+        assert_eq!(out["error"]["code"], json!("invalid"), "{out}");
+        assert!(out["error"]["message"].as_str().unwrap().contains("edits"));
+    }
 }
 
 /// test_serve.py::test_a_crash_inside_one_request_is_reported
@@ -292,7 +287,7 @@ fn what_was_typed_is_interpreted() {
 }
 
 #[test]
-fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
+fn a_dropped_carried_datum_is_required_not_defaulted() {
     let new = common::fixtures().join("revisions/plate_split.new.step.gz");
     let after = specify_pmi::part::load(&new, None).unwrap();
     // An answers file whose datum could not be applied to this geometry, as one carried by an
@@ -302,14 +297,9 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
         "unresolved": {"datum.A": "face 4 has no match in the new part"},
     }});
     let analysis = specify_pmi::api::analyse(&after).unwrap();
-    let output =
-        std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
-    let _ = std::fs::remove_file(&output);
     let mut server = Server::default();
-    let mut request = json!({"id":1, "op":"write", "step":new, "output":output,
-        "analysis":analysis, "answers":carried, "accept_defaults":true});
     let asked = server
-        .reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":request["answers"]}));
+        .reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":carried}));
     assert_eq!(asked["ok"], true, "{asked}");
     let q = asked["result"]["questions"]
         .as_array()
@@ -325,26 +315,6 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
             .unwrap()
             .contains("face 4 has no match in the new part")
     );
-    for multiple in [false, true] {
-        let mut req = request.clone();
-        if multiple {
-            req["parts"] = json!([{"analysis":req["analysis"], "answers":req["answers"]}]);
-        }
-        let reply = server.reply(&req);
-        assert_eq!(reply["ok"], false, "{reply}");
-        assert_eq!(reply["error"]["code"], "incomplete", "{reply}");
-        assert!(
-            reply["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("datum.A (carried answer could not be applied:")
-        );
-        assert!(!output.exists());
-    }
-    request["answers"]["datum.A"] = json!([4, 8]);
-    let reply = server.reply(&request);
-    assert_eq!(reply["ok"], true, "{reply}");
-    std::fs::remove_file(output).unwrap();
 }
 
 #[test]
@@ -355,19 +325,17 @@ fn serve_write_refuses_saved_answers_on_changed_geometry() {
     )
     .unwrap();
     let new_path = common::fixtures().join("revisions/plate_split.new.step.gz");
-    let new = specify_pmi::part::load(&new_path, None).unwrap();
     // Answers saved with the old geometry's evidence.
     let saved = json!({"part.material":"6061-T6", "datum.A":[4], "_specify": {
         "evidence": specify_pmi::resume::evidence(&old).unwrap(),
         "unresolved": {},
     }});
-    let analysis = specify_pmi::api::analyse(&new).unwrap();
     let output =
         std::env::temp_dir().join(format!("serve-stale-evidence-{}.step", std::process::id()));
     let _ = std::fs::remove_file(&output);
     let mut server = Server::default();
     let reply = server.reply(&json!({"id":1,"op":"write","step":new_path,
-        "output":output,"analysis":analysis,"answers":saved,"accept_defaults":true}));
+        "output":output,"edits":saved}));
     assert_eq!(reply["ok"], false, "{reply}");
     assert_eq!(reply["error"]["code"], "invalid", "{reply}");
     assert!(

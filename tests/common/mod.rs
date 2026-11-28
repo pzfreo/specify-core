@@ -32,6 +32,7 @@
 #![allow(dead_code)]
 
 pub mod accept_all;
+pub mod whole_intent;
 pub(crate) mod corpus;
 pub mod numbering;
 

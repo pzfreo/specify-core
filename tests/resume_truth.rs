@@ -93,7 +93,7 @@ fn write(
     stored: &Map<String, Value>,
 ) -> Vec<u8> {
     let intent = api::apply(analysis, answers, true).unwrap();
-    api::write_bytes(loaded_bytes, &[(intent, Some(stored.clone()))])
+    common::whole_intent::write_bytes(loaded_bytes, &[(intent, Some(stored.clone()))])
         .unwrap()
         .0
 }
@@ -160,7 +160,7 @@ fn check_unchanged_round_trips(group: usize) {
             continue;
         };
         let bytes = source.bytes.to_vec();
-        let Ok((written, _)) = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]) else {
+        let Ok((written, _)) = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]) else {
             continue;
         };
         let back = load(written);
