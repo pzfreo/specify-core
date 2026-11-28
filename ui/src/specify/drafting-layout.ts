@@ -182,7 +182,7 @@ function resolveFileDatumFrame(
     // Skip Specify-written datums so files without a native datum origin stay consistent across Save.
     if (analysis.resume) {
       const gs = pmi?.presentation.items[`datum:${letter}`] ?? [];
-      if (gs.length > 0 && gs.every((g) => isSpecifyCreated(`datum:${letter}`, g))) continue;
+      if (gs.length > 0 && gs.every((g) => isSpecifyCreated(`datum:${letter}`, g, pmi?.links[`datum:${letter}`]?.written))) continue;
       if (gs.length === 0) continue;
     }
     if (!fileDatums.has(letter)) fileDatums.set(letter, e.faces);
@@ -383,8 +383,9 @@ export function findStatedOrigin(
  * into the STEP by Specify after Save), rather than originating from an external CAD system's
  * graphical PMI.
  */
-export function isSpecifyCreated(item: string, graphic: DrawnGraphic): boolean {
-  if (graphic.source === 'generated') return true;
+export function isSpecifyCreated(item: string, graphic: DrawnGraphic, written = false): boolean {
+  // The file's own marker says Specify wrote it: it is laid out as it was before it was saved.
+  if (written || graphic.source === 'generated') return true;
   if (graphic.triangles.length === 0 && SPECIFY_ITEM_PREFIX.test(item)) return true;
   return false;
 }
@@ -518,7 +519,7 @@ export function bestReferenceView(
   ];
   const all = new Map<string, DrawnGraphic>();
   for (const [item, gs] of Object.entries(pmi.presentation.items)) {
-    for (const g of gs) if (g.id && !isSpecifyCreated(item, g)) all.set(g.id, g);
+    for (const g of gs) if (g.id && !isSpecifyCreated(item, g, pmi.links[item]?.written)) all.set(g.id, g);
   }
   for (const g of pmi.presentation.unlinked) {
     if (g.id && g.source === 'file') all.set(g.id, g);
@@ -937,7 +938,7 @@ function partitionGraphics(pmi: DrawnPmi): {
   const specifyGraphicIds = new Set<string>();
   for (const [item, gs] of itemsEntries) {
     for (const g of gs) {
-      if (g.id && isSpecifyCreated(item, g)) specifyGraphicIds.add(g.id);
+      if (g.id && isSpecifyCreated(item, g, pmi.links[item]?.written)) specifyGraphicIds.add(g.id);
     }
   }
   const specifyItems: [string, DrawnGraphic][] = [];
@@ -946,7 +947,7 @@ function partitionGraphics(pmi: DrawnPmi): {
     const native: DrawnGraphic[] = [];
     let specG: DrawnGraphic | null = null;
     for (const g of gs) {
-      if (isSpecifyCreated(item, g)) {
+      if (isSpecifyCreated(item, g, pmi.links[item]?.written)) {
         if (!specG) specG = g;
       } else if (g.id && specifyGraphicIds.has(g.id)) {
         continue;

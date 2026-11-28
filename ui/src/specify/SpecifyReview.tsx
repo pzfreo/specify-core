@@ -422,9 +422,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     () => oneViewLabels(preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly),
     [preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly],
   );
+  const savedNumbers = useMemo(() => new Set((session.analysis.characteristics ?? []).map((c) => c.number)), [session.analysis]);
   const { unsavedItems, coveredQuestions } = useMemo(
-    () => scenePendingState(oneFile, onePending),
-    [oneFile, onePending],
+    () => scenePendingState(oneFile, onePending, savedNumbers),
+    [oneFile, onePending, savedNumbers],
   );
   // Mark open unanswered gap items on 3D planes as 'decided_none' (group 'default') so they render
   // in muted blueprint-blue before Keep all and switch to dark blue (or burnt amber while unsaved).
@@ -449,6 +450,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     () => (seen.balloons ? drawnBalloons(oneFile.drawn) : new Map<string, number[]>()),
     [seen.balloons, oneFile],
   );
+  // Numbers the saved file does not have yet: the engine's plan for what Save will write.
+  const plannedNumbers = useMemo(() => {
+    const saved = new Set((session.analysis.characteristics ?? []).map((c) => c.number));
+    return new Set(chars.filter((c) => c.n && !saved.has(c.n)).map((c) => c.n));
+  }, [chars, session.analysis]);
   const drawnReveal = useMemo(() => {
     const items = new Set<string>();
     for (const [item, label] of oneFile.labels) {
@@ -475,7 +481,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       const key = label.id.split(':').slice(0, 2).join(':');
       if (out.has(key) || !label.question) continue;
       // The engine's number for the drawn callout that answers it, else its characteristics'.
-      const linked = Object.values(oneFile.drawn?.links ?? {}).filter((l) => l.question === label.question && l.number).map((l) => l.number!);
+      // (An added requirement's drawn item is named for it: `location:extra.1:[0]:extra.1`.)
+      const linked = Object.entries(oneFile.drawn?.links ?? {})
+        .filter(([item, l]) => l.number && (l.question === label.question || item.endsWith(`:${label.question}`))).map(([, l]) => l.number!);
       const numbers = linked.length ? [...new Set(linked)] : [...new Set(chars.filter((c) => c.n && c.question === label.question).map((c) => c.n))];
       if (numbers.length) out.set(key, numbers);
     }
@@ -1472,7 +1480,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           {view === 'table' ? (
             <CharacteristicsTable
               file={lengthUnit}
-              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
+              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv} planned={plannedNumbers}
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && (callOutDimension || !row.source.startsWith('general:existing:'))

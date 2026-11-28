@@ -312,6 +312,7 @@ export function oneViewFile(
 export function scenePendingState(
   file: ReturnType<typeof oneViewFile>,
   pending: ReadonlyMap<string, OneViewPending>,
+  savedNumbers?: ReadonlySet<number>,
 ): { unsavedItems: ReadonlySet<string>; coveredQuestions: ReadonlySet<string> } {
   const unsavedItems = new Set<string>();
   const coveredQuestions = new Set<string>();
@@ -326,6 +327,9 @@ export function scenePendingState(
     if (question) coveredQuestions.add(question);
     const edit = question ? pending.get(question) : undefined;
     if (edit && (edit.kind === 'fill' || edit.kind === 'change' || edit.kind === 'clear')) {
+      unsavedItems.add(sceneItem);
+    } else if (savedNumbers && link?.number && !savedNumbers.has(link.number)) {
+      // Numbered by the plan, not yet by the file: Save will write it.
       unsavedItems.add(sceneItem);
     }
   }

@@ -122,6 +122,8 @@ export interface DrawnLink {
    * the number Save will write (the writer's allocation; consumers never allocate their own).
    */
   readonly number?: number;
+  /** The file marks it as written by Specify (`specify-core:written:v1`), so Specify lays it out. */
+  readonly written?: true;
 }
 
 /**
@@ -931,9 +933,10 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
     const status = isObject(entry) && STATUSES.includes(entry['status'] as DrawnStatus) ? entry['status'] as DrawnStatus : undefined;
     const question = isObject(entry) && typeof entry['question'] === 'string' ? entry['question'] : undefined;
     const general = isObject(entry) && entry['general'] === true;
+    const written = isObject(entry) && entry['written'] === true;
     const number = isObject(entry) && typeof entry['number'] === 'number' && entry['number'] > 0 ? entry['number'] : undefined;
     const faces = link.faces.length ? link.faces : resolvedFaces.get(id) ?? [];
-    linked[id] = { ...link, faces, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}), ...(number ? { number } : {}) };
+    linked[id] = { ...link, faces, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}), ...(number ? { number } : {}), ...(written ? { written: true as const } : {}) };
   }
   const serverReview = isObject(scene['review_items'])
     ? scene['review_items'] as DrawnPmi['reviewItems']

@@ -549,6 +549,9 @@ impl Scene {
                     continue;
                 }
                 let mut meta = json!({"status":STATED});
+                // Specify's own: the file marks the requirement as written by it (`specify-core:written:v1`,
+                // docs/pmi-provenance.md), so a consumer can lay it out as Specify lays out an unsaved one.
+                let written = written(p, &read.provenance.parts[self.index], doc, collection, i);
                 if let Some(&n) = recorded
                     .get(&(collection.as_str(), i))
                     .filter(|n| id.parse::<u64>().ok() == Some(**n))
@@ -566,6 +569,9 @@ impl Scene {
                         // The file states it, whatever planned it.
                         meta["status"] = json!(STATED);
                     }
+                }
+                if written {
+                    meta["written"] = json!(true);
                 }
                 stored_metadata(p, collection, i, &mut meta);
                 metadata.insert(id.clone(), meta);
@@ -939,6 +945,31 @@ fn fill_metadata(semantic: &Semantic, metadata: &mut Map<String, Value>, status:
 }
 
 // The documents retain all support rows, but the interview overlay describes PMI only.
+/// Whether the file marks this requirement as written by Specify (the provenance marker).
+fn written(
+    p: &PartPmi,
+    prov: &pmi::PartProvenance,
+    doc: &Document,
+    collection: &str,
+    i: usize,
+) -> bool {
+    let ids = |all: &[Vec<u64>]| all.get(i).cloned().unwrap_or_default();
+    match collection {
+        "datums" => crate::provenance::marked(doc, &ids(&prov.datums), "datum"),
+        "dimensions" => crate::provenance::dimension(doc, &ids(&prov.dimensions)),
+        "tolerances" => p
+            .tolerances
+            .get(i)
+            .is_some_and(|t| t.description.as_deref() == Some(crate::provenance::MARKER)),
+        "threads" => crate::provenance::marked(doc, &ids(&prov.threads), "thread"),
+        "knurls" => crate::provenance::marked(doc, &ids(&prov.knurls), "knurl"),
+        "surface_textures" => {
+            crate::provenance::marked(doc, &ids(&prov.surface_textures), "surface texture")
+        }
+        _ => false,
+    }
+}
+
 fn is_requirement(pmi: &PartPmi, collection: &str, index: usize) -> bool {
     match collection {
         "attributes" => {

@@ -19,6 +19,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   until it is clear of dimension, extension and leader lines, text and other balloons. View only; nothing
   is written to the STEP. The Show menu gains "Inspection balloons" (on by default), which also governs the
   numbers on the HTML fallback labels. `DrawnLink.number` and `DrawnGraphic.balloonSlot` are new, optional.
+  The characteristics table shows the engine's planned numbers before Save too, marked (amber ring) until
+  the file has them. A callout draws amber while its number is one the file does not have yet (Save writes it), the file's own in blue.
+- **`pmiScene`'s `specify[item]` overlay gains `written: true`** on a saved requirement the file marks as
+  written by Specify (`specify-core:written:v1`). The UI lays such a callout out as Specify lays out an
+  unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
+  some). Optional; `DrawnLink.written` carries it.
 
 ## 0.3.0 (2026-11-27)
 

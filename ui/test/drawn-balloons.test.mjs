@@ -86,3 +86,38 @@ test('the layout keeps a fixed balloon slot on every callout Specify lays out, w
     } finally { eng2.free?.(); }
   } finally { eng.free?.(); }
 });
+
+test('every callout is drawn identically before and after Save, as the same Specify layout', () => {
+  const eng = new wasm.IntentEngine('bent-bracket.step', bytes);
+  const lay = (scene, analysis, mesh) => {
+    const read = reviewDrawnFromScene(scene, analysis);
+    assert.ok(read.ok, read.reason);
+    return normalizeDraftingPmi(read.value, scene, analysis, mesh, readSceneSemanticLabels(scene));
+  };
+  const round = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === 'number' ? Math.round(x * 1e6) / 1e6 : x)));
+  // What a callout is drawn as: its strokes, fills, text and balloon slot, whatever it is named.
+  const drawing = (pmi) => new Map(Object.entries(pmi.presentation.items).flatMap(([item, gs]) => {
+    const number = pmi.links[item]?.number;
+    return number ? [[number, round(gs.map(({ polylines, polylineRoles, triangles, text, textPlacements, balloonSlot }) => (
+      { polylines, polylineRoles, triangles, text, textPlacements, balloonSlot })))]] : [];
+  }));
+  try {
+    const { analysis, mesh } = JSON.parse(eng.snapshot());
+    const before = lay(JSON.parse(eng.pmiScene(JSON.stringify({ answers, auto: [] }))), analysis, mesh);
+    const saved = JSON.parse(eng.edit(JSON.stringify({ fill: answers })));
+    const eng2 = new wasm.IntentEngine('bent-bracket.specified.step', new Uint8Array(saved.bytes));
+    try {
+      const snap = JSON.parse(eng2.snapshot());
+      const raw = JSON.parse(eng2.pmiScene(JSON.stringify({ answers: snap.analysis.resume?.answers ?? {}, auto: [] })));
+      const after = lay(raw, snap.analysis, snap.mesh);
+      const [was, now] = [drawing(before), drawing(after)];
+      assert.deepEqual([...now.keys()].sort(), [...was.keys()].sort(), 'the same numbered callouts');
+      assert.equal(was.size, 8);
+      for (const [number, geometry] of was) assert.deepEqual(now.get(number), geometry, `callout ${number} is drawn the same`);
+      // Specify wrote them, and the file says so.
+      for (const item of Object.keys(after.presentation.items)) {
+        if (after.links[item]?.number) assert.equal(after.links[item].written, true, `${item} is marked as written by Specify`);
+      }
+    } finally { eng2.free?.(); }
+  } finally { eng.free?.(); }
+});

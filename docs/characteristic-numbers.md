@@ -336,3 +336,6 @@ The editor's 3D PMI view draws each callout's number as a balloon. It reads the 
 `pmiScene`'s `specify[item].number`, never from its own allocation: for the file's own PMI that is the
 `ID_ATTRIBUTE`, and for a callout not yet saved it is the number the writer will assign to it on Save
 (the same history walk), so the balloon does not change when the file is saved.
+The characteristics table uses the same planned numbers before Save. A saved requirement that carries
+the provenance marker also has `specify[item].written: true`, which the layout reads so the callout is
+drawn as it was before it was saved.

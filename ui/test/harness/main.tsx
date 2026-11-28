@@ -114,8 +114,17 @@ function SpecifyHost() {
     const bytes = await stepBytes(file);
     const sourceId = name;
     const snapshot: any = await worker.request('open', { name, bytes, sourceId });
-    const review: any = await worker.request('review', { name, bytes, sourceId, answers: {} });
-    const call = (operation: string, answers: unknown) => worker.request<any>(operation, { name, bytes, sourceId, answers });
+    // A host's own preview carries no characteristic numbers (the review lays them out in row order); only
+    // the inspection request is numbered by the engine, so the app worker's planned numbers are stripped
+    // from the preview here.
+    const preview = (r: any) => {
+      const bare = (items: any[] | undefined) => items?.map(({ number: _number, ...item }: any) => item);
+      const { partNumbers: _numbers, ...intent } = r.intent;
+      return { ...r, intent: { ...intent, datums: bare(intent.datums), requirements: bare(intent.requirements), general: bare(intent.general) } };
+    };
+    const review: any = preview(await worker.request('review', { name, bytes, sourceId, answers: {} }));
+    const call = (operation: string, answers: unknown) => worker.request<any>(operation, { name, bytes, sourceId, answers })
+      .then((r) => (operation === 'review' ? preview(r) : r));
     const engine = {
       questions: async (_id: string, answers: PmiAnswers) => {
         window.__calls.push('questions');
