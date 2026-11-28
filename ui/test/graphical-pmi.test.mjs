@@ -124,7 +124,7 @@ const scene = () => ({
 test('a PMI scene: each item\'s faces, and Specify\'s status and question where it has them', () => {
   const read = drawnFromScene(scene());
   assert.ok(read.ok, read.reason);
-  assert.deepEqual(read.value.links['datum:A'], { faces: [2, 4], question: 'datum.A', status: 'stated' });
+  assert.deepEqual(read.value.links['datum:A'], { faces: [2, 4], question: 'datum.A', status: 'stated', number: 1 });
   assert.deepEqual(read.value.links['features:f'], { faces: [2, 4] });
   assert.equal(hasGraphics(read.value), true);
   const empty = drawnFromScene({ ...scene(), presentation: doc({ items: {}, semantic_ids: ['datum:A', 'features:f'] }) });

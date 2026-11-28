@@ -260,6 +260,9 @@ try {
     const [px, py] = await pointFor('position:holes:15.16');
     const overlayBox = await overlay.boundingBox();
     assert.ok(overlayBox, '3D PMI overlay has a bounding box');
+    // A fallback label can sit over the point (the layout keeps room for balloons, so callouts move): the click
+    // is on the callout, so the labels let it through for this check.
+    await page.addStyleTag({ content: '#specify-view .pmi { pointer-events: none !important; } #specify-view .pmi * { pointer-events: none !important; }' });
     await page.mouse.click(overlayBox.x + px, overlayBox.y + py);
     await check(position).toHaveClass(/\bon\b/);
     await check(row).not.toHaveClass(/\bon\b/);

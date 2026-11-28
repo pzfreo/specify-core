@@ -51,7 +51,24 @@ export interface DrawnGraphic {
   readonly textPlacements?: readonly TextPlacement[];
   /** The annotation plane it is drawn on: an id in the presentation's ``planes``. */
   readonly planeId?: string;
+  /**
+   * Room the layout kept beside this callout for its inspection balloon, whatever the balloon says:
+   * the balloon touches ``edge`` and extends along ``dir`` (an in-plane axis), ``height`` the text's.
+   */
+  readonly balloonSlot?: BalloonSlot;
 }
+
+export interface BalloonSlot {
+  readonly edge: DrawnPoint;
+  readonly dir: DrawnPoint;
+  readonly xAxis: DrawnPoint;
+  readonly normal: DrawnPoint;
+  readonly height: number;
+}
+
+/** A balloon slot's length along x, and across (its height), in text heights: room for a range such as "3-5". */
+export const BALLOON_SLOT_W = 3.4;
+export const BALLOON_SLOT_H = 2;
 
 /** An annotation plane as the file or haecceity states it: the in-plane y axis is normal × x axis. */
 export interface DrawnPlane {
@@ -100,6 +117,11 @@ export interface DrawnLink {
   readonly general?: true;
   /** Whether this item is one of the part's note statements shown by the notes panel. */
   readonly partNote?: true;
+  /**
+   * Its characteristic number as the engine allocates it: the file's own, or for an unsaved item
+   * the number Save will write (the writer's allocation; consumers never allocate their own).
+   */
+  readonly number?: number;
 }
 
 /**
@@ -909,8 +931,9 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
     const status = isObject(entry) && STATUSES.includes(entry['status'] as DrawnStatus) ? entry['status'] as DrawnStatus : undefined;
     const question = isObject(entry) && typeof entry['question'] === 'string' ? entry['question'] : undefined;
     const general = isObject(entry) && entry['general'] === true;
+    const number = isObject(entry) && typeof entry['number'] === 'number' && entry['number'] > 0 ? entry['number'] : undefined;
     const faces = link.faces.length ? link.faces : resolvedFaces.get(id) ?? [];
-    linked[id] = { ...link, faces, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}) };
+    linked[id] = { ...link, faces, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}), ...(number ? { number } : {}) };
   }
   const serverReview = isObject(scene['review_items'])
     ? scene['review_items'] as DrawnPmi['reviewItems']

@@ -451,3 +451,13 @@ export function oneViewLabels(
   }
   return { labels, extras, notes };
 }
+
+/**
+ * The balloon number of each drawn item: the number the engine allocated to it (the file's own, or
+ * for an unsaved item the one Save will write), as its link carries it. Items without one are left out.
+ */
+export function drawnBalloons(drawn: Pick<DrawnPmi, 'links'> | null): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  for (const [item, link] of Object.entries(drawn?.links ?? {})) if (link.number) out.set(item, [link.number]);
+  return out;
+}

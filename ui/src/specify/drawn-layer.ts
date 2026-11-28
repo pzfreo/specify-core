@@ -17,6 +17,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 
 import type { AnnotationHost } from './annotations';
 import type { LabelGroup } from './labels';
+import { ranges } from './characteristics';
 import {
   drawnGroup, drawnShown, facesAway, graphicAxes, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
   type PartOrigin, type TextPlacement,
@@ -50,6 +51,8 @@ interface Drawn {
   width: number;
   /** The text set for it in the labels' face, hit where it is seen. */
   set: HTMLElement[];
+  /** What it draws, for placing a balloon on it. */
+  graphic: DrawnGraphic;
   /** The side it is read from, when that can be told. */
   normal: DrawnPoint | null;
   /** Whether the Show menu shows its kind. */
@@ -76,6 +79,8 @@ export interface DrawnLayer {
   filter(show: DrawnShow, farSide: boolean, reveal?: ReadonlySet<string>): void;
   /** Draws an item's graphics in the highlight colour, or none. */
   light(item: string | null): void;
+  /** Inspection balloon numbers by item, drawn in each item's annotation plane, beside its callout. */
+  setBalloons(balloons: ReadonlyMap<string, readonly number[]>): void;
   /** Marks pending (unsaved) scene items in burnt amber/orange ink. */
   setUnsaved(items: ReadonlySet<string>): void;
   /** Draws a small RGB x/y/z triad at the file's stated origin, excluded from bounds and hit-testing. */
@@ -143,6 +148,8 @@ export function createDrawnLayer(
   let lit: string | null = null;
   let pmiNow: DrawnPmi | null = null;
   let unsavedItems: ReadonlySet<string> = new Set();
+  let balloons: ReadonlyMap<string, readonly number[]> = new Map();
+  let balloonKey = '';
   let originNow: PartOrigin | null = null;
   let originObjects: THREE.Object3D[] = [];
   let originMaterials: LineMaterial[] = [];
@@ -418,7 +425,7 @@ export function createDrawnLayer(
     }
     scene.add(...objects);
     return {
-      item, name: graphic.name, source: graphic.source, group, colour, width, set,
+      item, name: graphic.name, source: graphic.source, group, colour, width, set, graphic,
       normal: axes?.normal ?? null,
       shown: shownBy({ item, source: graphic.source, group }), away: false,
       polylines: lines.filter((l) => l.length > 1).length, segments, triangles, objects,
@@ -517,6 +524,173 @@ export function createDrawnLayer(
     if (placed.length) orient();
   });
 
+  /**
+   * An inspection balloon in a callout's own annotation plane: a ring (a stadium, for a range) with
+   * its number, as tall as the callout's text allows, touching the callout's frame on the side away
+   * from its leader. It slides along that edge until it is clear of every other callout and balloon.
+   * View only: the callout is not moved and nothing is written.
+   */
+  function addBalloon(d: Drawn, numbers: readonly number[], taken: THREE.Box3[], all: readonly Drawn[]) {
+    const g = d.graphic;
+    const axes = graphicAxes(g, pmiNow?.presentation.planes ?? [], centre);
+    if (!axes?.xAxis || !axes.up) return;
+    const x = new THREE.Vector3(...axes.xAxis);
+    const y = new THREE.Vector3(...axes.up);
+    const n = new THREE.Vector3(...axes.normal);
+    const o = d.extent.getCenter(new THREE.Vector3());
+    const local = (q: THREE.Vector3): [number, number] => [q.clone().sub(o).dot(x), q.clone().sub(o).dot(y)];
+    const world = (u: number, v: number) => o.clone().addScaledVector(x, u).addScaledVector(y, v);
+    const bounds = (pts: THREE.Vector3[]) => {
+      const r = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+      for (const q of pts) {
+        const [u, v] = local(q);
+        r.x0 = Math.min(r.x0, u); r.x1 = Math.max(r.x1, u); r.y0 = Math.min(r.y0, v); r.y1 = Math.max(r.y1, v);
+      }
+      return r;
+    };
+    const roles = g.polylineRoles;
+    const text = g.balloonSlot?.height ?? g.textPlacements?.[0]?.height ?? Math.max(...[...d.extent.max.clone().sub(d.extent.min).toArray()]) * 0.04;
+    const h = 0.95 * text;
+    const label = ranges(numbers);
+    const w = Math.max(2 * h, label.length * 0.86 * text + 0.9 * text);
+    const slot = g.balloonSlot;
+    let cx: number;
+    let cy: number;
+    if (slot) {
+      // Room the layout kept: touching its edge, whatever the balloon says (a longer label than the
+      // slot overflows outward, along the side away from the leader).
+      const [eu, ev] = local(new THREE.Vector3(...slot.edge));
+      const dir = new THREE.Vector3(...slot.dir);
+      const [du, dv] = [dir.dot(x), dir.dot(y)];
+      [cx, cy] = Math.abs(du) >= Math.abs(dv) ? [eu + Math.sign(du) * w / 2, ev] : [eu, ev + Math.sign(dv) * h];
+    } else {
+      // Another tool's callout: it is not moved. The balloon stands beside its text and frame on the
+      // side away from its leader, and slides along that edge, then tries the other sides, until it
+      // clears every dimension, extension and leader line, every text and every balloon placed.
+      const near = (q: THREE.Vector3) => Math.abs(q.clone().sub(o).dot(n)) < text * 1.5;
+      const em = 0.86 * text;
+      const textRect = (t: TextPlacement, str: string | undefined) => {
+        const origin = local(new THREE.Vector3(...t.origin));
+        const tx = new THREE.Vector3(...t.xAxis).normalize();
+        const flip = tx.dot(x) < 0 ? -1 : 1;
+        const cell = t.cellBox ? { w: t.cellBox[1][0] - t.cellBox[0][0], h: t.cellBox[1][1] - t.cellBox[0][1] } : null;
+        const width = Math.max(cell?.w ?? 0, (str?.length ?? 1) * em * ((t.height ?? text) / text));
+        const height = Math.max(cell?.h ?? 0, (t.height ?? text) * 1.4);
+        const al = (t.alignment ?? '').toLowerCase();
+        const shiftX = al.includes('left') ? width / 2 : al.includes('right') ? -width / 2 : 0;
+        const shiftY = al.includes('top') ? -height / 2 : al.includes('bottom') ? height / 2 : 0;
+        const [u, v] = [origin[0] + flip * shiftX, origin[1] + shiftY];
+        return { x0: u - width / 2, x1: u + width / 2, y0: v - height / 2, y1: v + height / 2 };
+      };
+      const textsOf = (e: Drawn) => (e.graphic.textPlacements ?? []).filter((t) => near(new THREE.Vector3(...t.origin)))
+        .map((t) => textRect(t, e.graphic.text[t.textIndex ?? 0]));
+      const own = textsOf(d);
+      const pts = [...own.flatMap((r) => [[r.x0, r.y0], [r.x1, r.y1]]), ...(g.textPlacements ?? []).flatMap((t) => (t.cellBox
+        ? [[t.cellBox[0][0], t.cellBox[0][1]], [t.cellBox[1][0], t.cellBox[1][1]]].map(([u, v]) => local(new THREE.Vector3(...t.origin)
+          .addScaledVector(new THREE.Vector3(...t.xAxis).normalize(), u!).addScaledVector(y, v!))) : []))];
+      const frame = g.polylines.filter((_, k) => roles?.[k] === 'frame').flat().map((q) => local(new THREE.Vector3(...q)));
+      const all2 = [...pts, ...frame];
+      const body = all2.length
+        ? { x0: Math.min(...all2.map((p) => p[0]!)), x1: Math.max(...all2.map((p) => p[0]!)), y0: Math.min(...all2.map((p) => p[1]!)), y1: Math.max(...all2.map((p) => p[1]!)) }
+        : (() => { const [a1, a2] = [local(d.extent.min), local(d.extent.max)]; return { x0: Math.min(a1[0], a2[0]), x1: Math.max(a1[0], a2[0]), y0: Math.min(a1[1], a2[1]), y1: Math.max(a1[1], a2[1]) }; })();
+      const pad = 0.35 * text;
+      const inBody = (p: [number, number]) => p[0] >= body.x0 - pad && p[0] <= body.x1 + pad && p[1] >= body.y0 - pad && p[1] <= body.y1 + pad;
+      // Every line within reach of this plane that the balloon must keep off: the callout's own frame
+      // (inside its body) excepted.
+      const lines: [number, number, number, number][] = [];
+      for (const e of all) {
+        for (let k = 0; k + 1 < e.segments.length; k += 2) {
+          const [p, q] = [e.segments[k]!, e.segments[k + 1]!];
+          if (!near(p) || !near(q)) continue;
+          const [lp, lq] = [local(p), local(q)];
+          if (e === d && inBody(lp) && inBody(lq)) continue;
+          lines.push([lp[0], lp[1], lq[0], lq[1]]);
+        }
+      }
+      const texts = all.filter((e) => e !== d).flatMap(textsOf);
+      const leaders = g.polylines.filter((_, k) => roles?.[k] === 'leader').flat();
+      const lx = leaders.length ? local(new THREE.Vector3(...leaders[0]!))[0] : null;
+      const away = lx !== null && lx > (body.x0 + body.x1) / 2 ? -1 : 1;
+      const gap = 0.2 * text;
+      const hitsLine = (r: { x0: number; x1: number; y0: number; y1: number }, [ax, ay, bx, by]: [number, number, number, number]) => {
+        let t0 = 0;
+        let t1 = 1;
+        const [dx, dy] = [bx - ax, by - ay];
+        for (const [pp, qq] of [[-dx, ax - r.x0], [dx, r.x1 - ax], [-dy, ay - r.y0], [dy, r.y1 - ay]] as const) {
+          if (Math.abs(pp) < 1e-12) { if (qq < 0) return false; continue; }
+          const t = qq / pp;
+          if (pp < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+        return true;
+      };
+      const overlap = (a2: { x0: number; x1: number; y0: number; y1: number }, b2: { x0: number; x1: number; y0: number; y1: number }) =>
+        a2.x0 < b2.x1 && a2.x1 > b2.x0 && a2.y0 < b2.y1 && a2.y1 > b2.y0;
+      const hits = (u: number, v: number) => {
+        const r = { x0: u - w / 2, x1: u + w / 2, y0: v - h, y1: v + h };
+        return lines.filter((l) => hitsLine(r, l)).length + texts.filter((t) => overlap(r, t)).length
+          + own.filter((t) => overlap(r, t)).length
+          + taken.filter((t) => t.intersectsBox(new THREE.Box3().setFromPoints([world(r.x0, r.y0), world(r.x1, r.y1)]))).length;
+      };
+      const mid = [(body.x0 + body.x1) / 2, (body.y0 + body.y1) / 2] as const;
+      const step = 1.2 * h;
+      const tries: [number, number][] = [];
+      for (const sideSign of [away, -away]) {
+        const u = sideSign > 0 ? body.x1 + gap + w / 2 : body.x0 - gap - w / 2;
+        for (let k = 0; k <= 8; k++) for (const sign of k ? [1, -1] : [1]) tries.push([u, mid[1] + sign * k * step]);
+      }
+      for (const sign of [1, -1]) {
+        const v = sign > 0 ? body.y1 + gap + h : body.y0 - gap - h;
+        for (let k = 0; k <= 8; k++) for (const s2 of k ? [1, -1] : [1]) tries.push([mid[0] + s2 * k * step, v]);
+      }
+      let best = tries[0]!;
+      let fewest = Infinity;
+      for (const t of tries) {
+        const count = hits(t[0], t[1]);
+        if (count < fewest) { fewest = count; best = t; }
+        if (!count) break;
+      }
+      [cx, cy] = best;
+    }
+    taken.push(new THREE.Box3().setFromPoints([world(cx - w / 2, cy - h), world(cx + w / 2, cy + h)]));
+    // The outline: a stadium of straight sides and half-circle ends.
+    const ring: THREE.Vector3[] = [];
+    const arc = (centreU: number, from: number) => {
+      for (let k = 0; k <= 10; k++) {
+        const t = from + (Math.PI * k) / 10;
+        ring.push(world(centreU + h * Math.cos(t), cy + h * Math.sin(t)));
+      }
+    };
+    arc(cx + w / 2 - h, -Math.PI / 2);
+    arc(cx - w / 2 + h, Math.PI / 2);
+    ring.push(ring[0]!.clone());
+    const segs: THREE.Vector3[] = [];
+    for (let k = 1; k < ring.length; k++) segs.push(ring[k - 1]!, ring[k]!);
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(segs.flatMap((q) => [q.x, q.y, q.z]));
+    const strokes = new LineSegments2(geometry, ink(d.colour, d.width).line);
+    strokes.renderOrder = 10;
+    const el = document.createElement('div');
+    el.className = 'pmi-drawn pmi-drawn-placed pmi-drawn-set';
+    const inner = document.createElement('span');
+    inner.textContent = label;
+    inner.style.color = d.colour;
+    inner.style.fontFamily = "var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace)";
+    inner.style.fontWeight = '600';
+    inner.style.fontVariantNumeric = 'tabular-nums';
+    // Not a target: a click through it reaches the callout under it, as the strokes do.
+    inner.style.pointerEvents = 'none';
+    el.append(inner);
+    const tag = new CSS2DObject(el);
+    const mid = world(cx, cy);
+    tag.position.copy(mid);
+    placed.push({
+      inner, set: true, cell: 2 * h,
+      at: { textIndex: 0, origin: [mid.x, mid.y, mid.z], xAxis: axes.xAxis, normal: axes.normal, height: text, alignment: 'centre' },
+    });
+    d.objects.push(strokes, tag);
+    scene.add(strokes, tag);
+  }
+
   function rebuild() {
     const pmi = pmiNow;
     clear();
@@ -545,6 +719,15 @@ export function createDrawnLayer(
       }
       const loose = colourFor(null, undefined);
       for (const g of pmi.presentation.unlinked) if (once(g) && loose !== null) drawn.push(place(g, null, undefined, loose));
+      // One balloon per item, on its first graphic; each clear of what is already drawn.
+      const ballooned = new Set<string>();
+      const taken: THREE.Box3[] = [];
+      for (const d of [...drawn]) {
+        const numbers = d.item === null ? undefined : balloons.get(d.item);
+        if (d.item === null || !numbers?.length || ballooned.has(d.item) || d.extent.isEmpty()) continue;
+        ballooned.add(d.item);
+        addBalloon(d, numbers, taken, drawn);
+      }
       for (const d of drawn) paint(d);
     }
     turn();
@@ -602,6 +785,14 @@ export function createDrawnLayer(
       lit = item;
       for (const d of drawn) if (d.item !== null && (d.item === was || d.item === item)) paint(d);
       counts();
+    },
+    setBalloons(next) {
+      const key = [...next].map(([item, n]) => `${item}=${n.join(',')}`).sort().join(';');
+      if (key === balloonKey) return;
+      balloonKey = key;
+      balloons = next;
+      if (pmiNow) rebuild();
+      lastProjKey = '';
     },
     setUnsaved(items) {
       unsavedItems = items;

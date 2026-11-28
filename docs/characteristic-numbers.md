@@ -329,3 +329,10 @@ Scene labels for a characteristic that appears in GENERAL NOTES use
 can be shared across requirements: their titles, text cells and graphic ids identify
 the complete render-once block, not an individual characteristic. Number allocation
 and characteristic identities continue to use semantic roots and supports.
+
+## Numbers in the 3D view
+
+The editor's 3D PMI view draws each callout's number as a balloon. It reads the number from
+`pmiScene`'s `specify[item].number`, never from its own allocation: for the file's own PMI that is the
+`ID_ATTRIBUTE`, and for a callout not yet saved it is the number the writer will assign to it on Save
+(the same history walk), so the balloon does not change when the file is saved.

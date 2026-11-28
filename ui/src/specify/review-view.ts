@@ -320,10 +320,10 @@ export function createReviewView(
       own?.collapse();
     },
     setLabelsVisible: (on) => overlays?.annotations.setVisible(on),
-    drawn(pmi, visible, labels) {
+    drawn(pmi, visible, labels, balloons) {
       if (!overlays) return;
       // Turned on: framed once with its callouts, so none starts out of view.
-      if (overlays.drawn(pmi, visible, labels) && !moved) homeView();
+      if (overlays.drawn(pmi, visible, labels, balloons) && !moved) homeView();
     },
     lightDrawn: (item) => overlays?.drawnLayer.light(item),
     drawnFilter: (show, farSide, reveal) => overlays?.drawnLayer.filter(show, farSide, reveal),
@@ -447,8 +447,12 @@ function overlaysOver(own: DefaultView, { mesh, analysis, occluders, onLabel }: 
   return {
     annotations, drawnLayer, drawnBounds,
     /** Shows the file's graphics, or not; whether they were just turned on. */
-    drawn(pmi: DrawnPmi | null, visible: boolean, nextLabels?: ReadonlyMap<string, PmiLabel>) {
+    drawn(
+      pmi: DrawnPmi | null, visible: boolean, nextLabels?: ReadonlyMap<string, PmiLabel>,
+      nextBalloons: ReadonlyMap<string, readonly number[]> = new Map(),
+    ) {
       reviewLabels = nextLabels;
+      drawnLayer.setBalloons(nextBalloons);
       if (pmi !== drawnPmi) { drawnPmi = pmi; drawnLayer.set(pmi); }
       const showing = visible && pmi !== null;
       drawnLayer.setVisible(showing);
