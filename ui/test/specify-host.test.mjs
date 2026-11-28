@@ -281,6 +281,22 @@ test('an answer given while Save ran is rebuilt against the saved file, and one 
   assert.equal(host.pendingEdits().get('part.material').kind, 'remove', 'back to nothing: the saved value is a removal');
 });
 
+test('composeAll gives every part\'s list as Save would send it, sends nothing and keeps the held edits', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}`, part });
+  let sent = 0;
+  const spy = { request: (...a) => client.request(...a), acceptDefaults: (...a) => client.acceptDefaults(...a), edit: async (...a) => { sent++; return client.edit(...a); } };
+  const host = await hostOn(at(0), { client: spy, several: true, keepHeld: true, drafts: { 1: { fill: { 'part.material': 'Brass' } } } });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const all = await host.composeAll();
+  assert.deepEqual(all.map((l) => l.part), [0, 1]);
+  assert.equal(all[0].edits.fill['part.material'], 'Steel');
+  assert.equal(all[1].edits.fill['part.material'], 'Brass');
+  assert.equal(sent, 0, 'nothing sent, even without saveVia');
+  assert.equal(host.pendingEdits().size, 1, 'the edit is still held');
+  assert.deepEqual(await host.composeAll(), all, 'the same again');
+});
+
 test('several parts without saveVia throw before anything is sent', async () => {
   let sent = 0;
   const spy = { request: (...a) => client.request(...a), acceptDefaults: (...a) => client.acceptDefaults(...a), edit: async (...a) => { sent++; return client.edit(...a); } };

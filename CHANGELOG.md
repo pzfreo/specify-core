@@ -26,7 +26,9 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 - **`SpecifyHost` held edits survive a reload**: `heldEdits()` (also on `useSpecifyHost`) returns them as JSON (`HeldEdits`),
   the new `held` option gives them back to the first file the host shows, and `onHeldChange` now passes the `HeldEdits`
   (and fires after a save's rebase). `several` without `saveVia` throws before anything is sent. `HostRead`, `readHost`
-  and `readAnalysis` are exported from `/host` and the root entry.
+  and `readAnalysis` are exported from `/host` and the root entry. `composeAll()` gives what Save would send for every
+  part (a list per part with `several`), sending nothing and keeping the held edits, for a host that writes a derived
+  file itself.
 - **`rematchAnswers` reads schema 1 evidence held outside the STEP** (a saved project's, from the pre-alpha browser
   writer). Its fingerprint keeps the signs of zero and is not reproduced by this kernel; with the same face count it
   is now read as the file's own copy is, answers matched by feature ID with `unverified` saying why, where it held

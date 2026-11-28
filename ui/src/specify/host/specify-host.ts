@@ -293,13 +293,13 @@ export class SpecifyHost {
   }
 
   /** What Save sends: a list for the part shown, or (several parts) a list per part with edits; null when there is nothing. */
-  private async plan(): Promise<Sent | null> {
+  private async plan(forSave = true): Promise<Sent | null> {
     this.sync();
     const file = this.file!;
     const read = this.readOf(file);
     if (!read) return null;
     const { client, acceptDefaults, bom, beforeSave, several, saveVia } = this.options;
-    if (several && !saveVia) throw new Error(SEVERAL_NEEDS_SAVE_VIA);
+    if (forSave && several && !saveVia) throw new Error(SEVERAL_NEEDS_SAVE_VIA);
     const engine = () => client ?? noEngine();
     const part = partOf(file);
     const all = this.allPending();
@@ -330,6 +330,13 @@ export class SpecifyHost {
     const { client, acceptDefaults, bom } = this.options;
     const answers = acceptDefaults ? await (client ?? noEngine()).acceptDefaults(this.file, this.options.answers) : this.options.answers;
     return composeEditList(read, answers, this.pendingEdits(), bom ?? true);
+  }
+
+  /** What Save would send now, every part's (``several``: a list per part with edits, as ``saveVia`` gets them;
+   * otherwise the part shown's list), built as Save builds it (accepted defaults, the BOM rule, ``beforeSave``).
+   * Nothing is sent and the held edits stay: for a host that writes a derived file itself. null: nothing to send. */
+  async composeAll(): Promise<SaveEdits | null> {
+    return (await this.plan(false))?.edits ?? null;
   }
 
   /** Saves: composes the edit list, sends it, rebases what was held on what was written, and reads the saved file again. null: nothing to save. */

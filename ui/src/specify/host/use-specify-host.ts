@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { EditOutcome } from '../../engine/save.ts';
 import type { PendingEdits } from '../edits/pending.ts';
-import type { EditList } from '../edits/types.ts';
+import type { EditList, SaveEdits } from '../edits/types.ts';
 import { SpecifyHost, type HeldEdits, type ReviewPropsFromHost, type SavedElsewhere, type SpecifyHostOptions, type SpecifyHostState } from './specify-host.ts';
 
 export interface UseSpecifyHost {
@@ -20,6 +20,8 @@ export interface UseSpecifyHost {
   refresh(): Promise<void>;
   /** The edit list Save would send now for the part shown. */
   compose(): Promise<EditList | null>;
+  /** What Save would send now for every part, nothing sent (``SpecifyHost.composeAll``). */
+  composeAll(): Promise<SaveEdits | null>;
   /** Every part's held edits, the agent's drafts laid under them. */
   pending: ReadonlyMap<number, PendingEdits>;
   /** The part shown's. */
@@ -46,7 +48,7 @@ export function useSpecifyHost(options: SpecifyHostOptions): UseSpecifyHost {
   const pending = host.allPending();
   return {
     reviewProps, saving: state.saving, lastReport: state.lastReport, refused: state.refused, loading: state.loading, error: state.error,
-    save: () => host.save(), refresh: () => host.refresh(), compose: () => host.compose(),
+    save: () => host.save(), refresh: () => host.refresh(), compose: () => host.compose(), composeAll: () => host.composeAll(),
     pending, partPending: host.pendingEdits(), setPending: (next) => host.setPending(next),
     answered: (...args) => host.answered(...args), heldEdits: () => host.heldEdits(), discard: () => host.discard(),
   };
