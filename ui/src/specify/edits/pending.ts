@@ -1,8 +1,8 @@
 // The review panel's pending edits (specify-panel.md decision 3): each change the person makes is
 // held in the page, one per row of a part. Save sends the lists together, all or nothing.
 // Discard drops them all (specify-pmi docs/open.md, `POST save`).
-import type { AnswerDraft, EditFailure, EditList, RemoveTarget } from './local.ts';
-import { withUnits } from '../src/specify/units.ts';
+import type { AnswerDraft, EditFailure, EditList, RemoveTarget } from './types.ts';
+import { withUnits } from '../units.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
 export type Pending = PendingEdit & { draft?: true };

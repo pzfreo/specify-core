@@ -1,6 +1,6 @@
 /* three-cad-viewer's stylesheet is written for a page of its own: it stops the body scrolling
    and selecting text, and paints it. The page's own rules win back. */
-html body { overflow: visible; user-select: auto; background-color: transparent; }
+html body:has(.diff-page) { overflow: visible; user-select: auto; background-color: transparent; }
 .diff-page { max-width: 1600px; margin: 0 auto; padding: 16px; font: 15px/1.5 system-ui, sans-serif; color: #1d232a; }
 /* The page is the window's height: the part and the report share what the header leaves. */
 .diff-page { box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; }

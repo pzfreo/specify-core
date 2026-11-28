@@ -8,7 +8,7 @@ import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
-import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
+import { bestDrawnView, drawnGroupOf, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint, waitingHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -525,12 +525,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [drawnShow, seen.farSide, visibleDrawn, session, drawnReveal]);
   // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
   const squares = useMemo(() => (visibleDrawn
-    ? drawnViews(visibleDrawn, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow), partCentre(session.mesh.positions))
+    ? drawnViews(visibleDrawn, (g, item) => drawnShown(g.source, drawnGroupOf(visibleDrawn, item, g), drawnShow), partCentre(session.mesh.positions))
     : []), [visibleDrawn, drawnShow, session]);
   const bestView = useMemo(() => (visibleDrawn
     ? bestDrawnView(
       visibleDrawn,
-      (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow),
+      (g, item) => drawnShown(g.source, drawnGroupOf(visibleDrawn, item, g), drawnShow),
       partCentre(session.mesh.positions),
       bestReferenceView(visibleDrawn, session.analysis, session.mesh),
     )
@@ -876,9 +876,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (faces.length) picker.current?.lookAt(faces);
   };
 
-  const removeDatum = (letter: string) => {
+  // A datum whose removal has a consequence asks in its row (no native dialog: a host's page and tests are not blocked).
+  const [removing, setRemoving] = useState<string | null>(null);
+  const removeDatum = (letter: string, confirmed = false) => {
     const { warning } = removal(letter, chips, answers, preview);
-    if (warning && !window.confirm(`${warning}\n\nRemove datum ${letter}?`)) return;
+    if (warning && !confirmed) { setRemoving(letter); return; }
+    setRemoving(null);
     void commit(`datum.${letter}`, (latest) => removal(letter, chips, latest, preview).answers, (asked) =>
       (asked.some((g) => g.questions.some((x) => x.id === current)) ? current : null));
   };
@@ -1686,6 +1689,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     >
                       ✕
                     </button>
+                  )}
+                  {removing === c.letter && (
+                    <span className="pmi-lab-confirm" role="alert">
+                      <span className="reason">{removal(c.letter, chips, answers, preview).warning}</span>
+                      <span>Remove datum {c.letter}?</span>
+                      <button type="button" className="warn" onClick={() => removeDatum(c.letter, true)}>Remove</button>
+                      <button type="button" onClick={() => setRemoving(null)}>Cancel</button>
+                    </span>
                   )}
                 </span>
               ))}

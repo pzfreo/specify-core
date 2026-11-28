@@ -8,7 +8,7 @@ import { chromium, expect } from '@playwright/test';
 import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-pmi open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
-// and shows the editor's review screens (SpecifyReview, on the 0.3 engine through app/adapter.ts):
+// and shows the editor's review screens (SpecifyReview, on the 0.3 engine through src/specify/edits/adapter.ts):
 // what the file states as answered items "(from the file)" with a pencil and a bin, a gap as a
 // suggestion card or a field. Answers given there (a suggestion kept, a value chosen or typed, a
 // stated item changed or removed) are listed in the bar and written together by Save (session API 2,

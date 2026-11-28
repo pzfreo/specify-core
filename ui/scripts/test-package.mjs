@@ -49,6 +49,8 @@ function packLocalBuild() {
 }
 const tarball = prepacked ? resolve(root, prepacked) : packLocalBuild();
 if (!existsSync(tarball)) fail(`tarball is missing: ${tarball}`);
+// Reads ui/dist, which a prepacked tarball's CI job does not have (the ui job runs it after the build).
+if (!prepacked) run(process.execPath, ['--test', 'test/helpers-node.test.mjs'], root, { HELPERS_DIST: 'required' });
 
 // The peer range spans three 0.184 to 0.187. 0.184.0 is what three-cad-viewer pins and the repo
 // tests against; 0.186.1 is what the draftwright editor runs; 0.187.0 is the newest.

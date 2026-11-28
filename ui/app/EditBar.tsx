@@ -3,7 +3,7 @@
 // Moved from the rc.1 panel unchanged, less its "Add all suggestions": the review's own Keep all
 // does that.
 import type { AnswerDraft } from './local.ts';
-import { describe, type Pending } from './edits.ts';
+import { describe, type Pending } from '../src/specify/edits/pending.ts';
 
 export function EditBar({ items, drafts, saving, busy, blocked, savedNote, onSave, onDiscard, onUndoDraft }: {
   items: { part: number; name?: string; edit: Pending }[];

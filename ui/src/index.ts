@@ -32,6 +32,7 @@ export { sameBinding } from './specify/selection';
 export { readOnlyEngine } from './specify/read-only';
 export { createIntentEngine } from './engine/intent-engine';
 export { WorkerClient } from './engine/rpc';
+export type * from './engine/save';
 export * from './specify/characteristics';
 export { as9102, type FaiPart } from './specify/as9102';
 export { xlsx, workbookFiles, zip, type Cell, type Sheet } from './model/xlsx';

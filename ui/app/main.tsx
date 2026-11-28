@@ -26,13 +26,13 @@ import { changedIds, createSession, sameAnswers, type AnswersSession, type Answe
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, keepAlive, listen, openFile, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, waitingOf, type Saver, type WaitingAnswer } from './save';
-import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from './edits';
+import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from '../src/specify/edits/pending';
 import { EditBar } from './EditBar';
-import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
+import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from '../src/specify/edits/adapter';
 import { labelStated } from '../src/specify/units';
 import { findStatedOrigin, normalizeDraftingPmi } from '../src/specify/drafting-layout';
 import { readSceneSemanticLabels, reviewDrawnFromScene, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from '../src/specify/one-view';
-import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
+import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from '../src/specify/edits/table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-pmi#readme';
