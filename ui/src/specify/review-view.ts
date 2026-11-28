@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
-import { defaultViews } from './default-views';
+import { needViews, type DefaultViews } from './default-views';
 import { HOME, type DefaultView } from './default-view';
 import { drawnGroup, partCentre, type DrawnPmi, type DrawnPoint, type DrawnView } from './drawn';
 import { createDrawnLayer } from './drawn-layer';
@@ -45,8 +45,9 @@ const boxOf = (box: THREE.Box3): Box => ({ min: box.min.toArray() as Vec3, max: 
  */
 export function createReviewView(
   container: HTMLElement,
-  { mesh, analysis, view: given, part = 0, entities }: {
+  { mesh, analysis, view: given, part = 0, entities, defaults }: {
     mesh: PmiMesh; analysis: PmiAnalysis; view?: HostView | null; part?: number; entities?: readonly number[];
+    /** The package's own view's factories, for when ``view`` is none. */ defaults?: DefaultViews | null;
   },
 ): Picker {
   if (mesh.format !== 'pmi-assist-mesh' || mesh.version !== 2) {
@@ -63,7 +64,7 @@ export function createReviewView(
   const OTHER = 'Other faces';
   let featureOf = new Map<number, string>();
   const groupOf = (face: number) => featureOf.get(face) ?? OTHER;
-  const own: DefaultView | null = given ? null : defaultViews().part(container, {
+  const own: DefaultView | null = given ? null : needViews(defaults).part(container, {
     part, mesh, control: 'trackball',
     // A calm first look: the viewer's toolbar and tools panel come with "More view tools".
     tools: false,

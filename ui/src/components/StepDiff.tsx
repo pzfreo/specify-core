@@ -4,7 +4,7 @@ import type { WorkerClient } from '../engine/rpc';
 import { createIntentEngine } from '../engine/intent-engine';
 import { createLook, viewpointOf, type LookAt } from '../specify/look';
 import { pathOf } from '../specify/cad-path';
-import { defaultViews } from '../specify/default-views';
+import { needViews, useDefaultViews, type DefaultViews } from '../specify/default-views';
 import type { DefaultView } from '../specify/default-view';
 import { subMesh, type HostPointerEvent, type HostView, type Mat4, type MeshOptions, type Vec3 } from '../specify/host-view';
 import type { PmiMesh } from '../types/pmi';
@@ -147,7 +147,7 @@ const SEE_THROUGH = 0.5;
  * ``part`` is Specify's index of the new part. ``onLine`` hears a line picked in the default
  * view's tree.
  */
-function draw(container: HTMLElement, view: View, part: number, removed: boolean, given: HostView | null, onLine: (line: number) => void): Drawn {
+function draw(container: HTMLElement, view: View, part: number, removed: boolean, given: HostView | null, defaults: DefaultViews | null, onLine: (line: number) => void): Drawn {
   const names = lineNames(view.changes);
   const lineName = (i: number) => names[i]!;
   const kindOf = (face: number) => view.faces[face] ?? null;
@@ -201,7 +201,7 @@ function draw(container: HTMLElement, view: View, part: number, removed: boolean
   // The trackball, as the Specify view has: turning square to a callout sets the way up its plane
   // reads, which an orbit control (up held at +Z) would undo, leaving a callout whose up is -Z
   // upside down.
-  const own = given ? null : defaultViews().part(container, {
+  const own = given ? null : needViews(defaults).part(container, {
     part, mesh: view.new, control: 'trackball',
     bounds: [bounds.min.toArray(), bounds.max.toArray()],
     onPick: path => { const line = lineAt.get(path); if (line !== undefined) onLine(line); },
@@ -380,6 +380,7 @@ export interface StepDiffProps {
 const NO_ANSWERS = {};
 
 export default function StepDiff({ before, after, answers = NO_ANSWERS, compared, part: wanted, onPart, onEvent, header, hostError, wasmUrl, view: hostView = null }: StepDiffProps) {
+  const defaults = useDefaultViews();
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   // What the 3D view draws: a part's comparison, or an assembly's open part's.
@@ -512,7 +513,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
 
   useEffect(() => {
     if (!diffed || !stage.current) return;
-    const d = draw(stage.current, diffed.view, diffed.part ?? 0, Boolean(diffed.removed), hostView, line => {
+    const d = draw(stage.current, diffed.view, diffed.part ?? 0, Boolean(diffed.removed), hostView, defaults, line => {
       choose(line);
       drawn.current?.lookAt(line);
       report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });

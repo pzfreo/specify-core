@@ -56,9 +56,7 @@
     "./package.json": "./package.json"
   },
   "sideEffects": [
-    "**/*.css",
-    "./dist/specify-ui.js",
-    "./src/index.ts"
+    "**/*.css"
   ],
   "publishConfig": {
     "access": "public",

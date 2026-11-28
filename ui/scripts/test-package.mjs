@@ -75,7 +75,7 @@ async function testHost(threeVersion) {
       ...pick(['react', 'react-dom', 'three-cad-viewer']),
       three: threeVersion,
     },
-    devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
+    devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom', 'esbuild']),
     // The engine at this version is published by the same release, after this test: the in-repo build.
     overrides: { '@draftwright/specify-pmi-wasm': `file:${engineBuild}` },
   }, null, 2));
@@ -98,6 +98,13 @@ async function testHost(threeVersion) {
 
   run(npx, ['tsc', '-p', '.'], host);
   run(npx, ['vite', 'build'], host);
+  // The main entry under a consumer bundler that tree-shakes as the package declares (sideEffects: css only):
+  // a host that imports one component still gets the package's own view bound to it, as the bundle holds
+  // the viewer's code, not only the component's.
+  writeFileSync(resolve(host, 'main-only.ts'), "import { StepDiff } from '@draftwright/specify-ui';\nconsole.log(StepDiff);\n");
+  run(npx, ['esbuild', 'main-only.ts', '--bundle', '--format=esm', '--platform=browser', '--outdir=dist-main', '--loader:.css=empty', '--loader:.wasm=empty', '--log-level=error'], host);
+  const main = readFileSync(resolve(host, 'dist-main/main-only.js'), 'utf8');
+  if (!main.includes('node_modules/three-cad-viewer/')) fail('the main entry, tree-shaken to one component, lost its three-cad-viewer view');
   const assets = readdirSync(resolve(host, 'dist/assets'));
   if (!assets.some(name => /^intent\.worker.*\.js$/.test(name))) fail(`no intent.worker JS in the build: ${assets.join(', ')}`);
   if (!assets.some(name => name.endsWith('.wasm'))) fail(`no .wasm in the build: ${assets.join(', ')}`);

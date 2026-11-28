@@ -4,15 +4,21 @@
 // createCadView, loads 'three-cad-viewer/css' itself.
 import 'three-cad-viewer/css';
 import { createCadView, createDefaultView } from './specify/cad-view';
-import { wireDefaultViews } from './specify/default-views';
+import { withDefaultViews, type DefaultViews } from './specify/default-views';
+import StepDiffBase from './components/StepDiff';
+import AssemblyDiffViewBase from './components/AssemblyDiffView';
+import { SpecifyReview as SpecifyReviewBase } from './specify/SpecifyReview';
 
-// The package's own 3D view (three-cad-viewer) is the components' default here. Wired in this module's
-// body, not a module of its own: the package is flagged side-effect free, so a module with no used export is dropped.
-wireDefaultViews({ part: createDefaultView, assembly: (container, nodes, options) => createCadView(container, nodes, options) });
-
-export { default as StepDiff, type StepDiffProps } from './components/StepDiff';
-export { default as AssemblyDiffView, type AssemblyRow, type StepFile } from './components/AssemblyDiffView';
-export { SpecifyReview, type CalledOut, type SpecifyEngine, type SpecifySlots } from './specify/SpecifyReview';
+// The components, with the package's own 3D view (three-cad-viewer) as their default when no `view` is given.
+// (Typed as the components are, so the declarations point at them and not at wherever a prop's type is re-exported.)
+// The `/host` entry (src/host.ts) has the same components bound to none.
+const own: DefaultViews = { part: createDefaultView, assembly: (container, nodes, options) => createCadView(container, nodes, options) };
+export const StepDiff: typeof StepDiffBase = withDefaultViews(StepDiffBase, own);
+export const AssemblyDiffView: typeof AssemblyDiffViewBase = withDefaultViews(AssemblyDiffViewBase, own);
+export const SpecifyReview: typeof SpecifyReviewBase = withDefaultViews(SpecifyReviewBase, own);
+export type { StepDiffProps } from './components/StepDiff';
+export type { AssemblyRow, StepFile } from './components/AssemblyDiffView';
+export type { CalledOut, SpecifyEngine, SpecifySlots } from './specify/SpecifyReview';
 export {
   drawnFromScene, withoutNotesBlock, hasGraphics,
   type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint, type DrawnStatus, type TextPlacement,
