@@ -115,6 +115,10 @@ export interface WriteReport {
 export type EditResult =
   | { written: true; bytes: number[]; report: WriteReport; source_sha256: string }
   | { written: false; failures: { entry: string; reason: string }[]; message: string };
+/** JSON in `EditedFile.json` (`editFile()`): `EditResult` with the file's bytes apart, in `EditedFile.bytes()`. */
+export type EditFileResult =
+  | { written: true; report: WriteReport; source_sha256: string }
+  | { written: false; failures: { entry: string; reason: string }[]; message: string };
 /** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {
   schema: 1 | 2 | 3;
@@ -270,6 +274,26 @@ export interface PmiScene {
     #[wasm_bindgen]
     pub struct IntentEngine(session::Session);
 
+    /// What `editFile` gives: the outcome as JSON, and the new file's bytes apart from it.
+    #[wasm_bindgen]
+    pub struct EditedFile {
+        json: String,
+        bytes: Vec<u8>,
+    }
+
+    #[wasm_bindgen]
+    impl EditedFile {
+        /// `{written: true, report, source_sha256}` or `{written: false, failures, message}`.
+        #[wasm_bindgen(getter)]
+        pub fn json(&self) -> String {
+            self.json.clone()
+        }
+        /// The new file (a `Uint8Array`); empty when nothing was written. Taken once.
+        pub fn bytes(&mut self) -> Vec<u8> {
+            std::mem::take(&mut self.bytes)
+        }
+    }
+
     #[wasm_bindgen]
     impl IntentEngine {
         #[wasm_bindgen(constructor)]
@@ -407,6 +431,32 @@ export interface PmiScene {
                 .edit_carrying(edits, project.as_deref(), payload.as_ref())
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// [`edit`](IntentEngine::edit) with the new file as bytes, not a JSON number list: the
+        /// result's `json` is `{written: true, report, source_sha256}` or `{written: false,
+        /// failures, message}`, and `bytes()` is the file (a `Uint8Array`; empty when not written).
+        /// Free the result.
+        #[wasm_bindgen(js_name = editFile)]
+        pub fn edit_file(
+            &self,
+            edits: &str,
+            project: Option<String>,
+            payload: Option<String>,
+        ) -> Result<EditedFile, JsValue> {
+            limit("Edits", edits, input::JSON_LIMIT)?;
+            let payload = payload
+                .as_deref()
+                .map(|text| json("Payload", text))
+                .transpose()?;
+            let (json, bytes) = self
+                .0
+                .edit_file(edits, project.as_deref(), payload.as_ref())
+                .map_err(|error| JsValue::from_str(&error))?;
+            Ok(EditedFile {
+                json: json.to_string(),
+                bytes: bytes.unwrap_or_default(),
+            })
         }
 
         /// Saved answers held outside the STEP (the editor's project) matched to this part:

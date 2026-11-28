@@ -1,3 +1,7 @@
+import type { EngineFile, EditOutcome, EditRequest, RematchRequest, Rematched } from './save';
+import type { FeatureTable } from '../specify/edits/table';
+import type { PmiAnswers } from '../types/pmi';
+
 export class WorkerClient {
   private worker: Worker;
   private sequence = 0;
@@ -42,6 +46,17 @@ export class WorkerClient {
       catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
     });
   }
+
+  /** Applies an edit list (or a 0.2 answers file) to ``file`` in memory, all or nothing: the new bytes, or every entry
+   * refused. Nothing is written to disk; the host stores ``bytes``. */
+  edit(file: EngineFile, request: EditRequest): Promise<EditOutcome> { return this.request('edit', { ...file, ...request }); }
+  /** Answers the host saved outside the STEP, matched to ``file`` (a new revision of the part they were made on). */
+  rematch(file: EngineFile, request: RematchRequest): Promise<Rematched> { return this.request('rematch', { ...file, ...request }); }
+  /** ``answers`` with Specify's defaults accepted for ``file`` (the answers its default path gives): hand them to ``edit``
+   * as a 0.2 answers file, `edit(file, { edits: await acceptDefaults(file, answers) })`. Reads only. */
+  acceptDefaults(file: EngineFile, answers: PmiAnswers): Promise<PmiAnswers> { return this.request('accept-defaults', { ...file, answers }); }
+  /** The feature table of ``file``: each row's state, value and suggestion; row ids are the ids an edit list names. */
+  table(file: EngineFile): Promise<FeatureTable> { return this.request('table', file); }
 
   private fail(error: Error) {
     for (const pending of this.pending.values()) {

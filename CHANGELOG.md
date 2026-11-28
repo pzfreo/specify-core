@@ -6,12 +6,36 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **`WorkerClient.acceptDefaults(file, answers)`** returns `answers` with Specify's defaults accepted for the file
+  (the worker's `accept-defaults` op, the engine's free `acceptDefaults` on its analysis); a host saves them with
+  `edit(file, { edits: accepted })`. Reads only.
+- **A saved STEP leaves the engine as bytes, not a JSON number list**: the WASM `IntentEngine.editFile` gives an
+  `EditedFile` (`json`: `{written, report, source_sha256}` or the refusal; `bytes()`: a `Uint8Array`), and the UI
+  worker's `edit` op uses it and moves the bytes to the page without copying (`Edited.bytes` stays a `Uint8Array`).
+  `edit` (JSON, `bytes: number[]`) is unchanged for small files.
+- **`@draftwright/specify-ui/helpers` loads under plain Node and carries the host's whole non-DOM surface**: the
+  xlsx/zip writer, the diff and PMI-diff functions, `WorkerClient`, `createIntentEngine`, `tolerancingMode`,
+  `intentParts`, `intentPart`, `editorDefault` (and the `GdtMode` and `IntentPart` types) and `readCarried`, beside the characteristics and AS9102
+  helpers it had. The root entry imports CSS, which Node cannot load. `test/helpers-node.test.mjs` imports the built
+  entry in a fresh Node.
+- **`rematchAnswers` reads schema 1 evidence held outside the STEP** (a saved project's, from the pre-alpha browser
+  writer). Its fingerprint keeps the signs of zero and is not reproduced by this kernel; with the same face count it
+  is now read as the file's own copy is, answers matched by feature ID with `unverified` saying why, where it held
+  every feature and datum answer open. Schemas 2 and 3 were read already.
+- **A host can save and rematch with `@draftwright/specify-ui` alone** (no copy of the app's editor code). The
+  engine worker gains `edit` (an edit list or a 0.2 answers file applied all or nothing: the new bytes, or every
+  refused entry), `rematch` (`rematchAnswers`) and `table`, as typed calls on `WorkerClient`
+  (`engine.edit/rematch/table`). The answers-to-edit-list translation moves from `ui/app` into the package as the
+  new `@draftwright/specify-ui/edits` entry (`editList`, `answerEdit`, `PendingEdits`, `panelModel`, `statedRows`,
+  `tableOf` and the `FeatureTable`, `EditList`, `Pending`, `EditFailure` types); the local app imports it from there.
+  `.pmi-lab-pane` now fills its positioned container in the package's own CSS, and StepDiff's page-level
+  `html body` rule applies only to a page that holds a diff. The datum-removal confirmation is in the panel
+  row, no longer a native dialog. README: "Embedding and saving".
 - **`@draftwright/specify-ui`: the "Show in 3D view" bar on a phone, and the General dimensions toggle across Save**.
   On a narrow or touch screen each Show checkbox and its label is a 44px-tall target (they were about 18px); the desktop
   bar is unchanged. A general dimension's ink is governed by "General dimensions" wherever it is drawn: after Save the
   file's own copy can also be listed under an alias item the engine does not mark general, which made it follow
   "In the file" instead, so the view differed before and after Save.
-
 - **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
   than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
   reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),
@@ -57,6 +81,12 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   written by Specify (`specify-core:written:v1`). The UI lays such a callout out as Specify lays out an
   unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
   some). Optional; `DrawnLink.written` carries it.
+
+### WASM API
+
+- `IntentEngine.editFile(editsJson, project?, payload?)`: as `edit`, but returns an `EditedFile` whose `json`
+  is the outcome without `bytes` (`EditFileResult`) and whose `bytes()` gives the new file as a `Uint8Array`.
+  Free it (or `using`) when done. `edit` is unchanged.
 
 ## 0.3.0 (2026-11-27)
 

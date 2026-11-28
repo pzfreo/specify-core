@@ -1,5 +1,5 @@
 /* The app's frame: a header, the review filling the rest, an About line. The review's panes
-   (.pmi-lab-pane) are fixed over the page in the package; here they fill the main area. */
+   (.pmi-lab-pane) fill the nearest positioned container: here the main area. */
 :root { --specify-mono-font: 'IBM Plex Mono', ui-monospace, monospace; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -37,7 +37,6 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-drop-hint code { font-family: var(--specify-mono-font); }
 .app-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .app-slot { position: absolute; inset: 0; }
-.app-main .pmi-lab.pmi-lab-pane { position: absolute; inset: 0; }
 .app-panel { pointer-events: none; }
 /* The view stops where the panel (358px, 10px in) starts, as in the editor: under it, the view's own
    controls (Show, the turning and zoom buttons) could not be reached. On a phone the panel is below. */

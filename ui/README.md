@@ -181,7 +181,48 @@ calling yours, and `preview` passes through; use it for your own read-only code 
 `AssemblyDiffView` change nothing and are view-only already.
 
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
-exported too; see `src/index.ts`.
+exported too; see `src/index.ts`. A host's Node code and tests import the DOM-free helpers (those, the xlsx/zip
+writer, `WorkerClient`, `createIntentEngine`, `tolerancingMode`, `intentParts`, `editorDefault`, `GdtMode` and
+`readCarried`) from `@draftwright/specify-ui/helpers`, which loads no CSS or three.
+
+## Embedding and saving
+
+A host that embeds `SpecifyReview` saves and rematches on the 0.3 engine with the package alone; it copies nothing
+from `ui/app`. The engine comes from `createIntentEngine({ wasmUrl })` (the host's own WASM, as above); its
+`WorkerClient` has three typed calls, each on a file `{ name, bytes, sourceId, part? }` (a new `sourceId` is a new
+revision; the engine opens it on first use):
+
+- `engine.edit(file, { edits, project?, payload? })`: applies an edit list, or a 0.2 answers object, to the file in
+  memory, all or nothing. It returns `{ written: true, bytes, report, source_sha256 }` (the host stores `bytes`) or
+  `{ written: false, failures: [{ entry, reason }], message }`. `project` (the host's base64 project) or `payload`
+  (`{ name, value }`) is stored in the file; at most one. A 0.2 answers object is accepted for hosts that keep
+  answers (the editor's `EditState.answers`): it writes the same PMI as the equivalent edit list (`{ fill: answers }`).
+- `engine.rematch(file, { answers, evidence?, automatic? })`: answers saved outside the STEP, matched to this
+  revision of the part: `{ answers, unresolved?, migrated?, unverified?, automatic? }`. `evidence` is what `open`
+  returned with them when they were saved. It reads only.
+- `engine.table(file)`: the feature table, whose row ids an edit list names.
+
+`@draftwright/specify-ui/edits` is the translation between the review's answers and an edit list, the one the local
+app uses: `answerEdit`, `removeEdit`, `callOutEdit` make a `Pending` edit; `PendingEdits` queues them, one per row;
+`editList(pending)` is the edit list to pass to `edit`; `tableOf`, `panelModel`, `statedRows`, `forEngine`,
+`forScreens` read the table for the screens; `fileLengthUnit(bytes)` gives the file's unit. The types
+`FeatureTable`, `TableRow`, `Pending`, `StatedRows`, `EditList`, `EditFailure` (and `Edited`, `EditRefused`,
+`Rematched`) are exported with it.
+
+```ts
+import { createIntentEngine } from '@draftwright/specify-ui';
+import { editList, PendingEdits } from '@draftwright/specify-ui/edits';
+
+const engine = createIntentEngine({ wasmUrl: '/wasm/intent/specify_pmi_wasm.js' });
+const file = { name: 'bracket.step', bytes, sourceId: 'bracket.step@1' };
+const done = await engine.edit(file, { edits: editList(pending.values()) });   // or { edits: answers }
+if (done.written) store(done.bytes); else show(done.failures);
+```
+
+Styling: import `@draftwright/specify-ui/review.css` (the review alone; `style.css` adds the diff components). A review
+pane (`.pmi-lab-pane`) fills its nearest positioned container, so give the host element `position: relative` and a
+size. The package loads no font: set `--specify-mono-font`. The CSP needs `worker-src 'self'` (the worker is
+the package's own chunk) and `'wasm-unsafe-eval'` in `script-src`.
 
 ## The local app (`specify-pmi open`, or an agent's `show`)
 
