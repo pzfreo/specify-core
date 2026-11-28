@@ -49,6 +49,39 @@ fn raised(error: Error) -> PyErr {
     }
 }
 
+/// Off-GIL work with a panic caught before pyo3 can raise it as `PanicException` (a
+/// `BaseException`, which `except Exception` misses): it is the package's `SpecifyError`
+/// instead (the same guard as quiddity-py's).
+trait Guard {
+    fn guard<T: Send>(self, work: impl FnOnce() -> T + Send) -> PyResult<T>;
+}
+
+impl Guard for Python<'_> {
+    fn guard<T: Send>(self, work: impl FnOnce() -> T + Send) -> PyResult<T> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.detach(work))).map_err(
+            |payload| {
+                let message = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("non-string panic payload");
+                package_error(
+                    "specify_pmi",
+                    "SpecifyError",
+                    format!("internal error: {message}"),
+                )
+            },
+        )
+    }
+}
+
+/// Test hook (not part of the API): panics inside a guarded call, so that the guard can be
+/// tested from Python.
+#[pyfunction]
+fn _panic_for_test(py: Python<'_>, message: String) -> PyResult<()> {
+    py.guard(|| panic!("{message}"))
+}
+
 /// The package's `IncompleteError(missing, part)`, as specify-pmi's `rules` raises it.
 fn incomplete(e: &rules::IncompleteError) -> PyErr {
     Python::attach(|py| {
@@ -89,7 +122,7 @@ fn parse(what: &str, text: &str) -> PyResult<Value> {
 /// The distinct parts of `step`, as a JSON list (`api.parts`).
 #[pyfunction]
 fn parts(py: Python<'_>, step: PathBuf) -> PyResult<String> {
-    let parts = py.detach(|| api::parts(&step)).map_err(raised)?;
+    let parts = py.guard(|| api::parts(&step))?.map_err(raised)?;
     Ok(Value::Array(parts).to_string())
 }
 
@@ -97,7 +130,7 @@ fn parts(py: Python<'_>, step: PathBuf) -> PyResult<String> {
 #[pyfunction]
 fn bom(py: Python<'_>, step: PathBuf) -> PyResult<String> {
     let rows = py
-        .detach(|| specify_pmi::bom::read_path(&step))
+        .guard(|| specify_pmi::bom::read_path(&step))?
         .map_err(PyValueError::new_err)?;
     serde_json::to_string(&rows).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
@@ -167,13 +200,13 @@ fn mesh(
 ) -> PyResult<String> {
     if let Some(handle) = loaded(step, part)? {
         return py
-            .detach(|| api::mesh_with_max_deviation(&handle.loaded, max_deviation_mm))
+            .guard(|| api::mesh_with_max_deviation(&handle.loaded, max_deviation_mm))?
             .map(|mesh| mesh.to_string())
             .map_err(raised);
     }
     let path: PathBuf = step.extract()?;
     let mesh = py
-        .detach(|| api::mesh_file_with_max_deviation(&path, part, max_deviation_mm))
+        .guard(|| api::mesh_file_with_max_deviation(&path, part, max_deviation_mm))?
         .map_err(raised)?;
     Ok(mesh.to_string())
 }
@@ -218,7 +251,7 @@ fn diff<'py>(
         }
     };
     let (json, png) = py
-        .detach(|| {
+        .guard(|| {
             let report = specify_pmi::revision::diff_with_options(
                 &old.loaded,
                 &new.loaded,
@@ -231,7 +264,7 @@ fn diff<'py>(
                 json!({"markdown": report.markdown(title, None), "report": report}).to_string(),
                 png,
             ))
-        })
+        })?
         .map_err(raised)?;
     Ok((json, png.map(|png| PyBytes::new(py, &png))))
 }
@@ -268,7 +301,7 @@ fn pmi_scene(
             ));
         }
         return py
-            .detach(|| specify_pmi::pmi_scene::pmi_scene(&bytes, part))
+            .guard(|| specify_pmi::pmi_scene::pmi_scene(&bytes, part))?
             .map(|v| v.to_string())
             .map_err(PyValueError::new_err);
     }
@@ -280,7 +313,7 @@ fn pmi_scene(
             &owned
         }
     };
-    py.detach(|| {
+    py.guard(|| {
         let analysis = state
             .as_ref()
             .map(|s| &s.answers)
@@ -297,7 +330,7 @@ fn pmi_scene(
         } else {
             scene.scene(&handle.loaded, analysis.as_ref(), answers.as_ref())
         }
-    })
+    })?
     .map(|v| v.to_string())
     .map_err(PyValueError::new_err)
 }
@@ -326,13 +359,13 @@ fn write(
         json!({"applied": false, "message": specify_pmi::session::edits_refused(&failures),
                "failures": failures})
     };
-    let out = py.detach(|| match specify_pmi::edits::read(edits) {
+    let out = py.guard(|| match specify_pmi::edits::read(edits) {
         Err(failures) => refused(failures),
         Ok(list) => match specify_pmi::writer::apply::apply_to(&handle.loaded, &list, &output) {
             Ok(applied) => json!({"applied": true, "report": applied.to_dict()}),
             Err(failures) => refused(failures),
         },
-    });
+    })?;
     Ok(out.to_string())
 }
 
@@ -348,11 +381,11 @@ fn check_edits(py: Python<'_>, step: &Bound<'_, PyAny>, edits: &str) -> PyResult
             &owned
         }
     };
-    Ok(py.detach(|| {
+    Ok(py.guard(|| {
         specify_pmi::writer::apply::check(&handle.loaded, edits)
             .to_json()
             .to_string()
-    }))
+    })?)
 }
 
 /// Write several parts of `step` (a path, or any part of the file, loaded) together: each
@@ -373,10 +406,10 @@ fn write_parts(
         ));
     }
     let report = match loaded(step, None)? {
-        Some(handle) => py.detach(|| write_parts_of(&handle.file, &jobs, &output)),
+        Some(handle) => py.guard(|| write_parts_of(&handle.file, &jobs, &output))?,
         None => {
             let path: PathBuf = step.extract()?;
-            py.detach(|| api::write_parts(&path, &jobs, &output))
+            py.guard(|| api::write_parts(&path, &jobs, &output))?
         }
     }
     .map_err(raised)?;
@@ -418,7 +451,7 @@ fn read_existing(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
         }
     };
     let items = py
-        .detach(|| existing::read_existing(&handle.loaded))
+        .guard(|| existing::read_existing(&handle.loaded))?
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     let records: Vec<Value> = items
         .iter()
@@ -445,7 +478,7 @@ fn part_settings(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
         }
     };
     let settings = py
-        .detach(|| existing::part_settings(&handle.loaded))
+        .guard(|| existing::part_settings(&handle.loaded))?
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     Ok(Value::Object(settings).to_string())
 }
@@ -454,7 +487,13 @@ fn part_settings(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
 /// replies on stdout, messages on stderr. The exit code.
 #[pyfunction]
 fn cli(py: Python<'_>, argv: Vec<String>) -> u8 {
-    py.detach(|| specify_pmi::cli::main(&argv))
+    match py.guard(|| specify_pmi::cli::main(&argv)) {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
 }
 
 /// A serving session, as `specify-pmi serve` keeps one: the parts loaded for anchoring, kept
@@ -474,7 +513,7 @@ impl Server {
     fn reply(&mut self, py: Python<'_>, request: &str) -> PyResult<String> {
         let request = parse("request", request)?;
         let server = &mut self.0;
-        Ok(py.detach(|| server.reply(&request)).to_string())
+        Ok(py.guard(|| server.reply(&request))?.to_string())
     }
 }
 
@@ -483,7 +522,7 @@ impl Server {
 fn problems(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
     let found = py
-        .detach(|| specify_pmi::problems::problems(&analysis, &answers))
+        .guard(|| specify_pmi::problems::problems(&analysis, &answers))?
         .map_err(|e| raised(Error::Rules(e)))?;
     Ok(Value::Array(found).to_string())
 }
@@ -586,14 +625,14 @@ enum Source {
 
 fn load_source(py: Python<'_>, source: Source, part: Option<usize>) -> PyResult<LoadedPart> {
     let (file, loaded) = py
-        .detach(|| {
+        .guard(|| {
             let file = match source {
                 Source::Path(path) => part::File::read(&path)?,
                 Source::Bytes(name, bytes) => part::File::of_bytes(&name, bytes)?,
             };
             let loaded = file.load(part)?;
             Ok::<_, part::LoadError>((file, loaded))
-        })
+        })?
         .map_err(|e| raised(Error::Load(e)))?;
     Ok(LoadedPart { file, loaded })
 }
@@ -611,13 +650,13 @@ fn analyse(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyRe
         }
         let handle = handle.get();
         let (analysis, _) = py
-            .detach(|| api::analyse_reporting_in(&handle.file, &handle.loaded))
+            .guard(|| api::analyse_reporting_in(&handle.file, &handle.loaded))?
             .map_err(raised)?;
         return Ok(analysis.to_string());
     }
     let path: PathBuf = step.extract()?;
     let analysis = py
-        .detach(|| api::analyse_file(&path, part))
+        .guard(|| api::analyse_file(&path, part))?
         .map_err(raised)?;
     Ok(analysis.to_string())
 }
@@ -630,7 +669,7 @@ fn analyse(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyRe
 fn questions(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
     let questions = py
-        .detach(|| api::questions(&analysis, &answers))
+        .guard(|| api::questions(&analysis, &answers))?
         .map_err(raised)?;
     Ok(Value::Array(questions.iter().map(record).collect()).to_string())
 }
@@ -648,7 +687,7 @@ fn apply(
 ) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
     let mut intent = py
-        .detach(|| api::apply(&analysis, &answers, accept_defaults))
+        .guard(|| api::apply(&analysis, &answers, accept_defaults))?
         .map_err(raised)?;
     if bom {
         specify_pmi::bom::accept_suggestions(&analysis, &answers, &mut intent)
@@ -662,7 +701,7 @@ fn apply(
 fn preview(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
     let intent = py
-        .detach(|| api::preview(&analysis, &answers))
+        .guard(|| api::preview(&analysis, &answers))?
         .map_err(raised)?;
     Ok(intent.to_dict().to_string())
 }
@@ -672,7 +711,7 @@ fn preview(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
 fn with_all_defaults(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
     let answers = py
-        .detach(|| rules::with_all_defaults(&analysis, &answers))
+        .guard(|| rules::with_all_defaults(&analysis, &answers))?
         .map_err(|e| raised(Error::Rules(e)))?;
     Ok(Value::Object(answers).to_string())
 }
@@ -723,6 +762,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LoadedPart>()?;
     m.add_class::<Server>()?;
     m.add_function(wrap_pyfunction!(cli, m)?)?;
+    m.add_function(wrap_pyfunction!(_panic_for_test, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
     m.add_function(wrap_pyfunction!(check_edits, m)?)?;
     m.add_function(wrap_pyfunction!(choices_interpret, m)?)?;

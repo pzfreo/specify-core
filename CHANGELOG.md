@@ -6,6 +6,14 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
+  than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
+  reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),
+  and every write of that part is refused with a message saying so, to this file or another. Older and
+  current schemas behave as before.
+- **A panic in the Python bindings is a `specify_pmi.SpecifyError`** (an `Exception`), as quiddity-py does,
+  not pyo3's `PanicException`, which `except Exception` does not catch. Every off-GIL binding call is
+  guarded. `SpecifyError` is new.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
   PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
   had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a
