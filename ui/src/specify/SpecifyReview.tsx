@@ -8,7 +8,7 @@ import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
-import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
+import { bestDrawnView, drawnGroupOf, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -521,12 +521,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [drawnShow, seen.farSide, visibleDrawn, session, drawnReveal]);
   // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
   const squares = useMemo(() => (visibleDrawn
-    ? drawnViews(visibleDrawn, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow), partCentre(session.mesh.positions))
+    ? drawnViews(visibleDrawn, (g, item) => drawnShown(g.source, drawnGroupOf(visibleDrawn, item, g), drawnShow), partCentre(session.mesh.positions))
     : []), [visibleDrawn, drawnShow, session]);
   const bestView = useMemo(() => (visibleDrawn
     ? bestDrawnView(
       visibleDrawn,
-      (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow),
+      (g, item) => drawnShown(g.source, drawnGroupOf(visibleDrawn, item, g), drawnShow),
       partCentre(session.mesh.positions),
       bestReferenceView(visibleDrawn, session.analysis, session.mesh),
     )

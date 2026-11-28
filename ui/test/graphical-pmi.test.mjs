@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation, splitDrawnViews, viewDirectionName } from '../src/specify/drawn.ts';
+import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnGroupOf, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation, splitDrawnViews, viewDirectionName } from '../src/specify/drawn.ts';
 import { IntentEngine, pmiScene } from './engine-fixture.mjs';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
@@ -183,6 +183,37 @@ test('the Show menu hides drawn graphics by their item\'s status, as it hides la
   }
   // Planned for a gap, and generated with no status: always drawn, as Specify's labels are.
   for (const link of [{ status: 'gap' }, undefined]) assert.equal(drawnShown('generated', drawnGroup(link), { default: false, existing: false, general: false }), true);
+});
+
+// ADR / #280: the view is the same before and after Save. A general dimension Specify wrote is the file's own
+// ink after Save, and still General dimensions' to show or hide.
+test('a general dimension is hidden by General dimensions off before Save (generated) and after (written, from ink)', () => {
+  const line = { name: '37.6', polylines: [[[0, 0, 0], [1, 0, 0]]], triangles: [], text: [] };
+  const make = (source, items, links) => ({
+    presentation: { items, unlinked: [], planes: [], views: [] }, links, reviewItems: {},
+    source: source,
+  });
+  const off = { default: true, existing: true, general: false };
+  const on = { ...off, general: true };
+  const shown = (pmi, item, g, show) => drawnShown(g.source, drawnGroupOf(pmi, item, g), show);
+  const dim = { faces: [1], status: 'stated', general: true, written: true };
+  // Before Save: Specify's generated graphic under its item.
+  const gen = { ...line, source: 'generated', id: 'g1' };
+  const before = make('generated', { d: [gen] }, { d: dim });
+  assert.equal(shown(before, 'd', gen, off), false);
+  assert.equal(shown(before, 'd', gen, on), true);
+  // After Save: the file's ink, under the item and under an alias the engine does not mark general.
+  const ink = { ...line, source: 'file', id: 'step:7' };
+  const after = make('file', { d: [ink], 'features:abc': [ink] }, { d: dim, 'features:abc': { faces: [1], status: 'stated' } });
+  for (const item of ['d', 'features:abc']) {
+    assert.equal(shown(after, item, ink, off), false, `${item} hidden with General dimensions off`);
+    assert.equal(shown(after, item, ink, on), true, `${item} shown with it on`);
+  }
+  // Other tools' PMI sharing nothing with a general dimension is governed by In the file alone.
+  const other = { ...line, source: 'file', id: 'step:9' };
+  const foreign = make('file', { d: [ink], x: [other] }, { d: dim, x: { faces: [2], status: 'stated' } });
+  assert.equal(shown(foreign, 'x', other, off), true);
+  assert.equal(shown(foreign, 'x', other, { ...off, existing: false }), false);
 });
 
 test('facing: a callout faces away when its plane\'s normal is along the view; its normal from its plane, its text or its strokes', () => {
