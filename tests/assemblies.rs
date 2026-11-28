@@ -276,8 +276,12 @@ fn parts_written_alone_in_memory_keep_each_others_answers() {
         let intent = api::apply(&analysis, &answers(k), true).unwrap();
         let datums = json!(intent.datums.len());
         let (out, report) =
-            common::whole_intent::write_bytes(bytes.to_vec(), &[(intent, Some(answers(k)))]).unwrap();
-        assert_eq!(report.output, PathBuf::from(common::whole_intent::IN_MEMORY));
+            common::whole_intent::write_bytes(bytes.to_vec(), &[(intent, Some(answers(k)))])
+                .unwrap();
+        assert_eq!(
+            report.output,
+            PathBuf::from(common::whole_intent::IN_MEMORY)
+        );
         assert!(!report.written.is_empty());
         (out, datums)
     };
@@ -359,7 +363,10 @@ fn an_assembly_with_no_part_chosen_is_refused_naming_its_parts() {
     intent.binding["part"] = json!(5);
     match common::whole_intent::write_bytes(bytes, &[(intent, Some(answers(PIN)))]) {
         Err(api::Error::Write(WriteError::Invalid(m))) => {
-            assert_eq!(m, format!("{} has no part 5", common::whole_intent::IN_MEMORY))
+            assert_eq!(
+                m,
+                format!("{} has no part 5", common::whole_intent::IN_MEMORY)
+            )
         }
         other => panic!("not refused: {other:?}"),
     }

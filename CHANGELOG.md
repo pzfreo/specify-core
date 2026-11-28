@@ -22,6 +22,21 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   error naming the schemas it reads (1 to 1, the oldest accepted being 1). Older ones, and an analysis
   with no `schema`, are read as before.
 
+- **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
+  than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
+  reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),
+  and every write of that part is refused with a message saying so, to this file or another. Older and
+  current schemas behave as before.
+- **A panic in the Python bindings is a `specify_pmi.SpecifyError`** (an `Exception`), as quiddity-py does,
+  not pyo3's `PanicException`, which `except Exception` does not catch. Every off-GIL binding call is
+  guarded. `SpecifyError` is new.
+- **`@draftwright/specify-ui/host`: the components without the package's own 3D view**. `SpecifyReview`, `StepDiff` and
+  `AssemblyDiffView`, with `view` (a `HostView`) required; nothing in this entry reaches `three-cad-viewer`, so a
+  host that draws its own view neither installs nor bundles it. `three-cad-viewer` is now an optional peer
+  dependency: a host on the main entry (`.`, `/view`), which is unchanged, installs it itself. The stylesheet
+  `three-cad-viewer/css` is now imported by the main entry only, not by `/view`, so the picker and the other `/view`
+  helpers bundle without a CSS loader (a host drawing `createCadView` from `/view` imports it itself). `npm run test:package`
+  also builds a host on `/host` without `three-cad-viewer`, with Vite and with webpack.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
   PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
   had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a

@@ -407,8 +407,7 @@ fn write_edits(request: &Map<String, Value>) -> Handled {
     };
     let list = crate::edits::read(&text).map_err(refused)?;
     let loaded = part::load(&step, part).map_err(Error::Load)?;
-    let applied =
-        crate::writer::apply::apply_to(&loaded, &list, &output).map_err(refused)?;
+    let applied = crate::writer::apply::apply_to(&loaded, &list, &output).map_err(refused)?;
     Ok(json!({"report": applied.to_dict()}))
 }
 

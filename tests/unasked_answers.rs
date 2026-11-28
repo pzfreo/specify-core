@@ -117,7 +117,8 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
         .requirements
         .extend(specify_pmi::rules::unasked_rows(&analysis, &answers).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
-    let (written, report) = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
+    let (written, report) =
+        common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
     assert!(
         report.not_written.contains(&not_written(
             "datum.A.flatness",
@@ -250,7 +251,13 @@ fn serve_refuses_an_unknown_id() {
     let reply = server.reply(&json!({"id": 3, "op": "write", "step": plate(),
         "edits": bogus(), "output": out}));
     assert_eq!(reply["ok"], false, "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("bogus.question"), "{reply}");
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("bogus.question"),
+        "{reply}"
+    );
     assert!(!out.exists());
 }
 
@@ -286,7 +293,8 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
         .requirements
         .extend(specify_pmi::rules::unasked_rows(&analysis, &complete).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
-    let (_, report) = common::whole_intent::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
+    let (_, report) =
+        common::whole_intent::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
 }
 
@@ -357,7 +365,8 @@ fn a_carry_block_applies_again_when_its_question_returns() {
     // Nor can a preview intent write past it.
     let intent = api::preview(&analysis, &answers).unwrap();
     let out = temp("blocked-position").join("out.step");
-    let refused = common::whole_intent::write_file(&plate(), &intent, &out, Some(&answers)).unwrap_err();
+    let refused =
+        common::whole_intent::write_file(&plate(), &intent, &out, Some(&answers)).unwrap_err();
     assert!(
         refused.to_string().contains("datum.A.flatness"),
         "{refused}"
@@ -622,7 +631,8 @@ fn an_answer_naming_nothing_the_part_has_refuses_the_whole_list_126() {
         // The writer checks the answers itself, whatever intent it is given.
         let intent = api::apply(&analysis, &revised("± dimensions"), true).unwrap();
         let bytes = std::fs::read(plate()).unwrap();
-        let error = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap_err();
+        let error = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))])
+            .unwrap_err();
         assert!(error.to_string().contains(&expected), "{error}");
         // The command line refuses it the same way, writing nothing.
         let dir = temp("names-nothing");

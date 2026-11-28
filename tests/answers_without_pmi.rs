@@ -535,8 +535,11 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
         answers.insert("part.heat_treatment".into(), json!("None"));
         answers.insert("part.notes".into(), json!([]));
         let intent = api::preview(&analysis, &answers).unwrap();
-        let (bytes, report) =
-            common::whole_intent::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
+        let (bytes, report) = common::whole_intent::write_bytes(
+            part.bytes.to_vec(),
+            &[(intent, Some(answers.clone()))],
+        )
+        .unwrap();
         let back = load_bytes("clean.step", bytes).unwrap();
         assert!(
             specify_pmi::existing::read_existing(&back)

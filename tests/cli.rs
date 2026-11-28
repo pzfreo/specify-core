@@ -2785,7 +2785,8 @@ fn specify_core_alias_prints_a_notice_on_stderr_only() {
 #[test]
 fn questions_refuses_an_analysis_of_a_newer_schema() {
     let dir = scratch("newer-schema");
-    let part = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    let part =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
     let mut analysis = api::analyse_file(&part, None).unwrap();
     let current = dir.join("current.json");
     std::fs::write(&current, analysis.to_string()).unwrap();

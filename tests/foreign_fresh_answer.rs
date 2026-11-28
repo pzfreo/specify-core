@@ -43,9 +43,12 @@ fn re_authored() -> LoadedPart {
     let given = answers("0.5");
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, &given, true).unwrap();
-    let bytes = common::whole_intent::write_bytes(std::fs::read(plate()).unwrap(), &[(intent, Some(given))])
-        .unwrap()
-        .0;
+    let bytes = common::whole_intent::write_bytes(
+        std::fs::read(plate()).unwrap(),
+        &[(intent, Some(given))],
+    )
+    .unwrap()
+    .0;
     let text = String::from_utf8(bytes).unwrap();
     // The position tolerance without modifiers (the pattern's carries MMC).
     let line = text

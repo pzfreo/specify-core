@@ -348,7 +348,8 @@ fn an_intent_made_before_parts_were_told_apart_still_writes() {
         api::apply(&analysis, &answers(json!({"part.material": "brass"})), true).unwrap();
     intent.binding.as_object_mut().unwrap().remove("part");
     assert_eq!(api::intent_part(&intent).unwrap(), 0);
-    let report = common::whole_intent::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
+    let report =
+        common::whole_intent::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
     // The pin's datum A keeps its existing size omission, now visible in the report.
     assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     let _ = std::fs::remove_dir_all(&dir);
@@ -599,7 +600,11 @@ fn an_analysis_of_a_newer_schema_is_refused() {
         );
     }
     assert!(message(&with(json!("two"))).iter().all(Option::is_some));
-    assert!(message(&with(json!(api::OLDEST_ANALYSIS_SCHEMA - 1))).iter().all(Option::is_some));
+    assert!(
+        message(&with(json!(api::OLDEST_ANALYSIS_SCHEMA - 1)))
+            .iter()
+            .all(Option::is_some)
+    );
     for ok in [
         analysis.clone(),
         with(json!(api::OLDEST_ANALYSIS_SCHEMA)),
@@ -640,6 +645,13 @@ fn accepting_defaults_still_writes() {
         "edits": {"fill": {"part.material": "steel"}, "accept_suggestions": gaps},
     }));
     assert_eq!(reply["ok"], true, "{reply}");
-    assert!(reply["result"]["report"]["written"].as_array().unwrap().len() > 1, "{reply}");
+    assert!(
+        reply["result"]["report"]["written"]
+            .as_array()
+            .unwrap()
+            .len()
+            > 1,
+        "{reply}"
+    );
     let _ = std::fs::remove_file(out);
 }

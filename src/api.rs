@@ -391,6 +391,7 @@ fn analyse_with(
         |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
     let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
         .map_err(|e| unreadable(&e))?;
+    let newer_schema = resume::newer_schema_in(&doc, loaded.binding.part);
     let (resumed, resume_warning) =
         match resume::report_outcome_for_parsed(loaded, Some(&doc), &features)
             .map_err(|e| refused(&e))?
@@ -460,6 +461,12 @@ fn analyse_with(
         warnings.push(format!("the feature table could not be built: {e}"));
         crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
     });
+    if let Some(schema) = newer_schema {
+        analysis.insert(
+            "resume_newer_schema".into(),
+            Value::String(resume::newer_schema_message(schema)),
+        );
+    }
     if let Some(note) = resume_warning {
         warnings.push(note.clone());
         analysis.insert("resume_warning".into(), Value::String(note));

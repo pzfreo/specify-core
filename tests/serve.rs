@@ -207,7 +207,10 @@ fn errors_are_structured_and_the_child_survives() {
 fn a_whole_intent_write_is_refused() {
     for extra in [json!({"analysis": {}, "answers": {}}), json!({"parts": []})] {
         let mut request = json!({"id": 8, "op": "write", "step": "x", "output": "y"});
-        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         let out = Server::default().reply(&request);
         assert_eq!(out["error"]["code"], json!("invalid"), "{out}");
         assert!(out["error"]["message"].as_str().unwrap().contains("edits"));
@@ -298,8 +301,8 @@ fn a_dropped_carried_datum_is_required_not_defaulted() {
     }});
     let analysis = specify_pmi::api::analyse(&after).unwrap();
     let mut server = Server::default();
-    let asked = server
-        .reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":carried}));
+    let asked =
+        server.reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":carried}));
     assert_eq!(asked["ok"], true, "{asked}");
     let q = asked["result"]["questions"]
         .as_array()

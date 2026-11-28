@@ -160,7 +160,9 @@ fn check_unchanged_round_trips(group: usize) {
             continue;
         };
         let bytes = source.bytes.to_vec();
-        let Ok((written, _)) = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]) else {
+        let Ok((written, _)) =
+            common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))])
+        else {
             continue;
         };
         let back = load(written);
