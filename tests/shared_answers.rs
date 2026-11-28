@@ -825,8 +825,14 @@ fn schema_1_evidence_held_outside_the_file_matches_answers_by_id() {
         json!({"schema": 1, "face_count": stored["face_count"], "faces": stored["faces"]});
     let analysis = api::analyse(&loaded).unwrap();
     let answers = object(json!({"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}));
-    let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, Some(&evidence), None)
-        .unwrap();
+    let out = resume::rematch_answers(
+        &loaded,
+        &features(&analysis),
+        &answers,
+        Some(&evidence),
+        None,
+    )
+    .unwrap();
     assert_eq!(out.answers, answers);
     assert!(out.unresolved.is_empty(), "{:?}", out.unresolved);
     assert!(out.unverified.unwrap().contains("schema 1"));
