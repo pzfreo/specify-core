@@ -15,8 +15,9 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   `general` tolerance before the part states one, and a hole's position or frame before its datums exist,
   are not written: the rest of the list is, the answer stays open, and the write report lists it in a new
   `waiting` field (`[{entry, id, waits_for, message}]`; `write --check`, `checkEdits`, Python's
-  `WriteReport.waiting`, the MCP and session `save` report, and the app's save line show it; the app keeps
-  the answer pending). A later save with the prerequisite writes it. Edit lists and 0.2 answers files
+  `WriteReport.waiting`, the MCP and session `save` report show it; `SpecifyReview` takes an optional
+  `waiting` prop and shows "Waits for the general tolerance" / "Waits for datums A, B, C" on the question and
+  its row until it is written or answered; the app passes its last save's and keeps the answer pending). A later save with the prerequisite writes it. Edit lists and 0.2 answers files
   follow the one rule; an unknown id, an invalid value, an answer the file contradicts and a malformed
   entry still refuse the whole save.
 - **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D

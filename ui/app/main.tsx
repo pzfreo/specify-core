@@ -25,7 +25,7 @@ import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, keepAlive, listen, openFile, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
-import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, waitingOf, type Saver } from './save';
+import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, waitingOf, type Saver, type WaitingAnswer } from './save';
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
@@ -209,7 +209,7 @@ const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
 const NO_EDITS = new PendingEdits();
 
 /** What the last save wrote, and the questions still open in it, by their short labels. */
-interface SavedLine { path: string; open: string[] | null; byAgent: boolean; waiting?: string[] }
+interface SavedLine { path: string; open: string[] | null; byAgent: boolean }
 
 function App() {
   const [config, setConfig] = useState<LocalConfig | null>(null);
@@ -228,6 +228,8 @@ function App() {
   const [apiProblem, setApiProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SavedLine | null>(null);
+  // What the last save left unwritten because it waits on another answer: the review shows each on its row.
+  const [waiting, setWaiting] = useState<WaitingAnswer[]>([]);
   const [dirty, setDirty] = useState(false);
   // Edits not saved yet, held here or in the session: read by the heartbeat.
   const unsavedRef = useRef(false);
@@ -698,7 +700,8 @@ function App() {
         const left = sent.get(w.part)?.without(w.id);
         if (left) sent.set(w.part, left);
       }
-      setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false, waiting: waiting.map((w) => w.part === opened.part ? `${rowName(opened, w.id)}: ${w.message.startsWith(`${w.id}: `) ? w.message.slice(w.id.length + 2) : w.message}` : w.message) });
+      setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
+      setWaiting(waiting);
       // The sent edits are in the file now: remove them, and rebuild any made while the save ran
       // against the saved file (including an in-flight answer back to what the file held before).
       const reopened = shownRef.current && shownRef.current !== opened ? shownRef.current : null;
@@ -1007,7 +1010,7 @@ function App() {
                 {saved.byAgent ? 'Your agent saved' : 'Saved'} <code>{saved.path}</code>{saved.open !== null && `: ${saved.open.length
                   ? `${plural(saved.open.length, 'question')} ${saved.byAgent ? 'still unanswered' : 'still open'}: ${saved.open.slice(0, 6).join('; ')}${saved.open.length > 6 ? '; …' : ''}`
                   : 'complete'}`}
-                {!!saved.waiting?.length && <> Not written yet, they wait on another answer: {saved.waiting.join('; ')}</>}
+                {opened && waiting.some((w) => w.part !== opened.part) && <> {plural(waiting.filter((w) => w.part !== opened.part).length, 'answer')} on other parts wait on another answer.</>}
               </div>
             )}
             {!stopped && config.saveTarget && <span>Save writes <code className="app-target">{config.saveTarget}</code></span>}
@@ -1129,6 +1132,7 @@ function App() {
             key={`${opened.session.sessionId}:${reviewGeneration}`}
             engine={opened.engine} session={shownSession} readOnly={!editing} drawn={activeDrawn} oneView={oneView}
             sceneSemantic={activeSemantic} partOrigin={partOrigin} slots={slots}
+            waiting={waiting.filter((w) => w.part === opened.part)}
             inspectionExports={false}
             externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={busy || syncing || stopped}
             focusRequest={focus} showFaces={lit}

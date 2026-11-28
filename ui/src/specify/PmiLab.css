@@ -313,6 +313,7 @@
 .pmi-lab-item .why { color: #707880; font-size: 11.5px; margin: 4px 0 8px; }
 .pmi-lab-item .opts { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
 .pmi-lab-item .hint { background: #f3f6fa; border-left: 3px solid #6f8db3; border-radius: 3px; color: #3a4450; font-size: 12px; margin: 6px 0 4px; padding: 5px 8px; }
+.pmi-lab-row > .pmi-lab-waiting { margin: 4px 8px; }
 .pmi-lab-purposes { display: grid; gap: 5px; margin: 4px 0 6px; }
 .pmi-lab .pmi-lab-purposes button { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
   text-align: left; padding: 7px 9px; background: #fff; }

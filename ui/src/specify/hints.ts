@@ -104,3 +104,27 @@ function zoneHint(q: PmiQuestion, size: string): string | null {
   if (kind === 'position') return `Must lie within a zone ${size} across around where it should be.`;
   return null;
 }
+
+/** "Waits for the general tolerance" / "Waits for datums A, B, C", from the question ids it waits on. */
+export function waitText(ids: readonly string[]): string {
+  const datums = ids.flatMap((id) => /^datum\.([^.]+)$/.exec(id)?.[1] ?? []);
+  const parts = [
+    ...(ids.includes('part.general_tolerance') ? ['the general tolerance'] : []),
+    ...(datums.length ? [`datum${datums.length > 1 ? 's' : ''} ${datums.join(', ')}`] : []),
+  ];
+  return `Waits for ${parts.length ? parts.join(' and ') : 'another answer'}`;
+}
+
+/** What question ``id`` waits for after a save that left it unwritten (the report's ``waiting``), or
+ * null: once the question is answered or stated (``done``), or everything it waits for is (``answered``). */
+export function waitingHint(
+  waiting: readonly { id: string; waits_for: readonly string[] }[] | undefined,
+  id: string,
+  done: boolean,
+  answered: (id: string) => boolean,
+): string | null {
+  const w = waiting?.find((x) => x.id === id);
+  if (!w || done) return null;
+  const open = w.waits_for.filter((p) => !answered(p));
+  return open.length ? waitText(open) : null;
+}
