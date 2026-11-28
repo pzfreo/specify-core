@@ -243,8 +243,16 @@ const host = useSpecifyHost({
 // <button onClick={() => host.save()} disabled={host.saving}>Save</button>; host.lastReport, host.refused.
 ```
 
-Options: `saveVia(edits, file)` sends the list through the host's own transport (an HTTP session) instead of the
-worker; `payload` is stored beside `project`; `bom: false` writes `bom.*` answers even when the file's table has no
+The hook holds the person's edits per part (bins, call-outs, answers), with the agent's `drafts` laid under them, and
+rebases them on what a save wrote (an answer given while Save ran is rebuilt against the saved file). The local app
+(`ui/app`) is a host of this hook: it passes the `read` it already made, its session's `drafts`, `several`, `keepHeld`
+(its file changes under it when an agent saves) and a `saveVia`, and keeps only its HTTP session. A host that reports
+each answer as it is given calls `answered(part, id, value, { read })` instead of passing `answers`; `discard()` drops
+every held edit.
+
+Options: `saveVia(edits, file)` sends the edits (a list, or a list per part when `several`) through the host's own
+transport (an HTTP session) instead of the worker, and may return `{ written: true, file, read, review }` for the part
+it reopened; `payload` is stored beside `project`; `bom: false` writes `bom.*` answers even when the file's table has no
 `bom.*` rows (otherwise they are left out). `save()` resolves to the outcome (`Edited`, `EditRefused`), or `null` when
 there is nothing to write.
 

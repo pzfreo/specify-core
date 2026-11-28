@@ -113,7 +113,7 @@ export interface EditingContext {
   /** The scene as drawn, for the number each call-out is written under. */
   drawn?: DrawnPmi | null;
   /** The ids the host's answers already use (an "Added by you" key must not repeat one). */
-  answerIds?: Iterable<string>;
+  answerIds?: () => Iterable<string>;
   /** A call-out reaches the host's answers too: ``key`` answered ``value``, or taken back (undefined). */
   answered?: (key: string, value: unknown) => void;
 }
@@ -189,7 +189,7 @@ export function editingProps(ctx: EditingContext): EditingProps {
         return true;
       }
       const key = callOutKeys.get(at) ?? nextExtraKey([...read.table.rows.map((r) => r.id), ...pending.values().map((e) => e.id),
-        ...(ctx.answerIds ?? []), ...callOutKeys.values()]);
+        ...(ctx.answerIds?.() ?? []), ...callOutKeys.values()]);
       callOutKeys.set(at, key);
       const edit = callOutEdit(dimension, tolerance, key);
       setPending(edit ? pending.with(edit) : pending.without(key));

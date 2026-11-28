@@ -13,6 +13,9 @@ import { IntentEngine } from './engine-fixture.mjs';
 import { WorkerClient } from '../src/engine/rpc.ts';
 import { SpecifyHost } from '../src/specify/host/specify-host.ts';
 import { composeEditList } from '../src/specify/host/compose.ts';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { useSpecifyHost } from '../src/specify/host/use-specify-host.ts';
 import { PendingEdits } from '../src/specify/edits/pending.ts';
 
 const { modulePath, wasmPath } = requireEngine();
@@ -203,4 +206,87 @@ test('the BOM rule keeps bom.* entries when the table has bom.* rows', () => {
   const answers = { 'bom.make_buy': 'buy', 'part.material': 'Steel' };
   assert.deepEqual(composeEditList(read([row('bom.make_buy'), row('part.material')]), answers, new PendingEdits()).fill, answers);
   assert.deepEqual(composeEditList(read([row('part.material')]), answers, new PendingEdits()).fill, { 'part.material': 'Steel' });
+});
+
+test('drafts lie under the held edits and are sent with them; a person\'s edit on the row replaces the draft', async () => {
+  const drafts = { 0: { fill: { 'part.material': 'Brass' }, none: [] } };
+  const host = await hostOn(file('plate.step', plate), { drafts });
+  const all = host.allPending();
+  assert.equal(all.get(0).get('part.material').kind, 'fill');
+  assert.equal(all.get(0).get('part.material').draft, true);
+  assert.equal(host.pendingEdits().get('part.material').draft, true);
+  assert.equal((await host.compose()).fill['part.material'], 'Brass');
+  // The person's own edit on that row: held, replaces the draft, and a draft is never held itself.
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  assert.equal(host.pendingEdits().get('part.material').value, 'Steel');
+  assert.equal(host.pendingEdits().get('part.material').draft, undefined);
+  host.setPending(host.pendingEdits());
+  assert.equal(host.pendingEdits().size, 1);
+  host.options.drafts = {};
+  host.setPending(new PendingEdits());
+  assert.equal(host.pendingEdits().size, 0, 'with the drafts gone and no held edit, nothing is listed');
+});
+
+test('a transport of the host\'s own gets a list per part for several parts, and the held edits are rebased on what was written (an answer given during the save is rebuilt against it)', async () => {
+  const bytes = new Uint8Array(assembly);
+  const at = (part, gen = 0) => ({ name: 'assembly.step', bytes, sourceId: `assembly.step#${part}${gen ? `@${gen}` : ''}`, part });
+  const sentTo = [];
+  let host;
+  host = await hostOn(at(0), { several: true, keepHeld: true, drafts: { 1: { fill: { 'part.material': 'Brass' } } },
+    saveVia: async (edits, f) => { sentTo.push(edits);
+      // While the save runs the person answers part 0's material again, and gives the other a note: both are rebuilt against the saved file.
+      host.answered(0, 'part.material', 'Titanium');
+      return client.edit(f, { edits: edits.find((l) => l.part === 0).edits }); } });
+  host.setPending(host.pendingEdits().with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' }));
+  const done = await host.save();
+  assert.equal(done.written, true, done.message);
+  assert.deepEqual(sentTo[0].map((l) => l.part), [0, 1], 'a list per part with edits, drafts included');
+  assert.equal(sentTo[0][1].edits.fill['part.material'], 'Brass');
+  // The sent edit is gone; the one made during the save is held again against the saved file (a change of what it wrote).
+  const now = host.allPending().get(0);
+  assert.equal(now.size, 1, 'only the answer given during the save is held');
+  assert.deepEqual([now.get('part.material').kind, now.get('part.material').value, now.get('part.material').expect], ['change', 'Titanium', 'Steel'], 'rebuilt as a change of what was written');
+});
+
+test('an answer given while Save ran is rebuilt against the saved file, and one back to the old value goes', async () => {
+  const f = file('plate.step', plate);
+  const host = await hostOn(f, { keepHeld: true });
+  const read = host.getSnapshot().read;
+  host.answered(0, 'part.material', 'Steel', { read });
+  assert.equal(host.pendingEdits().get('part.material').value, 'Steel');
+  let reopened;
+  host.options.saveVia = async (edits, file) => {
+    // The person changes the answer mid-save.
+    host.answered(0, 'part.material', 'Titanium', { read });
+    const done = await client.edit(file, { edits });
+    reopened = { written: true, file: { ...file, bytes: done.bytes, sourceId: 'plate.step@1' } };
+    return reopened;
+  };
+  const done = await host.save();
+  assert.equal(done.written, true);
+  const edit = host.pendingEdits().get('part.material');
+  assert.equal(edit.kind, 'change', 'a change on the saved value');
+  assert.equal(edit.value, 'Titanium');
+  assert.match(String(edit.expect), /Steel/);
+  // Taking the answer back during a save: the saved value is removed again.
+  host.options.saveVia = async (edits, file) => {
+    host.answered(0, 'part.material', undefined, { read: host.getSnapshot().read });
+    const out = await client.edit(file, { edits });
+    return { written: true, file: { ...file, bytes: out.bytes, sourceId: 'plate.step@2' } };
+  };
+  host.discard();
+  host.answered(0, 'part.material', 'Gold', { read: host.getSnapshot().read });
+  const second = await host.save();
+  assert.equal(second.written, true);
+  assert.equal(host.pendingEdits().get('part.material').kind, 'remove', 'back to nothing: the saved value is a removal');
+});
+
+test('the hook renders: no props until the table is read, with its first snapshot', () => {
+  let seen;
+  const Probe = () => { seen = useSpecifyHost({ client, file: file('plate.step', plate), answers: {} }); return null; };
+  renderToString(createElement(Probe));
+  assert.equal(seen.reviewProps, null);
+  assert.equal(seen.saving, false);
+  assert.equal(seen.pending.size, 0);
+  assert.equal(typeof seen.save, 'function');
 });
