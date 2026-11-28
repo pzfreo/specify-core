@@ -5,10 +5,10 @@
 mod common;
 
 use serde_json::{Value, json};
+use specify_pmi::api;
 use specify_pmi::edits;
 use specify_pmi::part::{LoadedPart, load, load_bytes};
 use specify_pmi::writer::apply::{Applied, apply};
-use specify_pmi::api;
 
 fn plate() -> LoadedPart {
     load(&common::fixtures().join("parts/plate.step"), None).unwrap()
@@ -31,7 +31,12 @@ fn state(loaded: &LoadedPart, id: &str) -> (Value, bool) {
 }
 
 fn waiting_ids(applied: &Applied) -> Vec<String> {
-    applied.report.waiting.iter().map(|w| w.id.clone()).collect()
+    applied
+        .report
+        .waiting
+        .iter()
+        .map(|w| w.id.clone())
+        .collect()
 }
 
 const GENERAL: &str = "hole.function:holes:9";
@@ -46,11 +51,25 @@ fn a_hole_left_to_the_general_tolerance_waits_for_it() {
     )
     .unwrap();
     assert_eq!(waiting_ids(&saved), [GENERAL]);
-    assert_eq!(saved.report.waiting[0].waits_for, ["part.general_tolerance"]);
-    assert_eq!(saved.report.waiting[0].entry, format!("fill[\"{GENERAL}\"]"));
-    assert!(saved.report.waiting[0].message.contains("general tolerance"));
+    assert_eq!(
+        saved.report.waiting[0].waits_for,
+        ["part.general_tolerance"]
+    );
+    assert_eq!(
+        saved.report.waiting[0].entry,
+        format!("fill[\"{GENERAL}\"]")
+    );
+    assert!(
+        saved.report.waiting[0]
+            .message
+            .contains("general tolerance")
+    );
     assert!(saved.report.written.iter().any(|l| l.contains("6082-T6")));
-    assert!(saved.report.not_written.is_empty(), "{:?}", saved.report.not_written);
+    assert!(
+        saved.report.not_written.is_empty(),
+        "{:?}",
+        saved.report.not_written
+    );
     assert_eq!(saved.to_dict()["waiting"][0]["id"], GENERAL);
 
     // It stays open in the saved file.
@@ -72,10 +91,18 @@ fn a_hole_left_to_the_general_tolerance_waits_for_it() {
 #[test]
 fn the_general_tolerance_given_by_an_earlier_save_lets_the_hole_through() {
     let first = plate();
-    let one = run(&first, r#"{"fill": {"part.general_tolerance": "ISO 2768-m"}}"#).unwrap();
+    let one = run(
+        &first,
+        r#"{"fill": {"part.general_tolerance": "ISO 2768-m"}}"#,
+    )
+    .unwrap();
     assert!(one.report.waiting.is_empty());
     let reopened = load_bytes("a.step", one.bytes).unwrap();
-    let two = run(&reopened, r#"{"fill": {"hole.function:holes:9": "general"}}"#).unwrap();
+    let two = run(
+        &reopened,
+        r#"{"fill": {"hole.function:holes:9": "general"}}"#,
+    )
+    .unwrap();
     assert!(two.report.waiting.is_empty());
 }
 
@@ -153,7 +180,10 @@ fn genuine_errors_still_refuse_the_whole_save() {
         r#"{"fill": {"hole.function:holes:9": "general", "hole.function:holes:99": "general"}}"#,
     )
     .unwrap_err();
-    assert!(refused.iter().any(|f| f.entry.contains("holes:99")), "{refused:?}");
+    assert!(
+        refused.iter().any(|f| f.entry.contains("holes:99")),
+        "{refused:?}"
+    );
     // An invalid value beside a waiting answer.
     let refused = run(
         &first,
@@ -182,7 +212,10 @@ fn a_location_left_to_the_general_tolerance_is_decided() {
         .filter(|id| id.starts_with("hole.location:"))
         .map(String::from)
         .collect();
-    assert!(!ids.is_empty(), "± dimensions asks how closely holes are located");
+    assert!(
+        !ids.is_empty(),
+        "± dimensions asks how closely holes are located"
+    );
     let (general, tight) = (&ids[0], ids.get(1).unwrap_or(&ids[0]));
 
     let list = json!({"fill": {general.as_str(): "general"}}).to_string();

@@ -1376,8 +1376,7 @@ fn check_with_drafts(
                 .map(|applied| (applied.outcome.unchanged, applied.report.waiting))
                 .map_err(SaveError::Edits)
         } else {
-            stage_assembly_edits(step, &lists)
-                .map(|staged| (staged.unchanged_entries, Vec::new()))
+            stage_assembly_edits(step, &lists).map(|staged| (staged.unchanged_entries, Vec::new()))
         }
     });
     let mut part_failures = Vec::new();

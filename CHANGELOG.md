@@ -66,6 +66,13 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
   some). Optional; `DrawnLink.written` carries it.
 
+### WASM API
+
+- **`WriteReport` gains optional `waiting: WaitingAnswer[]`** (new `WaitingAnswer { entry, id, waits_for, message }`).
+  An answer that only waits on another answer (a hole's position or frame before its datums exist, a hole's
+  location before the part states a general tolerance) no longer refuses `edit`/`write`: it is skipped, stays
+  open, and is listed here. Unknown ids, invalid values and contradictions still refuse the whole save.
+
 ## 0.3.0 (2026-11-27)
 
 Every package is released at 0.3.0 (see "Lockstep versions").
