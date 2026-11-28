@@ -17,7 +17,7 @@ import { readOnlyEngine } from './read-only';
 import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import { fmt, type PmiLabel } from './labels';
-import { oneViewFile, oneViewLabels, scenePendingState, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from './one-view';
+import { drawnBalloons, oneViewFile, oneViewLabels, scenePendingState, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from './one-view';
 import { labelName, labelRow, unitLine, withUnits, type LengthUnit } from './units';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance';
 import type { Picker } from './picker';
@@ -166,7 +166,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const keepCalloutNote = useRef(false);
   const [show, setShow] = useState({
     // What the general tolerance covers can be a hundred callouts: drawn only when chosen.
-    defaults: true, existing: true, general: false, farSide: true,
+    defaults: true, existing: true, general: false, farSide: true, balloons: true,
   });
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
@@ -238,7 +238,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     ...(Array.isArray(freeNotes) ? freeNotes : []).filter((n): n is string => typeof n === 'string' && n.trim() !== '')
       .map((text, i) => ({ key: `notes:${i}`, text, question: 'part.notes' })),
   ];
-  const balloons = useMemo(() => balloonsBySource(chars), [chars]);
+  const allBalloons = useMemo(() => balloonsBySource(chars), [chars]);
 
   // The slot shows the selected row's question whatever else moved ``current``: the session
   // reloading, or an answer opening the next question down the list.
@@ -361,6 +361,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // Read only shows what is set: not the defaults to check.
   const seen = useMemo(() => (readOnly ? { ...show, defaults: false } : show), [show, readOnly]);
+  // The Show menu's balloons switch governs the drawn callouts and the fallback labels alike.
   const oneRows = useMemo<readonly OneViewRow[]>(() => {
     if (oneView) return oneView.rows;
     const rows: OneViewRow[] = [
@@ -421,9 +422,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     () => oneViewLabels(preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly),
     [preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly],
   );
+  const savedNumbers = useMemo(() => new Set((session.analysis.characteristics ?? []).map((c) => c.number)), [session.analysis]);
   const { unsavedItems, coveredQuestions } = useMemo(
-    () => scenePendingState(oneFile, onePending),
-    [oneFile, onePending],
+    () => scenePendingState(oneFile, onePending, savedNumbers),
+    [oneFile, onePending, savedNumbers],
   );
   // Mark open unanswered gap items on 3D planes as 'decided_none' (group 'default') so they render
   // in muted blueprint-blue before Keep all and switch to dark blue (or burnt amber while unsaved).
@@ -444,6 +446,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     }
     return { ...base, links };
   }, [oneFile, oneRows, onePending, readOnly, normalizedDrawn]);
+  const drawnBalloonNumbers = useMemo(
+    () => (seen.balloons ? drawnBalloons(oneFile.drawn) : new Map<string, number[]>()),
+    [seen.balloons, oneFile],
+  );
+  // Numbers the saved file does not have yet: the engine's plan for what Save will write.
+  const plannedNumbers = useMemo(() => {
+    const saved = new Set((session.analysis.characteristics ?? []).map((c) => c.number));
+    return new Set(chars.filter((c) => c.n && !saved.has(c.n)).map((c) => c.n));
+  }, [chars, session.analysis]);
   const drawnReveal = useMemo(() => {
     const items = new Set<string>();
     for (const [item, label] of oneFile.labels) {
@@ -461,6 +472,23 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       || (l.group === 'existing' && (!l.question || !coveredQuestions.has(l.question))),
     );
   }, [visibleDrawn, oneLabels, coveredQuestions]);
+  // Labels that stand for a question (a pending call-out) carry its characteristics' numbers.
+  const balloons = useMemo(() => {
+    const out = new Map<string, number[]>();
+    if (!seen.balloons) return out;
+    for (const [source, numbers] of allBalloons) out.set(source, numbers);
+    for (const label of fallbackLabels) {
+      const key = label.id.split(':').slice(0, 2).join(':');
+      if (out.has(key) || !label.question) continue;
+      // The engine's number for the drawn callout that answers it, else its characteristics'.
+      // (An added requirement's drawn item is named for it: `location:extra.1:[0]:extra.1`.)
+      const linked = Object.entries(oneFile.drawn?.links ?? {})
+        .filter(([item, l]) => l.number && (l.question === label.question || item.endsWith(`:${label.question}`))).map(([, l]) => l.number!);
+      const numbers = linked.length ? [...new Set(linked)] : [...new Set(chars.filter((c) => c.n && c.question === label.question).map((c) => c.n))];
+      if (numbers.length) out.set(key, numbers);
+    }
+    return out;
+  }, [seen.balloons, allBalloons, fallbackLabels, chars, oneFile]);
   useEffect(() => {
     picker.current?.annotate(preview, {
       current: readOnly ? null : selectedCallout ?? current,
@@ -471,8 +499,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     picker.current?.setFarSideHidden(seen.farSide);
   }, [preview, current, selectedCallout, seen, balloons, openQuestions, reveal, datums, fallbackLabels, readOnly]);
   useEffect(() => {
-    picker.current?.drawn?.(visibleDrawn, true, oneFile.labels);
-  }, [visibleDrawn, session, oneFile]);
+    picker.current?.drawn?.(visibleDrawn, true, oneFile.labels, drawnBalloonNumbers);
+  }, [visibleDrawn, session, oneFile, drawnBalloonNumbers]);
   useEffect(() => {
     picker.current?.setDrawnUnsaved?.(unsavedItems);
   }, [unsavedItems, visibleDrawn, session]);
@@ -1314,7 +1342,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             </div>
           )}
           <div className="pmi-lab-show-bar" role="group" aria-label="Show in 3D view">
-            {(readOnly ? ['existing', 'general', 'farSide'] as const : ['defaults', 'existing', 'general', 'farSide'] as const).map((key) => (
+            {(readOnly ? ['existing', 'general', 'farSide', 'balloons'] as const : ['defaults', 'existing', 'general', 'farSide', 'balloons'] as const).map((key) => (
               <label key={key}>
                 <input
                   type="checkbox" checked={show[key]}
@@ -1325,6 +1353,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   existing: 'In the file',
                   general: 'General dimensions',
                   farSide: 'Hide callouts facing away',
+                  balloons: 'Inspection balloons',
                 }[key]}
               </label>
             ))}
@@ -1451,7 +1480,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           {view === 'table' ? (
             <CharacteristicsTable
               file={lengthUnit}
-              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
+              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv} planned={plannedNumbers}
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && (callOutDimension || !row.source.startsWith('general:existing:'))

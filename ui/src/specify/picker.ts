@@ -54,7 +54,11 @@ export interface Picker {
   features?(rows: readonly { title: string; faces: readonly number[] }[]): void;
   setLabelsVisible(on: boolean): void;
   /** The part's 3D annotation-plane PMI, drawn when ``visible``; none without ``pmi``. */
-  drawn?(pmi: DrawnPmi | null, visible: boolean, labels?: ReadonlyMap<string, PmiLabel>): void;
+  drawn?(
+    pmi: DrawnPmi | null, visible: boolean, labels?: ReadonlyMap<string, PmiLabel>,
+    /** Inspection balloon numbers by drawn item, shown beside each callout. */
+    balloons?: ReadonlyMap<string, readonly number[]>,
+  ): void;
   /** Highlights one drawn item on the 3D view, or clears highlight when null. */
   lightDrawn?(item: string | null): void;
   /** The kinds of drawn PMI the Show menu shows, and whether callouts facing away are hidden. */

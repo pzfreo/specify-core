@@ -40,8 +40,12 @@ let globalModule: IntentModule | undefined;
 const analysisOf = () => (analysisJson ??= JSON.stringify(JSON.parse(engine!.snapshot()).analysis));
 const accepted = (answers: unknown) => globalModule!.acceptDefaults(analysisOf(), JSON.stringify(answers));
 function reviewed(answers: Record<string, unknown>) {
-  const review = markDefaults(JSON.parse(engine!.review(accepted(answers))), answers);
-  return { ...review, open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
+  const full = accepted(answers);
+  const review = markDefaults(JSON.parse(engine!.review(full)), answers) as IntentReview;
+  // Numbers as the writer will allocate them, asked of the engine (docs/characteristic-numbers.md):
+  // an unsaved requirement shows the number Save will write.
+  const scene = JSON.parse(engine!.pmiScene(JSON.stringify({ answers: JSON.parse(full) }))) as NumberScene;
+  return { ...review, intent: withCharacteristicNumbers(review.intent, scene), open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
 }
 function inspectionReview(answers: Record<string, unknown>): IntentReview {
   const review = JSON.parse(engine!.review(JSON.stringify(answers))) as IntentReview;

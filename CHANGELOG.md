@@ -4,6 +4,28 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **Inspection balloons are drawn on the 3D callouts again** (`@draftwright/specify-ui`). Since the unified 3D
+  PMI view the numbers only reached the HTML fallback labels, so a callout drawn in its annotation plane
+  had none. Every drawn callout that has a characteristic number now carries a balloon (a ring, or a
+  stadium for a longer label, with the number) in its own plane, sized from its text height, in the
+  callout's colour, turning and hiding with it. The number is the engine's `specify[item].number` from
+  `pmiScene`: the file's own, or for an unsaved callout the number Save will write (the writer's
+  allocation; the UI allocates none). Callouts Specify lays out keep a fixed balloon slot in the drafting
+  layout (so the layout does not depend on the numbers or the "Inspection balloons" switch); the balloon
+  touches the callout's frame on the side away from its leader, and a label longer than the slot overflows
+  outward. Another tool's callouts are never moved: their balloon stands beside the frame and slides
+  until it is clear of dimension, extension and leader lines, text and other balloons. View only; nothing
+  is written to the STEP. The Show menu gains "Inspection balloons" (on by default), which also governs the
+  numbers on the HTML fallback labels. `DrawnLink.number` and `DrawnGraphic.balloonSlot` are new, optional.
+  The characteristics table shows the engine's planned numbers before Save too, marked (amber ring) until
+  the file has them. A callout draws amber while its number is one the file does not have yet (Save writes it), the file's own in blue.
+- **`pmiScene`'s `specify[item]` overlay gains `written: true`** on a saved requirement the file marks as
+  written by Specify (`specify-core:written:v1`). The UI lays such a callout out as Specify lays out an
+  unsaved one, so a callout, a datum included, is drawn identically before and after Save (before, Save moved
+  some). Optional; `DrawnLink.written` carries it.
+
 ## 0.3.0 (2026-11-27)
 
 Every package is released at 0.3.0 (see "Lockstep versions").

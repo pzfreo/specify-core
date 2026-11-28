@@ -418,8 +418,10 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm',
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm', planned,
 }: {
+  /** Numbers not yet in the saved file, as Save will write them (the engine's): marked as unsaved callouts are. */
+  planned?: ReadonlySet<number>;
   /** The file's length unit, for the features' names (units.ts). */
   file?: LengthUnit;
   /** A view of what is set: no tick boxes, edit or call-out column, or CSV. */
@@ -480,7 +482,7 @@ export function CharacteristicsTable({
           )}
         </td>
       )}
-      <td>{cells.bal}</td>
+      <td className={r.n && planned?.has(r.n) ? 'planned' : undefined} title={r.n && planned?.has(r.n) ? 'Not saved yet: Save writes this number' : undefined}>{cells.bal}</td>
       <td>{typeof cells.feature === 'string' ? labelName(cells.feature, file) : cells.feature}</td>
       <td className="text">{labelRow(r)}</td>
       <td>{n(r.nominal)}{r.nominal !== null && mm(r)}</td>

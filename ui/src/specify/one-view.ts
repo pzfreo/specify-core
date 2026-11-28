@@ -312,6 +312,7 @@ export function oneViewFile(
 export function scenePendingState(
   file: ReturnType<typeof oneViewFile>,
   pending: ReadonlyMap<string, OneViewPending>,
+  savedNumbers?: ReadonlySet<number>,
 ): { unsavedItems: ReadonlySet<string>; coveredQuestions: ReadonlySet<string> } {
   const unsavedItems = new Set<string>();
   const coveredQuestions = new Set<string>();
@@ -326,6 +327,9 @@ export function scenePendingState(
     if (question) coveredQuestions.add(question);
     const edit = question ? pending.get(question) : undefined;
     if (edit && (edit.kind === 'fill' || edit.kind === 'change' || edit.kind === 'clear')) {
+      unsavedItems.add(sceneItem);
+    } else if (savedNumbers && link?.number && !savedNumbers.has(link.number)) {
+      // Numbered by the plan, not yet by the file: Save will write it.
       unsavedItems.add(sceneItem);
     }
   }
@@ -450,4 +454,14 @@ export function oneViewLabels(
     (faces.length ? labels : notes).push(label);
   }
   return { labels, extras, notes };
+}
+
+/**
+ * The balloon number of each drawn item: the number the engine allocated to it (the file's own, or
+ * for an unsaved item the one Save will write), as its link carries it. Items without one are left out.
+ */
+export function drawnBalloons(drawn: Pick<DrawnPmi, 'links'> | null): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  for (const [item, link] of Object.entries(drawn?.links ?? {})) if (link.number) out.set(item, [link.number]);
+  return out;
 }

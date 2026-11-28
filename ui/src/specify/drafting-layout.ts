@@ -17,7 +17,7 @@
 import type { PmiAnalysis, PmiMesh } from '../types/pmi.ts';
 import {
   extractSceneDimensions, graphicNormal, graphicPoints, readSceneSemanticLabels,
-  type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint,
+  BALLOON_SLOT_H, BALLOON_SLOT_W, type BalloonSlot, type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint,
   type PartOrigin, type SceneDimMeta, type SceneSemanticLabel, type TextPlacement,
 } from './drawn.ts';
 
@@ -182,7 +182,7 @@ function resolveFileDatumFrame(
     // Skip Specify-written datums so files without a native datum origin stay consistent across Save.
     if (analysis.resume) {
       const gs = pmi?.presentation.items[`datum:${letter}`] ?? [];
-      if (gs.length > 0 && gs.every((g) => isSpecifyCreated(`datum:${letter}`, g))) continue;
+      if (gs.length > 0 && gs.every((g) => isSpecifyCreated(`datum:${letter}`, g, pmi?.links[`datum:${letter}`]?.written))) continue;
       if (gs.length === 0) continue;
     }
     if (!fileDatums.has(letter)) fileDatums.set(letter, e.faces);
@@ -383,8 +383,9 @@ export function findStatedOrigin(
  * into the STEP by Specify after Save), rather than originating from an external CAD system's
  * graphical PMI.
  */
-export function isSpecifyCreated(item: string, graphic: DrawnGraphic): boolean {
-  if (graphic.source === 'generated') return true;
+export function isSpecifyCreated(item: string, graphic: DrawnGraphic, written = false): boolean {
+  // The file's own marker says Specify wrote it: it is laid out as it was before it was saved.
+  if (written || graphic.source === 'generated') return true;
   if (graphic.triangles.length === 0 && SPECIFY_ITEM_PREFIX.test(item)) return true;
   return false;
 }
@@ -518,7 +519,7 @@ export function bestReferenceView(
   ];
   const all = new Map<string, DrawnGraphic>();
   for (const [item, gs] of Object.entries(pmi.presentation.items)) {
-    for (const g of gs) if (g.id && !isSpecifyCreated(item, g)) all.set(g.id, g);
+    for (const g of gs) if (g.id && !isSpecifyCreated(item, g, pmi.links[item]?.written)) all.set(g.id, g);
   }
   for (const g of pmi.presentation.unlinked) {
     if (g.id && g.source === 'file') all.set(g.id, g);
@@ -588,6 +589,30 @@ interface PlaneBasis {
   normal: Vec3;
   xAxis: Vec3;
   yAxis: Vec3;
+}
+
+/** The in-plane axis (``dir``) nearest ``toward``: the side a balloon is kept on. */
+function slotDir(basis: PlaneBasis, toward: Vec3): Vec3 {
+  const ax = dot(toward, basis.xAxis);
+  const ay = dot(toward, basis.yAxis);
+  return Math.abs(ax) >= Math.abs(ay) ? scale(basis.xAxis, ax >= 0 ? 1 : -1) : scale(basis.yAxis, ay >= 0 ? 1 : -1);
+}
+
+/**
+ * The room kept for a callout's inspection balloon, a fixed size whatever the balloon says (so the
+ * layout never depends on the numbers, and is the same before and after Save): the slot to draw it
+ * in, and the points its footprint adds.
+ */
+function balloonSlot(basis: PlaneBasis, edge: Vec3, dir: Vec3, H: number): { slot: BalloonSlot; pts: Vec3[] } {
+  const alongX = Math.abs(dot(dir, basis.xAxis)) > 0.5;
+  const perp = alongX ? basis.yAxis : basis.xAxis;
+  const length = (alongX ? BALLOON_SLOT_W : BALLOON_SLOT_H) * H;
+  const half = (alongX ? BALLOON_SLOT_H : BALLOON_SLOT_W) * H / 2;
+  const far = add(edge, scale(dir, length));
+  return {
+    slot: { edge, dir, xAxis: basis.xAxis, normal: basis.normal, height: H },
+    pts: [add(edge, scale(perp, half)), add(edge, scale(perp, -half)), add(far, scale(perp, half)), add(far, scale(perp, -half))],
+  };
 }
 
 /** Given a cardinal normal facing the camera, returns the cardinal `(xAxis, yAxis)` reading left-to-right and upright. */
@@ -913,7 +938,7 @@ function partitionGraphics(pmi: DrawnPmi): {
   const specifyGraphicIds = new Set<string>();
   for (const [item, gs] of itemsEntries) {
     for (const g of gs) {
-      if (g.id && isSpecifyCreated(item, g)) specifyGraphicIds.add(g.id);
+      if (g.id && isSpecifyCreated(item, g, pmi.links[item]?.written)) specifyGraphicIds.add(g.id);
     }
   }
   const specifyItems: [string, DrawnGraphic][] = [];
@@ -922,7 +947,7 @@ function partitionGraphics(pmi: DrawnPmi): {
     const native: DrawnGraphic[] = [];
     let specG: DrawnGraphic | null = null;
     for (const g of gs) {
-      if (isSpecifyCreated(item, g)) {
+      if (isSpecifyCreated(item, g, pmi.links[item]?.written)) {
         if (!specG) specG = g;
       } else if (g.id && specifyGraphicIds.has(g.id)) {
         continue;
@@ -1257,6 +1282,7 @@ function placeLinearDimension(
     alignment: 'centre',
     cellBox: [[-textW / 2, -boxH / 2], [textW / 2, boxH / 2]],
   };
+  const room = balloonSlot(basis, add(textCenter, scale(basis.yAxis, boxH / 2)), basis.yAxis, ctx.H);
   ctx.nextItems[item] = [{
     id: `drafting:${item}`,
     source: 'generated',
@@ -1267,9 +1293,11 @@ function placeLinearDimension(
     text: [meta.text],
     textPlacements: [tp],
     planeId,
+    balloonSlot: room.slot,
   }];
   if (!isGeneral) {
     const dimBoxPts = [
+      ...room.pts,
       add(textCenter, add(scale(basis.xAxis, -textW / 2), scale(basis.yAxis, -boxH / 2))),
       add(textCenter, add(scale(basis.xAxis, textW / 2), scale(basis.yAxis, boxH / 2))),
     ];
@@ -1364,7 +1392,8 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
           ];
           const [bx2, by2] = project2(boxCenter, ctx.cam);
           const inward = (bx2 - ax2) * (cx - ax2) + (by2 - ay2) * (cy - ay2) > 0;
-          const sc = scorePlacement(ctx, corners, [anchor, boxCenter], true)
+          const slotPts = balloonSlot(basis, add(boxCenter, scale(outDir, boxSize / 2)), outDir, ctx.H).pts;
+          const sc = scorePlacement(ctx, [...corners, ...slotPts], [anchor, boxCenter], true)
             + edgePen
             + (inward ? 3500 : 0)
             + stemLen * 18
@@ -1393,6 +1422,7 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
     const frameLines = rectPolylines(center, basis.xAxis, basis.yAxis, -boxSize / 2, -boxSize / 2, boxSize / 2, boxSize / 2);
     const planeId = `drafting:${item}/plane`;
     registerPlane(ctx, planeId, letter, center, basis);
+    const room = balloonSlot(basis, add(center, scale(outDir, boxSize / 2)), outDir, ctx.H);
     const tp: TextPlacement = {
       textIndex: 0,
       origin: center,
@@ -1412,8 +1442,9 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
       text: [letter],
       textPlacements: [tp],
       planeId,
+      balloonSlot: room.slot,
     }];
-    ctx.occupied.push(rectOfPoints(frameLines.flat(), ctx.cam, ctx.H * 0.35));
+    ctx.occupied.push(rectOfPoints([...frameLines.flat(), ...room.pts], ctx.cam, ctx.H * 0.35));
     ctx.existingLeaders.push([...project2(anchor, ctx.cam), ...project2(stemEnd, ctx.cam)]);
     return;
   }
@@ -1432,6 +1463,8 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
   const frameLines = rectPolylines(center, basis.xAxis, basis.yAxis, -boxSize / 2, -boxSize / 2, boxSize / 2, boxSize / 2);
   const planeId = `drafting:${item}/plane`;
   registerPlane(ctx, planeId, letter, center, basis);
+  const awayDir = slotDir(basis, dir);
+  const room = balloonSlot(basis, add(center, scale(awayDir, boxSize / 2)), awayDir, ctx.H);
   const tp: TextPlacement = {
     textIndex: 0, origin: center, xAxis: basis.xAxis, normal: basis.normal,
     height: ctx.H, alignment: 'centre', cellBox: [[-boxSize / 2, -boxSize / 2], [boxSize / 2, boxSize / 2]],
@@ -1441,9 +1474,9 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
     polylines: [...frameLines, [rawTip, stemEnd]],
     polylineRoles: ['frame', 'frame', 'frame', 'frame', 'leader'],
     triangles: surfaceDot(rawTip, basis.xAxis, basis.yAxis, ctx.H * 0.24),
-    text: [letter], textPlacements: [tp], planeId,
+    text: [letter], textPlacements: [tp], planeId, balloonSlot: room.slot,
   }];
-  ctx.occupied.push(rectOfPoints(frameLines.flat(), ctx.cam, ctx.H * 0.35));
+  ctx.occupied.push(rectOfPoints([...frameLines.flat(), ...room.pts], ctx.cam, ctx.H * 0.35));
   ctx.existingLeaders.push([...project2(rawTip, ctx.cam), ...project2(stemEnd, ctx.cam)]);
 }
 
@@ -1464,6 +1497,12 @@ interface FeatureCalloutGroup {
   faces: number[];
   isGeneral: boolean;
   entries: CalloutEntry[];
+}
+
+/** The far corners of the room kept for a feature callout stack's balloons, past its end away from the leader. */
+function groupSlotPts(basis: PlaneBasis, bodyLeft: Vec3, dirSign: 1 | -1, maxW: number, totalH: number, H: number): Vec3[] {
+  const x0 = dirSign > 0 ? maxW + BALLOON_SLOT_W * H : -BALLOON_SLOT_W * H;
+  return [add(bodyLeft, scale(basis.xAxis, x0)), add(add(bodyLeft, scale(basis.xAxis, x0)), scale(basis.yAxis, -totalH))];
 }
 
 /** Places a stack of feature callouts sharing a single leader anchored to the hole rim or face mesh. */
@@ -1563,6 +1602,7 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
                 add(bodyLeft, scale(basis.xAxis, maxW)),
                 add(bodyLeft, scale(basis.yAxis, -totalH)),
                 add(bodyLeft, add(scale(basis.xAxis, maxW), scale(basis.yAxis, -totalH))),
+                ...groupSlotPts(basis, bodyLeft, dirSign, maxW, totalH, ctx.H),
               ];
               const planePen = sameAsOpening ? 0 : (ctx.hasNative ? 120 : 30);
               const lenPen = lLen * 3.2;
@@ -1601,6 +1641,7 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
         add(bodyLeft, scale(basis.xAxis, maxW)),
         add(bodyLeft, scale(basis.yAxis, -totalH)),
         add(bodyLeft, add(scale(basis.xAxis, maxW), scale(basis.yAxis, -totalH))),
+        ...groupSlotPts(basis, bodyLeft, dirSign, maxW, totalH, ctx.H),
       ];
       const sc = scorePlacement(ctx, boxPts, [tip, elbow], true);
       candidates.push({ basis, tip, elbow, bodyLeft, dirSign, isDot: true, score: sc });
@@ -1680,6 +1721,10 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
 
     const planeId = `drafting:${entry.item}/plane`;
     registerPlane(ctx, planeId, entry.g.name, rowLeft, basis);
+    const rowMid = add(rowLeft, scale(basis.yAxis, -entry.height / 2));
+    const room = balloonSlot(
+      basis, dirSign > 0 ? add(rowMid, scale(basis.xAxis, entry.width)) : rowMid, scale(basis.xAxis, dirSign), ctx.H,
+    );
     ctx.nextItems[entry.item] = [{
       id: `drafting:${entry.item}`,
       source: 'generated',
@@ -1690,6 +1735,7 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
       text,
       textPlacements,
       planeId,
+      balloonSlot: room.slot,
     }];
     yCursor += entry.height;
   }
@@ -1700,6 +1746,7 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
       add(bodyLeft, scale(basis.xAxis, maxW)),
       add(bodyLeft, scale(basis.yAxis, -totalH)),
       add(bodyLeft, add(scale(basis.xAxis, maxW), scale(basis.yAxis, -totalH))),
+      ...groupSlotPts(basis, bodyLeft, dirSign, maxW, totalH, ctx.H),
     ];
     ctx.occupied.push(rectOfPoints(blockPts, ctx.cam, ctx.H * 0.4));
     ctx.existingLeaders.push([...project2(tip, ctx.cam), ...project2(elbow, ctx.cam)]);
