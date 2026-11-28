@@ -1,5 +1,7 @@
 //! Reopened answers must leave the file's requirements intact on save.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use haecceity::{p21::Document, pmi, step};
@@ -26,7 +28,7 @@ fn defaults() -> Map<String, Value> {
 fn write(loaded: &LoadedPart, given: &Map<String, Value>, saved: Map<String, Value>) -> LoadedPart {
     let intent = api::apply(&api::analyse(loaded).unwrap(), given, true).unwrap();
     load(
-        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(saved))])
+        common::whole_intent::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(saved))])
             .unwrap()
             .0,
     )
@@ -35,7 +37,7 @@ fn write(loaded: &LoadedPart, given: &Map<String, Value>, saved: Map<String, Val
 fn save(loaded: &LoadedPart, analysis: &Value, given: Map<String, Value>) -> LoadedPart {
     let intent = api::preview(analysis, &given).unwrap();
     load(
-        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(given))])
+        common::whole_intent::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(given))])
             .unwrap()
             .0,
     )

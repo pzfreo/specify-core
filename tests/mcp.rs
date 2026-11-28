@@ -1689,7 +1689,7 @@ fn two_parts_written(dir: &Path) -> PathBuf {
         jobs.push((intent, Some(answers)));
     }
     let written = dir.join("two.step");
-    specify_pmi::api::write_parts(&source, &jobs, &written).unwrap();
+    common::whole_intent::write_parts(&source, &jobs, &written).unwrap();
     written
 }
 

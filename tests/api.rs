@@ -255,7 +255,7 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         })
         .collect();
     let out = dir.join("written.step");
-    let report = api::write_parts(&assembly, &intents, &out).unwrap();
+    let report = common::whole_intent::write_parts(&assembly, &intents, &out).unwrap();
     // test_both_parts_are_written_and_verified (the Rust writer lists notes as not written).
     assert!(
         report
@@ -312,19 +312,18 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         assert_eq!(material["state"], "stated");
         assert_eq!(material["value"], assembly_answers(k)["part.material"]);
     }
-    // test_written_again_through_the_service_its_pmi_is_replaced
+    // test_written_again_through_the_service_its_pmi_is_replaced: each part's answers, as an
+    // edit list, written through `serve` one part after the other.
     let again = dir.join("again.step");
-    let parts: Vec<Value> = [PLATE, PIN]
-        .iter()
-        .map(|&k| json!({"analysis": api::analyse_file(&out, Some(k)).unwrap(), "answers": assembly_answers(k)}))
-        .collect();
+    let middle = dir.join("middle.step");
     let mut server = Server::default();
-    let result = server.reply(&json!({
-        "id": 1, "op": "write", "step": out, "output": again,
-        "accept_defaults": true, "parts": parts,
-    }));
-    assert_eq!(result["ok"], json!(true), "{result}");
-    assert_eq!(result["result"]["intents"].as_array().unwrap().len(), 2);
+    for (k, (from, to)) in [(PLATE, (&out, &middle)), (PIN, (&middle, &again))] {
+        let result = server.reply(&json!({
+            "id": 1, "op": "write", "step": from, "output": to, "part": k,
+            "edits": assembly_answers(k),
+        }));
+        assert_eq!(result["ok"], json!(true), "{result}");
+    }
     let datums = |p: &PathBuf| {
         let text = std::fs::read_to_string(p).unwrap();
         regex::Regex::new(r"= ?DATUM\(")
@@ -336,61 +335,6 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     assert!(datums(&out) > 0);
     let listed = server.reply(&json!({"id": 2, "op": "parts", "step": again}));
     assert_eq!(listed["result"]["parts"][PIN]["written"], json!(true));
-    let analysed = server.reply(&json!({"id": 3, "op": "analyse", "step": again, "part": PIN}));
-    // ADR P11: stored are the answers that leave no PMI: this write accepted the defaults,
-    // so those of them that leave none.
-    let resumed = analysed["result"]["analysis"]["resume"]["answers"]
-        .as_object()
-        .unwrap();
-    let accepted = rules::with_all_defaults(
-        &api::analyse_file(&out, Some(PIN)).unwrap(),
-        &assembly_answers(PIN),
-    )
-    .unwrap();
-    // ADR P11 rule 2: and the approval the planner wrote nothing for (the ⌀10 on datum A's
-    // own faces), listed as such.
-    assert_eq!(
-        resumed["_specify"]["no_pmi"],
-        json!(["diameter.fit:turned_steps:0"])
-    );
-    let mut accepted = accepted;
-    accepted.insert("_specify".into(), resumed["_specify"].clone());
-    assert_eq!(resumed, &specify_pmi::feature_table::storable(&accepted));
-    assert_eq!(
-        analysed["result"]["mesh"]["faces"]
-            .as_array()
-            .unwrap()
-            .len(),
-        7
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// test_assembly.py::test_an_unanswered_part_is_named
-#[test]
-fn an_unanswered_part_is_named() {
-    let dir = temp("unanswered");
-    let assembly = part("assembly");
-    let parts: Vec<Value> = [PLATE, PIN]
-        .iter()
-        .map(|&k| {
-            let answers = if k == PLATE {
-                json!(assembly_answers(k))
-            } else {
-                json!({})
-            };
-            json!({"analysis": api::analyse_file(&assembly, Some(k)).unwrap(), "answers": answers})
-        })
-        .collect();
-    let result = Server::default().reply(&json!({
-        "id": 1, "op": "write", "step": assembly, "output": dir.join("x.step"),
-        "accept_defaults": true, "parts": parts,
-    }));
-    let error = &result["error"];
-    assert_eq!(error["code"], json!("incomplete"), "{result}");
-    assert_eq!(error["part"], json!(PIN));
-    assert!(error["message"].as_str().unwrap().starts_with("part 1: "));
-    assert!(!dir.join("x.step").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -404,7 +348,8 @@ fn an_intent_made_before_parts_were_told_apart_still_writes() {
         api::apply(&analysis, &answers(json!({"part.material": "brass"})), true).unwrap();
     intent.binding.as_object_mut().unwrap().remove("part");
     assert_eq!(api::intent_part(&intent).unwrap(), 0);
-    let report = api::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
+    let report =
+        common::whole_intent::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
     // The pin's datum A keeps its existing size omission, now visible in the report.
     assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     let _ = std::fs::remove_dir_all(&dir);
@@ -618,4 +563,95 @@ fn a_counterbore_lists_its_own_faces_within_the_hole() {
         );
     }
     assert_eq!(counterbores, 4);
+}
+
+/// An analysis of a newer schema is refused, naming the range; the current one, older ones and
+/// one with no `schema` are read.
+#[test]
+fn an_analysis_of_a_newer_schema_is_refused() {
+    let analysis = api::analyse_file(&part("plate"), None).unwrap();
+    assert_eq!(analysis["schema"], json!(api::ANALYSIS_SCHEMA));
+    let none = Map::new();
+    let with = |schema: Value| {
+        let mut a = analysis.clone();
+        a["schema"] = schema;
+        a
+    };
+    let newer = with(json!(api::ANALYSIS_SCHEMA + 1));
+    let message = |a: &Value| {
+        [
+            api::questions(a, &none).err().map(|e| e.to_string()),
+            api::preview(a, &none).err().map(|e| e.to_string()),
+            api::review(a, &none).err().map(|e| e.to_string()),
+            api::apply(a, &none, true).err().map(|e| e.to_string()),
+        ]
+    };
+    for refused in message(&newer) {
+        let refused = refused.expect("a newer schema is refused");
+        assert!(
+            refused.contains(&format!("schema {}", api::ANALYSIS_SCHEMA + 1))
+                && refused.contains(&format!(
+                    "schemas {} to {}",
+                    api::OLDEST_ANALYSIS_SCHEMA,
+                    api::ANALYSIS_SCHEMA
+                ))
+                && refused.contains("oldest it accepts"),
+            "{refused}"
+        );
+    }
+    assert!(message(&with(json!("two"))).iter().all(Option::is_some));
+    assert!(
+        message(&with(json!(api::OLDEST_ANALYSIS_SCHEMA - 1)))
+            .iter()
+            .all(Option::is_some)
+    );
+    for ok in [
+        analysis.clone(),
+        with(json!(api::OLDEST_ANALYSIS_SCHEMA)),
+        {
+            let mut a = analysis.clone();
+            a.as_object_mut().unwrap().remove("schema");
+            a
+        },
+    ] {
+        assert!(api::questions(&ok, &none).is_ok());
+    }
+    // Over serve, it is `invalid`.
+    let reply = Server::default()
+        .reply(&json!({"id": 1, "op": "questions", "analysis": newer, "answers": {}}));
+    assert_eq!(reply["error"]["code"], "invalid", "{reply}");
+}
+
+/// Every route that takes the defaults still works: `rules::with_all_defaults`, `api::apply` with
+/// `accept_defaults`, and an edit list's `accept_suggestions` (as the CLI, Python and serve write).
+#[test]
+fn accepting_defaults_still_writes() {
+    let analysis = api::analyse_file(&part("plate"), None).unwrap();
+    let none = Map::new();
+    let all = rules::with_all_defaults(&analysis, &none).unwrap();
+    assert!(all.len() > 1);
+    api::apply(&analysis, &answers(json!({"part.material": "steel"})), true).unwrap();
+    let gaps: Vec<&str> = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["state"] == "gap" && !r["suggestion"].is_null())
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert!(!gaps.is_empty());
+    let out = std::env::temp_dir().join(format!("accept-suggestions-{}.step", std::process::id()));
+    let reply = Server::default().reply(&json!({
+        "id": 1, "op": "write", "step": part("plate"), "output": out,
+        "edits": {"fill": {"part.material": "steel"}, "accept_suggestions": gaps},
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert!(
+        reply["result"]["report"]["written"]
+            .as_array()
+            .unwrap()
+            .len()
+            > 1,
+        "{reply}"
+    );
+    let _ = std::fs::remove_file(out);
 }

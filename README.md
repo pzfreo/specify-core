@@ -324,7 +324,7 @@ stdout. Each request carries everything it needs, so a restarted process loses n
 echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-pmi serve
 ```
 
-- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write`.
+- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write` (an edit list, as the CLI's `write`).
 - `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
   It must be a finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`.
   Omission or `null` preserves the default mesh. See [mesh tolerance](docs/mesh-tolerance.md).

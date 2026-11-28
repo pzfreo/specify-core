@@ -125,15 +125,24 @@ def _edits(edits: dict[str, Any] | str) -> str:
 
 def write_parts(
     step: str | Path | LoadedPart,
-    intents: list[tuple[Intent, dict[str, Any] | None]],
+    edits: dict[int, dict[str, Any] | str],
     output: str | Path,
-) -> WriteReport:
-    """Write several parts of the assembly ``step`` together: each intent on the
-    part it was made for, with the answers it came from (or None)."""
-    jobs = [(json.dumps(i.to_dict()), None if a is None else json.dumps(a)) for i, a in intents]
-    return WriteReport.from_dict(
-        json.loads(_native.write_parts(_step(step), jobs, os.fspath(output)))
-    )
+) -> dict[int, WriteReport]:
+    """Apply an edit list to each of several parts of the assembly ``step`` and write the
+    result to ``output`` once.
+
+    ``edits`` maps a part index (``parts(step)``) to that part's edit list, in the form
+    ``write`` takes (an edit list, or a 0.2 answers map; a dict or JSON text). The parts are
+    applied in index order, each to what the earlier ones left; parts not named are left as they
+    are. All or nothing: if any entry of any list cannot be applied, nothing is written and
+    ``EditsRefused`` is raised, its ``failures`` naming every failing entry (``"part K: ..."``)
+    and why. Returns each part's ``WriteReport`` (with ``retired`` and ``unchanged``), by index.
+    """
+    pairs = [(int(k), _edits(e)) for k, e in sorted(edits.items())]
+    result = json.loads(_native.write_parts(_step(step), pairs, os.fspath(output)))
+    if not result["applied"]:
+        raise EditsRefused(result["message"], result["failures"])
+    return {p["part"]: WriteReport.from_dict(p["report"]) for p in result["parts"]}
 
 
 def mesh(

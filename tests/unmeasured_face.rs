@@ -133,7 +133,7 @@ fn the_closed_part_is_written_without_targeting_the_unmeasured_face() {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("unmeasured-face-write");
     std::fs::create_dir_all(&dir).unwrap();
     let output = dir.join("out.step");
-    let report = api::write(&loaded, &intent, &output, Some(&answers)).unwrap();
+    let report = common::whole_intent::write(&loaded, &intent, &output, Some(&answers)).unwrap();
     assert!(!report.written.is_empty(), "{report:?}");
     // The write says why no dimensions were planned.
     assert!(

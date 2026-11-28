@@ -6,6 +6,22 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 
 ## Unreleased
 
+- **Breaking: saving is by edit list everywhere (0.4.0).** The whole-intent writers are removed:
+  Rust `api::{write, write_file, write_parts, write_bytes}` and `api::IN_MEMORY` (use
+  `writer::apply::{apply, apply_to, apply_parts_to, apply_bytes}`; `writer::write*` stay for a caller
+  that builds an intent itself), and `serve`'s `write` of `{analysis, answers[, parts]}`, which is
+  refused with a message naming the new form. `serve`'s `write` now takes
+  `{step, edits, output[, part]}` (an edit list or a 0.2 answers file), as `specify-pmi write STEP
+  EDITS.json -o OUT [--part K]` does. Python `write_parts` keeps its name and now takes edits:
+  `write_parts(step, edits: dict[int, dict | str], output) -> dict[int, WriteReport]`, one edit list per
+  part (or a 0.2 answers map), applied in part order, all or nothing (`EditsRefused`, its entries named
+  `part K: ...`).
+- **An analysis of a newer schema is refused.** The analysis JSON's `schema` was written but never
+  checked. Anything that reads an analysis back (`specify-pmi questions`, `serve`, Python `questions`,
+  `apply`, `preview`, the library's rules) now refuses one newer than this build's (`schema` 1) with an
+  error naming the schemas it reads (1 to 1, the oldest accepted being 1). Older ones, and an analysis
+  with no `schema`, are read as before.
+
 - **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
   than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
   reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),

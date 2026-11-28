@@ -75,7 +75,7 @@ The main functions, all in `specify_pmi.api`:
 | `preview(analysis, answers)` | The intent the answers so far would give, without requiring every answer. |
 | `write(step, edits, output)` | Applies an edit list to the file, all or nothing, and verifies it. Returns a `WriteReport`. |
 | `check_edits(step, edits)` | Checks an edit list as `write` would apply it; writes nothing. |
-| `write_parts(step, intents, output)` | The same for several parts of an assembly, in one file. |
+| `write_parts(step, edits, output)` | Applies an edit list per part (`{part: edits}`) to several parts of an assembly, all or nothing, into one file. Returns `{part: WriteReport}`. |
 | `mesh(step, part=None, *, max_deviation_mm=None)` | Triangles grouped by face index, for showing the part and picking faces. |
 
 Answers are a dict of question id to value, e.g. `{"part.material": "6082-T6"}`. Requirements
@@ -107,9 +107,10 @@ drives it as a child process:
 
 Each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`,
 where the code is `incomplete` (with what is `missing`), `invalid` or `failed`. `analyse` replies
-with the analysis and the mesh. For edit-list writes use the CLI command above or the
-Python `write` function. The serve protocol retains its intent-based `write` request
-for existing clients.
+with the analysis and the mesh. `write` takes an edit list (or a 0.2 answers file), as the CLI's `write` does:
+`{"id": 3, "op": "write", "step": "part.step", "edits": {...}, "output": "out.step", "part": 0}`
+replies `{"report": {...}}`, or `invalid` naming every entry that could not be applied (nothing is
+written). The `write` of an analysis and answers was removed in 0.4.0.
 `analyse` accepts optional `"max_deviation_mm": 0.05` for its mesh. It must be a
 finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`. Omitting
 it (or `null`) preserves the default mesh. Requested meshes add `max_deviation_mm`

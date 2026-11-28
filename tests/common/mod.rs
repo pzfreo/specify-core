@@ -34,6 +34,7 @@
 pub mod accept_all;
 pub(crate) mod corpus;
 pub mod numbering;
+pub mod whole_intent;
 
 // Keep the list of Rust test names explicit while checking that each sweep has
 // one entry per group.

@@ -602,6 +602,54 @@ pub fn apply_to(
     Ok(applied)
 }
 
+/// An edit list per part of the file `file`, applied in order of part index, each to the file
+/// the earlier parts left, and the result written to `output` once. All or nothing: any entry
+/// that cannot be applied (named with its part) writes nothing. Returns each part's result.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn apply_parts_to(
+    file: &part::File,
+    lists: &std::collections::BTreeMap<usize, EditList>,
+    output: &std::path::Path,
+) -> Result<Vec<(usize, Applied)>, Vec<Failure>> {
+    if lists.is_empty() {
+        return Err(whole("no part lists to apply"));
+    }
+    let mut bytes = std::sync::Arc::clone(file.bytes());
+    let mut current = None;
+    let (mut done, mut failures) = (Vec::new(), Vec::new());
+    for (&k, list) in lists {
+        let file = current.as_ref().unwrap_or(file);
+        let result = file
+            .load(Some(k))
+            .map_err(|e| whole(e.to_string()))
+            .and_then(|loaded| apply(&loaded, list));
+        match result {
+            Ok(applied) => {
+                if !applied.unchanged {
+                    bytes = std::sync::Arc::new(applied.bytes.clone());
+                    current = Some(
+                        part::File::of_shared(file.path(), std::sync::Arc::clone(&bytes))
+                            .map_err(|e| whole(e.to_string()))?,
+                    );
+                }
+                done.push((k, applied));
+            }
+            Err(refused) => failures.extend(refused.into_iter().map(|mut f| {
+                f.entry = format!("part {k}: {}", f.entry);
+                f
+            })),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(failures);
+    }
+    super::put(output, bytes.to_vec()).map_err(|e| whole(e.to_string()))?;
+    for (_, applied) in &mut done {
+        applied.report.output = output.to_path_buf();
+    }
+    Ok(done)
+}
+
 impl Applied {
     /// The report as `write` prints it: the writer's report, with the numbers retired.
     pub fn to_dict(&self) -> Json {

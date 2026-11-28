@@ -129,17 +129,47 @@ def test_an_edit_list_with_a_bad_entry_writes_nothing_and_names_every_bad_entry(
     assert out.read_bytes() == Path(plate).read_bytes()
 
 
-def test_write_parts_writes_both_parts_of_an_assembly(assembly, tmp_path):
-    answers = {0: STEEL, 1: {"part.material": "brass"}}
-    intents = [
-        (api.apply(api.analyse(assembly, k), answers[k], accept_defaults=True), answers[k])
-        for k in (0, 1)
-    ]
+def test_write_parts_applies_an_edit_list_to_each_part_of_an_assembly(assembly, tmp_path):
+    edits = {0: {"fill": {"part.material": "steel"}}, 1: json.dumps({"part.material": "brass"})}
     out = tmp_path / "assembly-pmi.step"
-    report = api.write_parts(assembly, intents, out)
-    assert any(w.startswith("plate: ") for w in report.written)
-    assert any(w.startswith("pin: ") for w in report.written)
-    assert [p["written"] for p in api.parts(out)] == [True, True]
+    reports = api.write_parts(assembly, edits, out)
+    assert sorted(reports) == [0, 1]
+    assert "material steel" in reports[0].written and "material brass" in reports[1].written
+    for k, material in ((0, "steel"), (1, "brass")):
+        rows = {r["id"]: r for r in api.analyse(out, k)["table"]["rows"]}
+        assert rows["part.material"]["state"] == "stated"
+        assert material in str(rows["part.material"]["value"]).lower()
+    assert api.write_parts(load(assembly, part=0), {1: {}}, tmp_path / "same.step")[1].unchanged
+
+
+def test_write_parts_accepts_suggestions(assembly, tmp_path):
+    gaps = [r["id"] for r in api.analyse(assembly, 0)["table"]["rows"]
+            if r["state"] == "gap" and r.get("suggestion") is not None]
+    assert gaps
+    edits = {0: {"fill": STEEL, "accept_suggestions": gaps}, 1: {"fill": {"part.material": "brass"}}}
+    reports = api.write_parts(assembly, edits, tmp_path / "accepted.step")
+    assert len(reports[0].written) > 1, reports[0].written
+
+
+def test_write_parts_refuses_all_or_nothing_naming_the_part(assembly, tmp_path):
+    out = tmp_path / "refused.step"
+    edits = {0: {"fill": {"part.material": "steel"}}, 1: {"fill": {"bogus.question": "x"}}}
+    with pytest.raises(EditsRefused) as refused:
+        api.write_parts(assembly, edits, out)
+    assert [f["entry"] for f in refused.value.failures] == ['part 1: fill["bogus.question"]']
+    assert not out.exists()
+
+
+def test_an_analysis_of_a_newer_schema_is_refused_and_older_ones_read(plate):
+    analysis = api.analyse(plate)
+    assert analysis["schema"] == api.ANALYSIS_SCHEMA
+    newer = {**analysis, "schema": api.ANALYSIS_SCHEMA + 1}
+    for call in (api.questions, api.preview):
+        with pytest.raises(ValueError, match=r"schema %d, newer than .* schemas 1 to %d" % (
+                api.ANALYSIS_SCHEMA + 1, api.ANALYSIS_SCHEMA)):
+            call(newer, {})
+    assert api.questions({**analysis, "schema": 1}, {})
+    assert api.questions({k: v for k, v in analysis.items() if k != "schema"}, {})
 
 
 def test_mesh_ranges_triangles_by_face(plate):

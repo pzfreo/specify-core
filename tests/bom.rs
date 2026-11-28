@@ -2,6 +2,8 @@
 #[path = "common/carry_values.rs"]
 mod carry_values;
 
+mod common;
+
 use haecceity::p21::{self, Attribute as A, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
 use specify_pmi::{api, bom, carry, part, resume, rules, writer};
@@ -129,7 +131,7 @@ fn no_bom_answers_add_no_bom_records() {
             Some(complete),
         ));
     }
-    let bytes = api::write_bytes(f.bytes().as_ref().clone(), &jobs)
+    let bytes = common::whole_intent::write_bytes(f.bytes().as_ref().clone(), &jobs)
         .unwrap()
         .0;
     assert!(!String::from_utf8_lossy(&bytes).contains(bom::PROPERTY));
@@ -891,11 +893,11 @@ fn bom_is_not_asked_where_it_cannot_be_written() {
             Some(answers),
         ));
     }
-    let bytes = api::write_bytes(f.bytes().as_ref().clone(), &jobs)
+    let bytes = common::whole_intent::write_bytes(f.bytes().as_ref().clone(), &jobs)
         .unwrap()
         .0;
     assert!(!String::from_utf8_lossy(&bytes).contains(bom::PROPERTY));
-    let refused = api::write_bytes(f.bytes().as_ref().clone(), &stale)
+    let refused = common::whole_intent::write_bytes(f.bytes().as_ref().clone(), &stale)
         .err()
         .unwrap()
         .to_string();

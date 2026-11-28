@@ -111,7 +111,7 @@ and the STEP files they read and write, so Draftwright Specify can drive either,
 
 `crates/specify-pmi-py` builds the Python package `specify_pmi` on this engine: specify-pmi's
 API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write` (an edit list),
-`check_edits`, `write_parts`, `mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
+`check_edits`, `write_parts` (an edit list per part: `write_parts(step, {part: edits}, output)`), `mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
 `problems`, `choices`, `serve.reply` and the `specify-pmi` command line, which runs this
 engine's (`specify_pmi::cli`) in the Python process. It needs no Python dependency (no
 quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held by the engine:

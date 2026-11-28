@@ -100,7 +100,7 @@ fn asked(analysis: &Value) -> (Vec<String>, Vec<String>) {
 fn written(answers: &Map<String, Value>, stored: &Map<String, Value>) -> Vec<u8> {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, answers, true).unwrap();
-    api::write_bytes(
+    common::whole_intent::write_bytes(
         std::fs::read(plate()).unwrap(),
         &[(intent, Some(stored.clone()))],
     )
@@ -319,7 +319,7 @@ fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     let intent = api::apply(&analysis, &wrote, true).unwrap();
     let mut stored = specify_pmi::rules::with_all_defaults(&analysis, &given).unwrap();
     stored.insert("datum.A.flatness".into(), json!("0.05"));
-    let bytes = api::write_bytes(
+    let bytes = common::whole_intent::write_bytes(
         std::fs::read(plate()).unwrap(),
         &[(intent, Some(stored.clone()))],
     )
@@ -535,8 +535,11 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
         answers.insert("part.heat_treatment".into(), json!("None"));
         answers.insert("part.notes".into(), json!([]));
         let intent = api::preview(&analysis, &answers).unwrap();
-        let (bytes, report) =
-            api::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
+        let (bytes, report) = common::whole_intent::write_bytes(
+            part.bytes.to_vec(),
+            &[(intent, Some(answers.clone()))],
+        )
+        .unwrap();
         let back = load_bytes("clean.step", bytes).unwrap();
         assert!(
             specify_pmi::existing::read_existing(&back)
@@ -583,7 +586,7 @@ fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
     let intent =
         api::preview(analysis, &answers).unwrap_or_else(|e| panic!("{e}\n{}", analysis["resume"]));
     let back = load(
-        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))])
+        common::whole_intent::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))])
             .unwrap()
             .0,
     );
@@ -956,7 +959,7 @@ fn another_part_resumes_its_silent_answers() {
     let cli = api::stored_with_defaults(&source, &analysis, &given).unwrap();
     assert!(cli.len() > given.len(), "{cli:?}");
     for stored in [&all, &cli] {
-        let bytes = api::write_bytes(
+        let bytes = common::whole_intent::write_bytes(
             source.bytes.to_vec(),
             &[(intent.clone(), Some(stored.clone()))],
         )

@@ -392,6 +392,7 @@ impl<'a> Ctx<'a> {
         let Some(map) = analysis.as_object() else {
             return invalid("the analysis is not an object");
         };
+        crate::api::check_analysis_schema(analysis).or_else(invalid)?;
         let faces = Faces::from_analysis(analysis)?;
         let features: Vec<Feature<'a>> = match map.get("features") {
             Some(Value::Array(items)) => items

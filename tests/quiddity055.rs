@@ -87,7 +87,8 @@ fn ftc07_keeps_stated_location_between_retired_levels_as_other_pmi() {
         .unwrap()
         .clone(),
     );
-    let (bytes, _) = api::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
+    let (bytes, _) =
+        common::whole_intent::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
     let annotated = part::load_bytes("ftc07.step", bytes).unwrap();
     let analysis = api::analyse(&annotated).unwrap();
     let input: quiddity::dimensioning::Input =
@@ -314,7 +315,8 @@ fn ftc07_tilted_length_is_stated_changeable_and_removable() {
             .clone(),
         );
     }
-    let (bytes, _) = api::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
+    let (bytes, _) =
+        common::whole_intent::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
     let annotated = part::load_bytes("ftc07.step", bytes).unwrap();
     let before = api::analyse(&annotated).unwrap();
     let stated = row(&before);

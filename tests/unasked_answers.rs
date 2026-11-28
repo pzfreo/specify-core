@@ -49,7 +49,7 @@ fn write(answers: &Map<String, Value>, name: &str) -> specify_pmi::writer::Write
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let intent = api::apply(&analysis, answers, true).unwrap();
     let out = temp(name).join("out.step");
-    api::write_file(&plate(), &intent, &out, Some(answers)).unwrap()
+    common::whole_intent::write_file(&plate(), &intent, &out, Some(answers)).unwrap()
 }
 
 #[test]
@@ -117,7 +117,8 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
         .requirements
         .extend(specify_pmi::rules::unasked_rows(&analysis, &answers).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
-    let (written, report) = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
+    let (written, report) =
+        common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
     assert!(
         report.not_written.contains(&not_written(
             "datum.A.flatness",
@@ -237,8 +238,6 @@ fn serve_refuses_an_unknown_id() {
     for request in [
         json!({"id": 1, "op": "questions", "analysis": analysis, "answers": bogus()}),
         json!({"id": 2, "op": "preview", "analysis": analysis, "answers": bogus()}),
-        json!({"id": 3, "op": "write", "step": plate(), "analysis": analysis,
-               "answers": bogus(), "output": out, "accept_defaults": true}),
     ] {
         let reply = server.reply(&request);
         assert_eq!(reply["ok"], false, "{reply}");
@@ -249,22 +248,17 @@ fn serve_refuses_an_unknown_id() {
             "{reply}"
         );
     }
-    assert!(!out.exists());
-    // And a serve write lists an unasked answer like every other write.
-    let reply = server.reply(&json!({"id": 4, "op": "write", "step": plate(),
-        "analysis": analysis, "answers": revised("± dimensions"), "output": out,
-        "accept_defaults": true}));
-    assert_eq!(reply["ok"], true, "{reply}");
+    let reply = server.reply(&json!({"id": 3, "op": "write", "step": plate(),
+        "edits": bogus(), "output": out}));
+    assert_eq!(reply["ok"], false, "{reply}");
     assert!(
-        reply["result"]["report"]["not_written"]
-            .as_array()
+        reply["error"]["message"]
+            .as_str()
             .unwrap()
-            .contains(&json!(not_written(
-                "datum.A.flatness",
-                "when part.locating is '± dimensions'"
-            ))),
+            .contains("bogus.question"),
         "{reply}"
     );
+    assert!(!out.exists());
 }
 
 /// A #121 carry block on `datum.A.flatness`, with the datum itself re-answered.
@@ -299,7 +293,8 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
         .requirements
         .extend(specify_pmi::rules::unasked_rows(&analysis, &complete).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
-    let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
+    let (_, report) =
+        common::whole_intent::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
 }
 
@@ -325,7 +320,7 @@ fn a_dropped_added_requirement_stays_refused_beside_an_unasked_block() {
     // The writer checks the answers itself, whatever intent it is given.
     let intent = api::preview(&analysis, &answers).unwrap();
     let bytes = std::fs::read(plate()).unwrap();
-    let error = api::write_bytes(bytes, &[(intent, Some(answers.clone()))])
+    let error = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))])
         .unwrap_err()
         .to_string();
     assert!(error.contains("extra.gone.size"), "{error}");
@@ -370,7 +365,8 @@ fn a_carry_block_applies_again_when_its_question_returns() {
     // Nor can a preview intent write past it.
     let intent = api::preview(&analysis, &answers).unwrap();
     let out = temp("blocked-position").join("out.step");
-    let refused = api::write_file(&plate(), &intent, &out, Some(&answers)).unwrap_err();
+    let refused =
+        common::whole_intent::write_file(&plate(), &intent, &out, Some(&answers)).unwrap_err();
     assert!(
         refused.to_string().contains("datum.A.flatness"),
         "{refused}"
@@ -564,7 +560,7 @@ fn a_stored_answer_to_an_unasked_question_is_reported_once_and_not_stored_again_
     let resumed = resume["answers"].as_object().unwrap().clone();
     let intent = api::apply(&analysis, &resumed, true).unwrap();
     let saved = dir.join("saved.step");
-    let report = api::write_file(&older, &intent, &saved, Some(&resumed)).unwrap();
+    let report = common::whole_intent::write_file(&older, &intent, &saved, Some(&resumed)).unwrap();
     assert!(
         report.not_written.iter().any(|l| l
             == &format!(
@@ -635,7 +631,8 @@ fn an_answer_naming_nothing_the_part_has_refuses_the_whole_list_126() {
         // The writer checks the answers itself, whatever intent it is given.
         let intent = api::apply(&analysis, &revised("± dimensions"), true).unwrap();
         let bytes = std::fs::read(plate()).unwrap();
-        let error = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap_err();
+        let error = common::whole_intent::write_bytes(bytes, &[(intent, Some(answers.clone()))])
+            .unwrap_err();
         assert!(error.to_string().contains(&expected), "{error}");
         // The command line refuses it the same way, writing nothing.
         let dir = temp("names-nothing");

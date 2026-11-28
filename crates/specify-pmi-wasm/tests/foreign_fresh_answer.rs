@@ -22,9 +22,10 @@ fn re_authored() -> Vec<u8> {
     .as_object()
     .unwrap()
     .clone();
-    let analysis = api::analyse(&load_bytes("plate.step", PLATE.to_vec()).unwrap()).unwrap();
+    let loaded = load_bytes("plate.step", PLATE.to_vec()).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
     let intent = api::apply(&analysis, &given, true).unwrap();
-    let bytes = api::write_bytes(PLATE.to_vec(), &[(intent, Some(given))])
+    let bytes = specify_pmi::writer::write_bytes(&loaded, &intent, Some(&given))
         .unwrap()
         .0;
     let text = String::from_utf8(bytes).unwrap();
