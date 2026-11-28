@@ -31,6 +31,11 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   `.pmi-lab-pane` now fills its positioned container in the package's own CSS, and StepDiff's page-level
   `html body` rule applies only to a page that holds a diff. The datum-removal confirmation is in the panel
   row, no longer a native dialog. README: "Embedding and saving".
+- **`@draftwright/specify-ui`: the "Show in 3D view" bar on a phone, and the General dimensions toggle across Save**.
+  On a narrow or touch screen each Show checkbox and its label is a 44px-tall target (they were about 18px); the desktop
+  bar is unchanged. A general dimension's ink is governed by "General dimensions" wherever it is drawn: after Save the
+  file's own copy can also be listed under an alias item the engine does not mark general, which made it follow
+  "In the file" instead, so the view differed before and after Save.
 - **Answers saved by a newer Specify are no longer silently dropped.** Stored answers whose schema is newer
   than this version reads (above 3) were treated as absent, so a save could overwrite them. They are now
   reported as a problem (`saved_answers_newer_schema`, from `problems` and so on every open and analyse),

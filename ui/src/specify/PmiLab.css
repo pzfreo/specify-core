@@ -357,6 +357,12 @@
   .pmi-lab-partnotes { max-width: calc(100% - 165px); max-height: 28%; }
   .pmi-lab-view-bar.with-tools { left: 10px; }
 }
+/* A phone, or a touch screen: each Show checkbox and its label is a 44px-tall target. */
+@media (max-width: 700px), (pointer: coarse) {
+  .pmi-lab-show-bar { gap: 0 8px; padding: 0 8px; }
+  .pmi-lab-show-bar label { min-height: 44px; gap: 8px; }
+  .pmi-lab-show-bar input[type=checkbox] { width: 20px; height: 20px; }
+}
 /* Lift side overlays above the bottom show bar when a narrow 3D view wraps it onto multiple rows. */
 @container (max-width: 760px) {
   .pmi-lab-pad, .pmi-lab-partnotes { bottom: 68px; }

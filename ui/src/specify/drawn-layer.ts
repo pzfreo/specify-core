@@ -19,7 +19,7 @@ import type { AnnotationHost } from './annotations';
 import type { LabelGroup } from './labels';
 import { ranges } from './characteristics';
 import {
-  drawnGroup, drawnShown, facesAway, graphicAxes, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
+  drawnGroup, drawnGroupOf, drawnShown, facesAway, graphicAxes, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
   type PartOrigin, type TextPlacement,
 } from './drawn';
 
@@ -713,9 +713,8 @@ export function createDrawnLayer(
         return group === 'default' ? STANDARD_GAP_INK : STANDARD_INK;
       };
       for (const [item, graphics] of items) {
-        const group = drawnGroup(pmi.links[item]);
-        const colour = colourFor(item, group);
-        for (const g of graphics) if (once(g) && colour !== null) drawn.push(place(g, item, group, colour));
+        const colour = colourFor(item, drawnGroup(pmi.links[item]));
+        for (const g of graphics) if (once(g) && colour !== null) drawn.push(place(g, item, drawnGroupOf(pmi, item, g), colour));
       }
       const loose = colourFor(null, undefined);
       for (const g of pmi.presentation.unlinked) if (once(g) && loose !== null) drawn.push(place(g, null, undefined, loose));
