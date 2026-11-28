@@ -493,6 +493,12 @@ pub(crate) fn descriptive_text(doc: &Document, id: u64) -> Option<String> {
 /// A stored string's payload, if it is one: base64 (the characters Python's pattern allows,
 /// strictly decoded) of a JSON object of one of [`SCHEMAS`] whose `answers` is an object.
 fn decode(text: &str) -> Option<Map<String, Value>> {
+    let payload = decode_any(text)?;
+    schema_of(&payload).is_some().then_some(payload)
+}
+
+/// [`decode`], whatever the payload's schema.
+fn decode_any(text: &str) -> Option<Map<String, Value>> {
     if !text
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
@@ -503,8 +509,37 @@ fn decode(text: &str) -> Option<Map<String, Value>> {
     let Value::Object(payload) = serde_json::from_slice::<Value>(&raw).ok()? else {
         return None;
     };
-    (schema_of(&payload).is_some() && payload.get("answers").is_some_and(Value::is_object))
+    payload
+        .get("answers")
+        .is_some_and(Value::is_object)
         .then_some(payload)
+}
+
+/// The newest schema above [`SCHEMA`] among answers stored for part `part` in `doc`: answers
+/// a later version of Specify saved, which this one cannot read (and so would drop on a save).
+pub fn newer_schema_in(doc: &Document, part: usize) -> Option<i64> {
+    items_in_file_order(doc, NAME)
+        .into_iter()
+        .filter_map(|id| decode_any(&descriptive_text(doc, id)?))
+        .filter(|p| match p.get("part") {
+            None => part == 0,
+            Some(Value::Number(n)) => n.as_u64() == Some(part as u64),
+            _ => false,
+        })
+        .filter_map(|p| match p.get("schema") {
+            Some(Value::Number(n)) => n.as_i64().filter(|&s| s > SCHEMA),
+            _ => None,
+        })
+        .max()
+}
+
+/// The message for answers saved under schema `schema`, newer than this version reads.
+pub fn newer_schema_message(schema: i64) -> String {
+    format!(
+        "this file's saved answers use schema {schema}, newer than the schema {SCHEMA} this \
+         version of Specify reads; they are not used, and saving to this file is refused so \
+         they are not lost. Open it with a newer Specify"
+    )
 }
 
 /// Which of [`SCHEMAS`] a payload is, compared as Python's `==` compares (so `1.0`, and `true`
@@ -1911,6 +1946,7 @@ ENDSEC;END-ISO-10303-21;"#
     fn what_is_not_a_payload_is_passed_over() {
         assert!(decode("not base64!").is_none());
         assert!(decode(&STANDARD.encode(r#"{"schema":4,"answers":{}}"#)).is_none());
+        assert!(decode_any(&STANDARD.encode(r#"{"schema":4,"answers":{}}"#)).is_some());
         assert!(decode(&STANDARD.encode(r#"{"schema":2,"answers":{}}"#)).is_some());
         assert!(decode(&STANDARD.encode(r#"{"schema":2.0,"answers":{}}"#)).is_some());
         assert!(decode(&STANDARD.encode(r#"{"schema":"2","answers":{}}"#)).is_none());

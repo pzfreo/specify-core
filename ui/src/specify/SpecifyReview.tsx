@@ -22,6 +22,7 @@ import { labelName, labelRow, unitLine, withUnits, type LengthUnit } from './uni
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
+import { useDefaultViews } from './default-views';
 import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
@@ -279,11 +280,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // The picker lives as long as the session; React state reaches it through refs.
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
+  const defaults = useDefaultViews();
   useEffect(() => {
     if (!stage.current) return undefined;
     const entities = session.provenance?.face_entities;
     const created = createReviewView(stage.current, {
-      mesh: session.mesh, analysis: session.analysis, view: hostView, part: session.provenance?.part ?? 0,
+      mesh: session.mesh, analysis: session.analysis, view: hostView, defaults, part: session.provenance?.part ?? 0,
       ...(entities ? { entities } : {}),
     });
     created.on('change', setSelection);

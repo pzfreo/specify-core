@@ -1381,6 +1381,7 @@ fn applied_with(
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
 ) -> Result<Applied, Vec<Failure>> {
+    super::check_newer_schema(loaded).map_err(|e| whole(e.to_string()))?;
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     if !list.fill.keys().any(|id| is_bom_id(id))
         && !list.change.keys().any(|id| is_bom_id(id))
