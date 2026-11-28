@@ -15,12 +15,10 @@ import {
   as9102, createIntentEngine, SpecifyReview, StepDiff, toCsv, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
-import type { PmiAnalysis, PmiExtra } from '../src/types/pmi';
+import type { PmiAnalysis } from '../src/types/pmi';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
 import { saveFile, type CalledOut } from '../src/specify/SpecifyReview';
-import { describe as describeExtra } from '../src/specify/added';
-import { describeFaces } from '../src/specify/datums';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
@@ -28,11 +26,11 @@ import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, ke
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from '../src/specify/edits/pending';
 import { EditBar } from './EditBar';
-import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from '../src/specify/edits/adapter';
-import { labelStated } from '../src/specify/units';
+import { asEngineTakes, valueText, forEngine, forScreens, isDimensionQuestion, removeEdit, type StatedRows } from '../src/specify/edits/adapter';
+import { buildAnswerEdit as buildEdit, editingProps, oneViewOf, readAnalysis, rowName as nameOf, type HostRead } from '../src/specify/host/compose';
 import { findStatedOrigin, normalizeDraftingPmi } from '../src/specify/drafting-layout';
 import { readSceneSemanticLabels, reviewDrawnFromScene, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from '../src/specify/one-view';
-import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from '../src/specify/edits/table';
+import type { FeatureTable, PanelModel } from '../src/specify/edits/table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-pmi#readme';
@@ -93,7 +91,7 @@ interface Opened {
   /** The review panel's model: the file's feature table, named. */
   model: PanelModel;
   /** The file's feature table, and its stated rows as the review shows them (adapter.ts). */
-  table: FeatureTable; stated: StatedRows;
+  table: FeatureTable; stated: StatedRows; host: HostRead;
   /** The questions asked of the bare part: every row's question, stated or not. */
   bare: PmiQuestion[];
   /** The general dimensions' questions, as the engine last asked them (not shown: Call Out answers them). */
@@ -119,11 +117,9 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
   const analysis = snapshot.analysis as PmiAnalysis;
-  // Every row named as Specify asks it of the bare part (the table's rows are those questions).
-  const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(analysis), answers: {} });
-  const table = tableOf(analysis);
-  // What the file states: shown as answered rows, kept out of the engine's review (adapter.ts).
-  const stated = statedRows(table, bare.questions, analysis);
+  // The file's table, named as Specify asks it of the bare part, with the stated rows the review shows (host/compose.ts, shared with the package's hook).
+  const host = await readAnalysis(worker, file, analysis);
+  const { bare, table, stated, model } = host;
   // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
   const answers = answersSession.shown(at.part);
   // The general dimensions' questions, from the engine's latest review: what Call Out answers.
@@ -182,22 +178,15 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const read = raw ? reviewDrawnFromScene(raw, analysis) : null;
   const semantic = raw ? readSceneSemanticLabels(raw) : EMPTY_SEMANTIC;
   const drawn = read?.ok ? normalizeDraftingPmi(read.value, raw, analysis, snapshot.mesh, semantic) : null;
-  const model = panelModel(table, bare.questions, analysis.features);
   return {
     ...at, generation, session, review: fileReview, engine, drawn, semantic, sceneKey, bytes, store, shown,
     saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,
-    units: fileLengthUnit(bytes), table, stated, bare: bare.questions, dimensions: () => dimensionQuestions,
+    units: host.units, host, table, stated, bare, dimensions: () => dimensionQuestions,
   };
 }
 
-/** How the bar names row ``id`` of the part ``o`` shows ("Ø1.6 hole position", "Material"). */
-function rowName(o: Opened, id: string): string {
-  const rows = [...(o.model.part?.rows ?? []), ...o.model.features.flatMap((g) => g.rows), ...(o.model.datums?.rows ?? [])];
-  const row = rows.find((r) => r.id === id);
-  if (row) return row.name;
-  const q = o.bare.find((x) => x.id === id);
-  return q?.label ?? q?.prompt ?? id;
-}
+/** How the bar names row ``id`` of the part ``o`` shows (host/compose.ts). */
+const rowName = (o: Opened, id: string) => nameOf(o, id);
 
 const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -289,20 +278,7 @@ function App() {
   // Answers that landed from an in-flight review while Save ran: rebuilt against the saved file
   // once it reopens (including an answer back to the pre-save value, which cleared against the old file).
   const inFlightAnswers = useRef<Map<string, { part: number; id: string; value: unknown }> | null>(null);
-  const buildAnswerEdit = (now: Opened, id: string, value: unknown): Pending | null => {
-    const row = now.table.rows.find((r) => r.id === id);
-    const q = now.bare.find((x) => x.id === id) ?? now.review.questions.find((x) => x.id === id);
-    // "Added by you": named and worded as the review lists it ("Flatness 0.05" on its faces).
-    const added = id.startsWith('extra.') && value && typeof value === 'object' ? value as PmiExtra : null;
-    const name = added ? 'Added by you' : rowName(now, id);
-    const edit = answerEdit(id, value, row, q, name);
-    if (edit?.kind === 'fill' && added) edit.text = describeExtra(added);
-    // Faces by what they are ("bottom face"), never by their numbers.
-    const faces = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'number');
-    if (edit && (edit.kind === 'fill' || edit.kind === 'change') && faces(value)) edit.text = describeFaces(value as number[], now.session.analysis as PmiAnalysis);
-    if (edit?.kind === 'change' && faces(edit.expect)) edit.was = describeFaces(edit.expect as number[], now.session.analysis as PmiAnalysis);
-    return edit;
-  };
+  const buildAnswerEdit = (now: Opened, id: string, value: unknown): Pending | null => buildEdit(now.host, id, value, now.review);
   // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
   // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
   // engine is made once and outlives renders.
@@ -872,33 +848,7 @@ function App() {
     () => (opened ? findStatedOrigin(opened.bytes, opened.session.analysis as PmiAnalysis, activeDrawn) : null),
     [opened, activeDrawn],
   );
-  const oneView = useMemo(() => {
-    if (!opened) return undefined;
-    const bareById = new Map(opened.bare.map((q) => [q.id, q]));
-    const rows: OneViewRow[] = [
-      ...opened.table.rows.map((row): OneViewRow => {
-        const q = bareById.get(row.id);
-        return {
-          id: row.id, state: row.state, open: row.open, faces: row.faces,
-          label: rowName(opened, row.id), ...(q ? { question: q } : {}),
-        };
-      }),
-      ...opened.model.other.map((o): OneViewRow => ({
-        id: o.key, state: 'stated', open: false, faces: o.faces, label: o.label, other: true,
-      })),
-    ];
-    const pendingMap = new Map<string, OneViewPending>();
-    for (const edit of partPending.values()) {
-      pendingMap.set(edit.id, {
-        kind: edit.kind, id: edit.id,
-        ...('value' in edit ? { value: edit.value } : {}),
-        ...('text' in edit ? { text: edit.text } : {}),
-        ...('was' in edit ? { was: edit.was } : {}),
-        ...('targets' in edit ? { targets: edit.targets } : {}),
-      });
-    }
-    return { rows, pending: pendingMap };
-  }, [opened, partPending]);
+  const oneView = useMemo(() => (opened ? oneViewOf(opened.host, partPending) : undefined), [opened, partPending]);
   // What the review opens on: what the file states, the session's answers (an agent's too) and the
   // page's held changes to stated items, which the engine's answers leave out (adapter.ts).
   const shownSession = useMemo(() => {
@@ -1126,80 +1076,11 @@ function App() {
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             lengthUnit={opened.units}
-            {...(editing ? {
-              // Called out, by characteristic: from the held edits, so it outlasts a part switch.
-              calledOutDimensions: new Map([...callOutKeys.current].flatMap(([at, key]) => {
-                const [part, ...rest] = at.split(':');
-                const edit = partPending.get(key);
-                const tolerance = edit?.kind === 'fill' ? edit.text.replace(/ mm$/, '') : edit?.kind === 'change' ? String(edit.value) : null;
-                return Number(part) === opened.part && tolerance !== null ? [[rest.join(':'), tolerance.replace(/^±/, '')] as const] : [];
-              })),
-              // The number Save writes for each, called out: the engine's for its call-out's drawn callout.
-              calledOutNumbers: new Map([...callOutKeys.current].flatMap(([at, key]) => {
-                const [part, ...rest] = at.split(':');
-                const number = Object.values(activeDrawn?.links ?? {}).find((l) => l.question === key)?.number;
-                return Number(part) === opened.part && number ? [[rest.join(':'), number] as const] : [];
-              })),
-              // "Added by you" keys already taken (the page's call-outs among them): no two share one.
-              takenKeys: [...partPending.values().map((e) => e.id), ...callOutKeys.current.values()],
-              otherPmi: {
-                // Named as the file names it ("Flatness"), else by its kind.
-                items: opened.model.other.map((o) => {
-                  const item = opened.table.file_pmi.find((r) => (o.number && r.number === o.number) || (o.id && r.id === o.id));
-                  const label = item?.type ? item.type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ') : o.label;
-                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: labelStated(o.value, opened.session.analysis.existing), faces: o.faces,
-                    // With no number and no id the engine has no way to remove it: no bin.
-                    removable: Boolean(o.number || o.id) };
-                }),
-                removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
-                onRemove: (key: string) => {
-                  const o = opened.model.other.find((x) => x.key === key);
-                  if (o) editPending(partPending.with({ kind: 'remove', id: key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value }));
-                },
-                onRestore: (key: string) => editPending(partPending.without(key)),
-              },
-              stated: {
-                values: opened.stated.values, texts: opened.stated.texts, decided: opened.stated.decided,
-                removed: new Set(partPending.values().filter((e) => e.kind === 'remove' || e.kind === 'clear').map((e) => e.id)),
-                onRemove: (id: string) => {
-                  const row = opened.table.rows.find((r) => r.id === id);
-                  if (!row) return;
-                  // The edit the bin replaces (a change, a value for a decision) comes back with Undo.
-                  const before = partPending.get(id);
-                  if (before && before.kind !== 'remove' && before.kind !== 'clear') displaced.current.set(`${opened.part}:${id}`, before);
-                  // A stored "none needed" taken back: the item is open again (clear); a stated one removed.
-                  editPending(partPending.with(row.state === 'decided_none'
-                    ? { kind: 'clear', id, name: rowName(opened, id) }
-                    : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id), opened.session.analysis as PmiAnalysis)));
-                },
-                onRestore: (id: string) => {
-                  const before = displaced.current.get(`${opened.part}:${id}`);
-                  displaced.current.delete(`${opened.part}:${id}`);
-                  editPending(before ? partPending.with(before) : partPending.without(id));
-                },
-              },
-              callOutDimension: (dimension: CalledOut, tolerance: string) => {
-                // One key per dimension called out, kept while the part is shown (the same edit is replaced).
-                const keys = callOutKeys.current;
-                const at = `${opened.part}:${dimension.id}`;
-                // One the file states: its feature-and-kind (the table's row stating that number) is the key.
-                const row = dimension.number === undefined ? undefined
-                  : opened.table.rows.find((r) => r.requirements?.some((q) => q.number === dimension.number));
-                if (dimension.number !== undefined) {
-                  if (!row || typeof row.value !== 'string') return false;
-                  keys.set(at, row.id);
-                  const edit = callOutEdit(dimension, tolerance, row.id, { id: row.id, value: row.value, label: labelStated(row.value, opened.session.analysis.existing) });
-                  editPending(edit ? partPending.with(edit) : partPending.without(row.id));
-                  return true;
-                }
-                const key = keys.get(at) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id),
-                  ...Object.keys(opened.shown.all), ...keys.values()]);
-                keys.set(at, key);
-                const edit = callOutEdit(dimension, tolerance, key);
-                editPending(edit ? partPending.with(edit) : partPending.without(key));
-                return true;
-              },
-            } : {})}
+            {...(editing ? editingProps({
+              // The bins, Other PMI and Call Out, as the package's hook builds them (host/compose.ts).
+              read: opened.host, part: opened.part, pending: partPending, setPending: editPending,
+              callOutKeys: callOutKeys.current, displaced: displaced.current, drawn: activeDrawn, answerIds: Object.keys(opened.shown.all),
+            }) : {})}
           />
         )}
       </main>

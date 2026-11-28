@@ -219,6 +219,35 @@ const done = await engine.edit(file, { edits: editList(pending.values()) });   /
 if (done.written) store(done.bytes); else show(done.failures);
 ```
 
+`useSpecifyHost` (from `@draftwright/specify-ui` or `/host`) is the composition the local app does around
+`SpecifyReview`, as one hook, so a host does not re-write it. It reads the file's table and returns the review's
+props (`stated`, `otherPmi`, `callOutDimension`, `calledOutDimensions`, `calledOutNumbers`, `takenKeys`,
+`oneView`, `lengthUnit`); Save composes the host's answers, the person's removals (bins) and call-outs into one edit
+list, applies it with `edit`, and reads the saved file again. The host keeps its engine, session, 3D view and
+answers; a call-out is reported to `onAnswers` as an `extra.N` answer, and a new `file` (or another `part`)
+re-reads the table without a remount. Removals and call-outs are held per part, so they outlast a part switch, and
+go with a new file.
+
+```tsx
+import { SpecifyReview, useSpecifyHost } from '@draftwright/specify-ui/host';
+
+const host = useSpecifyHost({
+  client: engine,                         // createIntentEngine(...)
+  file,                                   // { name, bytes, sourceId, part? }; the host draws its own part picker
+  answers, onAnswers: setAnswers,         // the host's own store
+  project, acceptDefaults: true,          // optional: written into the file; Specify's defaults accepted
+  beforeSave: (edits) => edits,           // the composed edit list (answers, removals, call-outs, BOM rule)
+  onSaved: (done, saved) => store(done.bytes),
+});
+// <SpecifyReview {...host.reviewProps} engine={...} session={...} view={view} /> once reviewProps is not null;
+// <button onClick={() => host.save()} disabled={host.saving}>Save</button>; host.lastReport, host.refused.
+```
+
+Options: `saveVia(edits, file)` sends the list through the host's own transport (an HTTP session) instead of the
+worker; `payload` is stored beside `project`; `bom: false` writes `bom.*` answers even when the file's table has no
+`bom.*` rows (otherwise they are left out). `save()` resolves to the outcome (`Edited`, `EditRefused`), or `null` when
+there is nothing to write.
+
 Styling: import `@draftwright/specify-ui/review.css` (the review alone; `style.css` adds the diff components). A review
 pane (`.pmi-lab-pane`) fills its nearest positioned container, so give the host element `position: relative` and a
 size. The package loads no font: set `--specify-mono-font`. The CSP needs `worker-src 'self'` (the worker is

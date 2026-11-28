@@ -18,6 +18,11 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
   `intentParts`, `intentPart`, `editorDefault` (and the `GdtMode` and `IntentPart` types) and `readCarried`, beside the characteristics and AS9102
   helpers it had. The root entry imports CSS, which Node cannot load. `test/helpers-node.test.mjs` imports the built
   entry in a fresh Node.
+- **`useSpecifyHost` (and `SpecifyHost`, from the root entry and `/host`) is the host side of `SpecifyReview` as one piece**: on open it
+  reads the file's table and builds the review's props (`stated`, `otherPmi`, `callOutDimension`, `calledOutDimensions`,
+  `calledOutNumbers`, `takenKeys`, `oneView`, `lengthUnit`); `save()` composes the host's answers, removals and call-outs into one
+  edit list (defaults accepted if asked; `bom.*` only when the table has them; `beforeSave` gets the list), applies it
+  with `edit` or the host's own `saveVia`, and reads the saved file again. The local app builds the same props with the same functions.
 - **`rematchAnswers` reads schema 1 evidence held outside the STEP** (a saved project's, from the pre-alpha browser
   writer). Its fingerprint keeps the signs of zero and is not reproduced by this kernel; with the same face count it
   is now read as the file's own copy is, answers matched by feature ID with `unverified` saying why, where it held
