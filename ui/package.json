@@ -43,6 +43,10 @@
       "types": "./dist/view.d.ts",
       "import": "./dist/view.js"
     },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
     "./helpers": {
       "types": "./dist/helpers.d.ts",
       "import": "./dist/helpers.js"
@@ -52,7 +56,9 @@
     "./package.json": "./package.json"
   },
   "sideEffects": [
-    "**/*.css"
+    "**/*.css",
+    "./dist/specify-ui.js",
+    "./src/index.ts"
   ],
   "publishConfig": {
     "access": "public",

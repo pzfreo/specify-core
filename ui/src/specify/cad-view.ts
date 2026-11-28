@@ -4,11 +4,11 @@
 // against this file's copy of the meshes, so nothing of the editor's is drawn into its scene
 // (the package carries its own three.js).
 import * as THREE from 'three';
-import type { Shapes, Viewer } from 'three-cad-viewer';
+import { CollapseState, Display, Viewer, type Shapes } from 'three-cad-viewer';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
-import { cadViewer } from './cad-lib';
+import { pathOf, ROOT } from './cad-path';
 import { createOrientationCube } from './orientation-cube';
 import { lightGroup } from './cad-highlight.ts';
 import { edgesOf, hostViewOf, type DefaultView } from './default-view';
@@ -83,15 +83,13 @@ export interface CadView {
   dispose(): void;
 }
 
-const ROOT = 'Part';
+export { pathOf };
 /** The orientation cube's side in CSS pixels, on a wide view and a narrow one, and its place:
  * at the canvas's top right, below the viewer's toolbar and its tree's filter. */
 const CUBE_PX = 84;
 const CUBE_PX_NARROW = 64;
 const CUBE_RIGHT = 10;
 const CUBE_TOP = 64;
-/** A node's path: the viewer's tree finds what to show, hide or light by names. */
-export const pathOf = (...names: string[]) => `/${[ROOT, ...names].join('/')}`;
 const isGroup = (node: CadNode): node is CadGroup => 'leaves' in node;
 
 /** A leaf's faces as one triangle soup, each face its own vertices, and each triangle's face. */
@@ -204,14 +202,14 @@ export function createCadView(
   const size = () => [Math.max(container.clientWidth, 200), Math.max(container.clientHeight, 200)] as const;
   const [width, height] = size();
   // Studio mode is off: it fetches its lighting from polyhaven.org, which the CSP refuses.
-  const display = new (cadViewer().Display)(container, {
+  const display = new Display(container, {
     cadWidth: width, height, treeWidth: 260, glass: true, theme: 'light', tools: true,
     pinning: false, studioTool: false, zscaleTool: false, explodeTool: false,
     measureTools: true, selectTool: true, zebraTool: true, externalMeasurementBackend: false,
   });
   // Lit softly enough that a face's colour still reads.
   const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, control };
-  const viewer: Viewer = new (cadViewer().Viewer)(display, options, change => {
+  const viewer: Viewer = new Viewer(display, options, change => {
     const picked = (change as { lastPick?: { new?: { path: string; name: string } | null } }).lastPick?.new;
     if (!picked) return;
     // Never the viewer's box for what was picked: it reads as part of the model. It draws the
@@ -233,7 +231,7 @@ export function createCadView(
   // On a narrow view (a phone), its tools and tree start folded too: they would cover half the
   // part. Its Tools toggle opens them.
   const opened = setTimeout(() => {
-    viewer.collapseNodes(cadViewer().CollapseState.ROOT, false);
+    viewer.collapseNodes(CollapseState.ROOT, false);
     if (container.clientWidth < 700) viewer.showToolsPanel(false);
   });
 
@@ -413,7 +411,7 @@ export function createCadView(
     onMoved(listener) { movedListeners.push(listener); },
     alsoFrame(also) { alsoFramed = also; },
     showTools(on) { container.classList.toggle('cad-tools-hidden', !on); fit(); },
-    collapse() { viewer.collapseNodes(cadViewer().CollapseState.ROOT, false); },
+    collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
     replace(group, ...leaves) {
       const names = group === null ? [] : [group];
       const groupPath = pathOf(...names);

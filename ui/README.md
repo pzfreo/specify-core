@@ -38,14 +38,24 @@ npm install @draftwright/specify-ui
 ```
 
 Peer dependencies, which the host provides (the package bundles none of them): `react` and `react-dom` ^19,
-`three` 0.184 to 0.187, and optionally `three-cad-viewer` ~5.1.3 (this package's tests run on three 0.184.0; its package test also installs it on 0.186.1 and 0.187.0). `three-cad-viewer`
+`three` 0.184 to 0.187, and `three-cad-viewer` ~5.1.3, optional (see below) (this package's tests run on three 0.184.0; its package test also installs it on 0.186.1 and 0.187.0). `three-cad-viewer`
 5.1.3's build contains its own copy of three (r184), so a host that uses this package ships that copy as well as its
 own, whatever its three version (asked upstream: bernhard-42/three-cad-viewer#52).
 
-`three-cad-viewer` is only needed when the host does not supply its own view: it draws the package's own 3D view, and is
-loaded (a dynamic import) only when a component is given no `view` prop. A host that passes a `HostView` can leave it
-uninstalled and its bundle holds none of it; a component given no view, with `three-cad-viewer` missing, shows an error
-that names the package to install. The `/view` entry's `createCadView` needs `await loadCadViewer()` first.
+### Which entry to use
+
+- **Your own 3D view: `@draftwright/specify-ui/host`.** `SpecifyReview`, `StepDiff` and `AssemblyDiffView` as in the
+  main entry, but with `view` (a `HostView`) required and no built-in viewer. Nothing in this entry's modules
+  imports `three-cad-viewer`, so a host that uses only it does not install or bundle it.
+- **The package's own view: `@draftwright/specify-ui`** (and `/view`, for `createCadView` and the picker). It draws
+  with `three-cad-viewer`, which is an optional peer dependency, so **the host must install it itself**
+  (`npm install three-cad-viewer@~5.1.3`): npm does not install optional peers for you. Without it, the build or
+  the import fails naming `three-cad-viewer`.
+- **`/view`** (the picker, `look`, `createCadView`, ...) does not load `three-cad-viewer`'s stylesheet, so its
+  helpers bundle without a CSS loader; a host that draws `createCadView` from here imports `three-cad-viewer/css`
+  itself (the main entry does).
+
+`three` stays a required peer in both cases.
 
 The Specify engine comes in as a dependency, `@draftwright/specify-pmi-wasm` (the same version as this package). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
 beside it, so a host passes nothing. Two things the host's build must allow:

@@ -3,9 +3,8 @@ import * as THREE from 'three';
 import type { WorkerClient } from '../engine/rpc';
 import { createIntentEngine } from '../engine/intent-engine';
 import { createLook, viewpointOf, type LookAt } from '../specify/look';
-import { createDefaultView, pathOf } from '../specify/cad-view';
-import { loadCadViewer } from '../specify/cad-lib';
-import { useCadViewer } from '../specify/use-cad-viewer';
+import { pathOf } from '../specify/cad-path';
+import { defaultViews } from '../specify/default-views';
 import type { DefaultView } from '../specify/default-view';
 import { subMesh, type HostPointerEvent, type HostView, type Mat4, type MeshOptions, type Vec3 } from '../specify/host-view';
 import type { PmiMesh } from '../types/pmi';
@@ -202,7 +201,7 @@ function draw(container: HTMLElement, view: View, part: number, removed: boolean
   // The trackball, as the Specify view has: turning square to a callout sets the way up its plane
   // reads, which an orbit control (up held at +Z) would undo, leaving a callout whose up is -Z
   // upside down.
-  const own = given ? null : createDefaultView(container, {
+  const own = given ? null : defaultViews().part(container, {
     part, mesh: view.new, control: 'trackball',
     bounds: [bounds.min.toArray(), bounds.max.toArray()],
     onPick: path => { const line = lineAt.get(path); if (line !== undefined) onLine(line); },
@@ -383,8 +382,6 @@ const NO_ANSWERS = {};
 export default function StepDiff({ before, after, answers = NO_ANSWERS, compared, part: wanted, onPart, onEvent, header, hostError, wasmUrl, view: hostView = null }: StepDiffProps) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  // The package's own 3D view loads three-cad-viewer, unless the host gives a view.
-  const cad = useCadViewer(hostView);
   // What the 3D view draws: a part's comparison, or an assembly's open part's.
   const [diffed, setDiffed] = useState<Diffed | null>(null);
   // An assembly compared, its parts listed, and the part open, if one is.
@@ -495,8 +492,6 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
         setStatus('Comparing them with Specify…');
         result = await engine.current!.request<Diffed | AssemblyDiffed>('diff', { ...input, title: input.newName, scenes: true });
       }
-      // The package's own view needs three-cad-viewer: loaded before anything is drawn on it.
-      if (!hostView) await loadCadViewer();
       if (mine !== run.current) return;
       if ('parts' in result) {
         const both = { old: { name: input.oldName, bytes: input.old }, next: { name: input.newName, bytes: input.new } };
@@ -516,7 +511,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
   useEffect(() => { void compare(); }, [before, after, answers, compared]);
 
   useEffect(() => {
-    if (!diffed || !stage.current || !cad.ready) return;
+    if (!diffed || !stage.current) return;
     const d = draw(stage.current, diffed.view, diffed.part ?? 0, Boolean(diffed.removed), hostView, line => {
       choose(line);
       drawn.current?.lookAt(line);
@@ -552,7 +547,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       if (line !== null) report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
     return () => { stop(); d.dispose(); drawn.current = null; };
-  }, [diffed, hostView, cad.ready]);
+  }, [diffed, hostView]);
 
   const current = pointed ?? picked;
   useEffect(() => { drawn.current?.showBefore(showGone, current); }, [showGone, current, diffed]);
@@ -717,7 +712,6 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
             </div>
           )}
           <div ref={stage} className="diff-stage" />
-          {cad.error && <p role="alert" className="diff-error">{cad.error}</p>}
         </section>
         {diffed && (
           <aside className="diff-panel">

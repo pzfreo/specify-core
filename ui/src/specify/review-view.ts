@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
-import { createDefaultView } from './cad-view';
+import { defaultViews } from './default-views';
 import { HOME, type DefaultView } from './default-view';
 import { drawnGroup, partCentre, type DrawnPmi, type DrawnPoint, type DrawnView } from './drawn';
 import { createDrawnLayer } from './drawn-layer';
@@ -63,7 +63,7 @@ export function createReviewView(
   const OTHER = 'Other faces';
   let featureOf = new Map<number, string>();
   const groupOf = (face: number) => featureOf.get(face) ?? OTHER;
-  const own: DefaultView | null = given ? null : createDefaultView(container, {
+  const own: DefaultView | null = given ? null : defaultViews().part(container, {
     part, mesh, control: 'trackball',
     // A calm first look: the viewer's toolbar and tools panel come with "More view tools".
     tools: false,

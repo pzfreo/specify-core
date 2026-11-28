@@ -131,8 +131,41 @@ async function testHost(threeVersion) {
   stop();
 }
 
-// A host with its own view does not need three-cad-viewer (an optional peer): installed without it,
-// it typechecks and builds with components that import the package, and the build holds none of it.
+// A host with its own view uses the /host entry and does not need three-cad-viewer (an optional peer):
+// installed without it, it typechecks and builds, with Vite and with webpack, and no built file mentions it.
+const WEBPACK = '5.113.0';
+const ESBUILD_LOADER = '4.5.0';
+const webpackConfig = `import { resolve } from 'node:path';
+export default {
+  mode: 'production',
+  entry: './src/main.tsx',
+  output: { path: resolve(import.meta.dirname, 'dist-webpack'), filename: '[name].js', clean: true },
+  resolve: { extensions: ['.tsx', '.ts', '.js'] },
+  module: { rules: [
+    { test: /\\.tsx?$/, loader: 'esbuild-loader', options: { loader: 'tsx', jsx: 'automatic', target: 'es2022' } },
+    { test: /\\.css$/, type: 'asset/resource' },
+  ] },
+  performance: { hints: false },
+};
+`;
+
+function listFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? listFiles(resolve(dir, e.name)) : [resolve(dir, e.name)]);
+}
+function assertNoViewer(dir, label) {
+  const files = listFiles(dir);
+  const js = files.filter(f => /\.(m?js)$/.test(f));
+  // Vite names the worker; webpack numbers its chunks, so for it the .wasm and the three chunks stand for the worker.
+  if (label === 'vite' && !js.some(f => /intent\.worker/.test(f))) fail(`${label}: no intent worker in the build`);
+  if (label === 'webpack' && js.length < 3) fail(`${label}: the worker chunk is missing (${js.length} JS files)`);
+  if (!files.some(f => f.endsWith('.wasm'))) fail(`${label}: no .wasm in the build`);
+  for (const file of files) {
+    if (file.includes('three-cad-viewer')) fail(`${label}: the build holds ${file}`);
+    if (js.includes(file) && readFileSync(file, 'utf8').includes('three-cad-viewer')) fail(`${label}: ${file} mentions three-cad-viewer`);
+  }
+  console.log(`${label}: built without three-cad-viewer (${js.length} JS files)`);
+}
+
 async function testHostWithoutViewer(threeVersion) {
   console.log(`\n== host without three-cad-viewer, on three ${threeVersion} ==`);
   // Outside the repo: resolution walks up from the host, and would find this repo's own three-cad-viewer.
@@ -142,7 +175,7 @@ async function testHostWithoutViewer(threeVersion) {
   mkdirSync(resolve(bare, 'src'));
   writeFileSync(resolve(bare, 'src/main.tsx'), `import '@draftwright/specify-ui/style.css';
 import { createRoot } from 'react-dom/client';
-import { AssemblyDiffView, SpecifyReview, StepDiff, type HostView } from '@draftwright/specify-ui';
+import { AssemblyDiffView, SpecifyReview, StepDiff, type HostView } from '@draftwright/specify-ui/host';
 
 // A view of the host's own: the components draw through it and load no viewer of ours.
 const view = {} as HostView;
@@ -150,6 +183,8 @@ const none = new Uint8Array();
 const file = { name: 'a.step', bytes: none };
 createRoot(document.getElementById('root')!).render(<>
   <StepDiff before={file} after={file} view={view} />
+  {/* @ts-expect-error the host entry has no view of its own: \`view\` is required */}
+  <StepDiff before={file} after={file} />
   {typeof AssemblyDiffView === 'function' && typeof SpecifyReview === 'function' && 'imported'}
 </>);
 `);
@@ -159,23 +194,55 @@ createRoot(document.getElementById('root')!).render(<>
     private: true,
     type: 'module',
     dependencies: { '@draftwright/specify-ui': `file:${tarball}`, ...pick(['react', 'react-dom']), three: threeVersion },
-    devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
+    devDependencies: {
+      ...pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
+      webpack: WEBPACK, 'esbuild-loader': ESBUILD_LOADER, ...pick(['esbuild']),
+    },
     overrides: { '@draftwright/specify-pmi-wasm': `file:${engineBuild}` },
   }, null, 2));
+  writeFileSync(resolve(bare, 'webpack.config.mjs'), webpackConfig);
+  // /view's helpers that make no viewer of ours (here the picker): esbuild must bundle them without three-cad-viewer.
+  writeFileSync(resolve(bare, 'picker.ts'), `import { createPicker, createLook, createDiffDrawn } from '@draftwright/specify-ui/view';
+console.log(typeof createPicker, typeof createLook, typeof createDiffDrawn);
+`);
   run(npm, ['install', '--no-audit', '--no-fund'], bare);
   if (existsSync(resolve(bare, 'node_modules/three-cad-viewer'))) fail('three-cad-viewer was installed in the host without it');
   run(npx, ['tsc', '-p', '.'], bare);
   run(npx, ['vite', 'build'], bare);
-  // The package's own view loads it by a dynamic import, which the host's build leaves as it is, or
-  // rewrites to a failure when it is not there; either way no module of it is in the bundle.
-  const assets = resolve(bare, 'dist/assets');
-  for (const name of readdirSync(assets)) {
-    if (name.includes('three-cad-viewer')) fail(`the build holds ${name}`);
-    if (!name.endsWith('.js')) continue;
-    const code = readFileSync(resolve(assets, name), 'utf8');
-    if (/(^|[;\n])\s*import[^;\n]*from\s*["']three-cad-viewer/.test(code)) fail(`${name} imports three-cad-viewer statically`);
+  assertNoViewer(resolve(bare, 'dist'), 'vite');
+  writeFileSync(resolve(bare, 'webpack-build.mjs'), `import webpack from 'webpack';
+import config from './webpack.config.mjs';
+webpack(config, (error, stats) => {
+  if (error || stats.hasErrors()) { console.error(error ?? stats.toString({ colors: false, errors: true })); process.exit(1); }
+  console.log(stats.toString({ colors: false, modules: false, assets: true }));
+});
+`);
+  run(process.execPath, ['webpack-build.mjs'], bare);
+  assertNoViewer(resolve(bare, 'dist-webpack'), 'webpack');
+  // three-cad-viewer is left external (the host does not have it); no stylesheet of it may be imported, which a
+  // bundler with no CSS loader (esbuild, in the editor's build) would fail on.
+  run(npx, ['esbuild', 'picker.ts', '--bundle', '--format=esm', '--platform=browser', '--outdir=dist-esbuild', '--external:three-cad-viewer', '--log-level=warning'], bare);
+  const picked = readFileSync(resolve(bare, 'dist-esbuild/picker.js'), 'utf8');
+  // (esbuild keeps an unused import of an external module; a host that has three-cad-viewer resolves it.)
+  if (/three-cad-viewer\/css/.test(picked)) fail("esbuild: /view's picker bundle imports three-cad-viewer's stylesheet");
+  // Which entries' module graphs reach three-cad-viewer's stylesheet: only the main entry's.
+  const dist = resolve(bare, 'node_modules/@draftwright/specify-ui/dist');
+  const graph = entry => {
+    const seen = new Set(); const todo = [entry];
+    while (todo.length) {
+      const file = todo.pop();
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const m of readFileSync(resolve(dist, file), 'utf8').matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g)) todo.push(m[1]);
+    }
+    return [...seen].filter(file => /three-cad-viewer\/css/.test(readFileSync(resolve(dist, file), 'utf8')));
+  };
+  for (const entry of ['view.js', 'host.js', 'helpers.js']) {
+    const css = graph(entry);
+    if (css.length) fail(`${entry} reaches three-cad-viewer's stylesheet through ${css.join(', ')}`);
   }
-  console.log('built without three-cad-viewer');
+  if (!graph('specify-ui.js').length) fail("the main entry no longer loads three-cad-viewer's stylesheet");
+  console.log("esbuild: /view's picker bundled; no entry but the main one reaches three-cad-viewer's stylesheet");
 }
 
 if (!onlyBare) for (const threeVersion of selectedVersion ? [selectedVersion] : hostVersions) await testHost(threeVersion);
